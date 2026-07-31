@@ -1,0 +1,76 @@
+# Alley Cat target fingerprint
+
+This project targets the user-supplied English DOS release extracted locally
+from `Alley-Cat_DOS_EN.zip`. The binary itself remains under the Git-ignored
+`games/` directory and is not redistributed by DosToEsp.
+
+## Binary identity
+
+- Filename: `CAT.EXE`
+- Size: 55067 bytes
+- SHA-256: `4979c8867826e08881d1d4bec95c95d6bc1ac70fd21050ccdb4f733a50d7bfdd`
+- Format: DOS MZ executable
+- Header: 512 bytes
+- Load-module size: 54555 bytes
+- Relocations: 9
+- Initial CS:IP: `0723:0000` (module offset `07230h`)
+- Initial SS:SP: `0000:0100`
+- Minimum extra allocation: 0 paragraphs
+- Maximum extra allocation: 65535 paragraphs
+
+Analysis outputs are generated locally as `out/analysis/alley-cat.json` and
+`out/analysis/alley-cat.md` by:
+
+```powershell
+.\scripts\analyze-game.ps1 `
+    -InputPath games\Alley-Cat_DOS_EN\alley-cat\CAT.EXE `
+    -Name alley-cat
+```
+
+## Initial reachable inventory
+
+- 4224 decoded instructions
+- 1576 basic blocks
+- 2355 CFG edges
+- no decode/overlap issues
+- one unresolved indirect jump at module offset `0747Bh`:
+  `jmp word ptr cs:[bx + 0250h]`
+- 32 statically visible loads of the CGA segment constant `B800h`
+- 704 instructions with memory-write operands requiring runtime code-range
+  and CGA classification
+
+Most frequent instruction families include `mov` (1516), `cmp` (422), direct
+`call` (372), `ret` (211), conditional branches (over 600), arithmetic,
+boolean operations, shifts, stack operations and string operations. The tail
+also contains `mul`, `xchg`, `lods`, `stos`, `rcl/rcr`, `lahf/sahf`, `cli/sti`,
+`std/cld` and one `aaa`.
+
+## Observable PC boundary
+
+Statically reachable software interrupts:
+
+- `INT 10h`: 13 video BIOS call sites
+- `INT 11h`: 2 equipment-list call sites
+- `INT 1Ah`: 38 time-of-day call sites
+
+Static port operands include:
+
+- `40h`: PIT channel 0 reads
+- `42h`: PIT channel 2 / speaker divisor
+- `43h`: PIT control
+- `61h`: PC speaker/PPI gate
+- dynamic `DX` ports, to be resolved by the reference trace
+
+The game therefore appears to use BIOS only for video/equipment/time while
+driving keyboard, timer, speaker and CGA-related hardware directly. A dynamic
+trace remains authoritative because static code reachability includes routines
+that a normal play path may not execute.
+
+## Implementation order derived from this target
+
+1. MZ relocation and initial CS:IP/SS:SP loading.
+2. 8086 ModR/M memory addressing and segment-register operations.
+3. Stack, direct calls and returns.
+4. Boolean, shift/rotate and string instruction groups.
+5. Observed BIOS calls and port devices.
+6. Resolve the single jump table using static table recovery plus trace data.

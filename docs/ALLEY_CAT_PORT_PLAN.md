@@ -22,22 +22,22 @@ keyboard, timer and speaker.
 
 ### 1. Freeze the target binary
 
-- [ ] Put the legally obtained game and its required data files under
+- [x] Put the user-supplied game and its required data files under
   `games/` (ignored by Git).
-- [ ] Detect COM, MZ EXE or boot-image format.
-- [ ] Record size and SHA-256 in a local analysis manifest.
-- [ ] Refuse to reuse analysis output when the binary fingerprint changes.
+- [x] Detect COM, MZ EXE or boot-image format.
+- [x] Record size and SHA-256 in the target manifest.
+- [x] Refuse to merge trace output when the binary fingerprint changes.
 
 Acceptance gate: one unambiguous target image and reproducible fingerprint.
 
 ### 2. Static inventory
 
-- [ ] Build reachable 16-bit CFG from the entry point.
-- [ ] Report instruction and prefix frequencies.
-- [ ] Inventory direct and unresolved indirect calls/jumps.
-- [ ] Inventory interrupts, `IN`/`OUT`, segment use and CGA references.
-- [ ] Flag overlapping or self-modifying code candidates.
-- [ ] Emit deterministic JSON and Markdown reports.
+- [x] Build the initial reachable 16-bit CFG from the entry point.
+- [x] Report instruction and prefix frequencies.
+- [x] Inventory direct and unresolved indirect calls/jumps.
+- [x] Inventory interrupts, `IN`/`OUT`, segment use and CGA references.
+- [x] Flag overlapping and memory-write/code-range check candidates.
+- [x] Emit deterministic JSON and Markdown reports.
 
 Acceptance gate: the report either covers every reachable direct block or
 names the exact address and reason analysis stopped.
@@ -135,6 +135,6 @@ Completed foundations:
 
 Immediate work queue:
 
-1. fingerprint the real Alley Cat binary when it is placed under `games/`;
-2. use that inventory to order instruction and runtime implementation;
-3. capture its indirect targets and hardware/API trace in a reference runner.
+1. implement the MZ loader and its nine relocations;
+2. use the coverage gap to order instruction/runtime implementation;
+3. capture the indirect target and dynamic port values in a reference trace.
