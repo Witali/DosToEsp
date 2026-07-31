@@ -45,6 +45,13 @@ The last command asks the ESP32 Xtensa compiler used by the sibling HLV-codec
 project for assembly output and checks for native LX6 instructions such as
 `entry`, `l32i`, `s16i` and `call8`.
 
+Create the first deterministic inventory after placing a legally obtained game
+under the ignored `games/` directory:
+
+```powershell
+.\scripts\analyze-game.ps1 -InputPath games\ALLEY.COM
+```
+
 The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
 
 ```powershell

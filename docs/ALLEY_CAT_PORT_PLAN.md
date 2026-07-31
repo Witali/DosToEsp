@@ -123,11 +123,13 @@ Completed foundations:
 - native AOT block generation for a synthetic COM fixture;
 - core 16-bit register/flag state and sparse real-mode memory;
 - CGA 320x200 2bpp peripheral semantics and row renderer;
+- deterministic COM/MZ fingerprint, reachable CFG and static hardware/API
+  inventory reports with fixture regression tests;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. add the deterministic static inventory tool and test it on the fixture;
-2. fingerprint the real Alley Cat binary when it is placed under `games/`;
-3. use that inventory to order instruction and runtime implementation.
+1. fingerprint the real Alley Cat binary when it is placed under `games/`;
+2. use that inventory to order instruction and runtime implementation;
+3. capture its indirect targets and hardware/API trace in a reference runner.

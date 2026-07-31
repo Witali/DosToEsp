@@ -1,6 +1,8 @@
 build/
 build-*/
 local_tools/
+__pycache__/
+*.pyc
 out/
 sdkconfig
 sdkconfig.old

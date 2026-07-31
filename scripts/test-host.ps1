@@ -37,6 +37,8 @@ $capstone = Join-Path $project "local_tools\python_packages\capstone\__init__.py
 if (-not (Test-Path -LiteralPath $capstone -PathType Leaf)) {
     & (Join-Path $PSScriptRoot "setup-analysis-tools.ps1")
 }
+& $python (Join-Path $project "tests\test_analysis.py")
+if ($LASTEXITCODE -ne 0) { throw "Static inventory tests failed" }
 $compiler = $null
 $vswhere = Join-Path ${env:ProgramFiles(x86)} `
     "Microsoft Visual Studio\Installer\vswhere.exe"
