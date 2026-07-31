@@ -43,6 +43,8 @@ if ($LASTEXITCODE -ne 0) { throw "Static inventory tests failed" }
 if ($LASTEXITCODE -ne 0) { throw "Reference trace tests failed" }
 & $python (Join-Path $project "tests\test_coverage.py")
 if ($LASTEXITCODE -ne 0) { throw "Translator coverage tests failed" }
+& $python (Join-Path $project "tests\test_build.py")
+if ($LASTEXITCODE -ne 0) { throw "Unified source build tests failed" }
 $compiler = $null
 $vswhere = Join-Path ${env:ProgramFiles(x86)} `
     "Microsoft Visual Studio\Installer\vswhere.exe"

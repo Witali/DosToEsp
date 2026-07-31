@@ -11,6 +11,9 @@ keyboard, timer and speaker.
 - The exact game binary is identified by filename, format, size and SHA-256.
 - Translation coverage is driven by static analysis and a reference trace of
   that binary, not by implementing an arbitrary PC emulator.
+- The deliverable is a general automatic COM/MZ-to-ESP32 source generator.
+  Target-specific hand translations are not accepted; Alley Cat is the primary
+  integration test for the general backend.
 - Every unsupported instruction, interrupt, port or indirect target stops with
   an address and guest-state diagnostic.
 - Each semantic group has host tests before it is used in firmware.
@@ -132,6 +135,8 @@ Completed foundations:
   inventory reports with fixture regression tests;
 - fingerprint-checked JSONL reference trace contract and deterministic summary
   for code locations, interrupts, ports and CGA writes;
+- unified executable-to-source frontend with deterministic reports, generated
+  image/native files and a strict machine-readable completion/blocker manifest;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 

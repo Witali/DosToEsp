@@ -97,3 +97,9 @@ The runtime MZ loader and local packer now load the complete 54555-byte module,
 construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and `ES`, and verify all
 nine relocation results in a generated host test. Native code generation still
 needs segmented MZ target keys before the game can execute.
+
+The unified frontend currently writes `out/generated/alley-cat/game_image.c`,
+the inventory and coverage reports, and a `blocked` manifest. It will change
+the manifest to `complete` and add `game_native.c` only when the same general
+backend can translate every required site; no Alley Cat routine is maintained
+as handwritten ESP32 code.

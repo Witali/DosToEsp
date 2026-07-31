@@ -52,6 +52,18 @@ under the ignored `games/` directory:
 .\scripts\analyze-game.ps1 -InputPath games\ALLEY.COM
 ```
 
+The product entry point is the automatic DOS executable to ESP32 source
+pipeline. It never silently emits a partial native program: incomplete opcode
+or segmented-code coverage produces a `blocked` manifest with exact reasons.
+
+```powershell
+.\scripts\translate-game.ps1 `
+    -InputPath games\Alley-Cat_DOS_EN\alley-cat\CAT.EXE `
+    -Name alley-cat
+```
+
+Generated sources and reports are written under ignored `out/generated/`.
+
 The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
 
 ```powershell

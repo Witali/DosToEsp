@@ -23,6 +23,12 @@ Performance-critical operations may use explicit Xtensa assembly templates;
 ordinary emitted C is still native translation because the Xtensa compiler
 lowers each source block before the firmware is built.
 
+The user-facing product boundary is one deterministic build command accepting
+a DOS COM/MZ executable and producing ESP32 C sources plus a fingerprinted
+manifest. Game functions are never rewritten manually. When coverage is
+incomplete, the command emits analysis reports and a `blocked` manifest instead
+of presenting an image-only or partially translated build as runnable code.
+
 ## Components
 
 - `translator`: host-only 8086 decoder, control-flow discovery and source
