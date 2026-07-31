@@ -78,6 +78,15 @@ static void test_cga_pixels(d2e_pc_at *machine, d2e_x86_cpu *cpu,
     interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0d00));
     CHECK(d2e_x86_get_reg8(cpu, 0U) == 3U);
     CHECK(machine->cga.mode == 4U);
+
+    d2e_x86_port_out8(cpu, UINT16_C(0x03d9), UINT8_C(0x20));
+    CHECK(cpu->stop_reason == D2E_X86_RUNNING);
+    CHECK(machine->cga.color_control == UINT8_C(0x20));
+    d2e_x86_port_out8(cpu, UINT16_C(0x03d4), UINT8_C(0x0c));
+    d2e_x86_port_out8(cpu, UINT16_C(0x03d5), UINT8_C(0x12));
+    CHECK(machine->cga_crtc[UINT8_C(0x0c)] == UINT8_C(0x12));
+    CHECK((d2e_x86_port_in8(cpu, UINT16_C(0x03da)) & UINT8_C(0x09)) ==
+          UINT8_C(0x09));
 }
 
 static void test_keyboard(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
@@ -93,6 +102,28 @@ static void test_keyboard(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     interrupt(cpu, UINT8_C(0x16), UINT16_C(0x0000));
     CHECK(cpu->regs[D2E_X86_AX] == UINT16_C(0x2d78));
     CHECK(machine->key_count == 0U);
+}
+
+static void test_pit_and_speaker(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
+    uint8_t first;
+    uint8_t second;
+    d2e_x86_port_out8(cpu, UINT16_C(0x0043), UINT8_C(0xb6));
+    d2e_x86_port_out8(cpu, UINT16_C(0x0042), UINT8_C(0x34));
+    d2e_x86_port_out8(cpu, UINT16_C(0x0042), UINT8_C(0x12));
+    CHECK(machine->pit_access[2] == 3U);
+    CHECK(machine->pit_mode[2] == 3U);
+    CHECK(machine->pit_reload[2] == UINT16_C(0x1234));
+
+    first = d2e_x86_port_in8(cpu, UINT16_C(0x0040));
+    second = d2e_x86_port_in8(cpu, UINT16_C(0x0040));
+    CHECK(first == UINT8_C(0xfe));
+    CHECK(second == UINT8_C(0xfe));
+
+    d2e_x86_port_out8(cpu, UINT16_C(0x0061), UINT8_C(0x03));
+    first = d2e_x86_port_in8(cpu, UINT16_C(0x0061));
+    second = d2e_x86_port_in8(cpu, UINT16_C(0x0061));
+    CHECK(first == UINT8_C(0x13));
+    CHECK(second == UINT8_C(0x03));
 }
 
 static void test_strict_unknown(d2e_x86_cpu *cpu) {
@@ -119,6 +150,7 @@ int main(void) {
     test_identity_and_clock(&machine, &cpu);
     test_text_video(&machine, &cpu, vram);
     test_cga_pixels(&machine, &cpu, vram);
+    test_pit_and_speaker(&machine, &cpu);
     test_keyboard(&machine, &cpu);
     test_strict_unknown(&cpu);
 

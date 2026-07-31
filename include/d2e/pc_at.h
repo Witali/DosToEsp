@@ -31,6 +31,16 @@ typedef struct d2e_pc_at {
     uint8_t active_page;
     uint8_t cursor_start;
     uint8_t cursor_end;
+    uint8_t cga_crtc_index;
+    uint8_t cga_crtc[32];
+    uint8_t cga_status;
+    uint16_t pit_reload[3];
+    uint16_t pit_counter[3];
+    uint8_t pit_access[3];
+    uint8_t pit_mode[3];
+    uint8_t pit_write_high_next[3];
+    uint8_t pit_read_high_next[3];
+    uint8_t system_port_b;
     uint8_t cursor_row[D2E_PC_AT_TEXT_PAGES];
     uint8_t cursor_column[D2E_PC_AT_TEXT_PAGES];
     uint8_t keyboard_shift_flags;
@@ -44,6 +54,8 @@ void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
 void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu);
 int d2e_pc_at_interrupt(void *context, d2e_x86_cpu *cpu,
                         uint8_t interrupt_number);
+int d2e_pc_at_port_in8(void *context, uint16_t port, uint8_t *value);
+int d2e_pc_at_port_out8(void *context, uint16_t port, uint8_t value);
 int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,
                           uint8_t scan);
 void d2e_pc_at_set_timer_ticks(d2e_pc_at *machine, uint32_t ticks,

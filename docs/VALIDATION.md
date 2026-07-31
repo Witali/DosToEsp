@@ -97,3 +97,23 @@ equipment list; the reported `CS:IP` is the following instruction. This proves
 that the automatic `CAT.EXE` translation can be compiled, linked, booted and
 entered as native Xtensa firmware. It does not yet claim title-screen or
 gameplay execution.
+
+## 2026-07-31: Alley Cat PC/AT BIOS and port execution
+
+The firmware now attaches the generated executable to the common PC/AT BIOS
+dispatcher and device-port layer. An intermediate QEMU probe passed the BIOS
+equipment call and stopped after 99 instructions at PIT control port `43h`.
+After adding deterministic PIT channels, system port `61h`, and the observed
+CGA CRTC, palette and status ports, the same image produced:
+
+```text
+D2E_ALLEY_START,csip=1723:0000,sssp=1000:0100,heap=157260
+D2E_ALLEY_STOP,reason=8,csip=1723:2b62,ax=0000,bx=2b02,cx=0000,dx=3a98,instructions=340875,address=00000000,heap=157260
+D2E_QEMU_DONE,0
+```
+
+Stop reason 8 is the configured translated-instruction budget, not an
+unsupported interrupt, port or instruction. The probe therefore executes
+340,875 native-translated 8086 instructions through the current initialization
+path without crossing a strict hardware boundary. Rendering and input remain
+the next acceptance gates; this result alone does not claim playable output.

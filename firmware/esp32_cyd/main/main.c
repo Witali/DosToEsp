@@ -10,6 +10,7 @@
 
 #include "d2e/cga.h"
 #include "d2e/native_runtime.h"
+#include "d2e/pc_at.h"
 
 #define D2E_CONVENTIONAL_BYTES (UINT32_C(128) * 1024U)
 
@@ -17,6 +18,7 @@ extern const d2e_native_program d2e_generated_program;
 
 static uint8_t conventional_memory[D2E_CONVENTIONAL_BYTES];
 static uint8_t cga_vram[D2E_CGA_VRAM_SIZE];
+static d2e_pc_at pc_at;
 
 static __attribute__((noreturn)) void finish(int code) {
     fflush(stdout);
@@ -41,7 +43,8 @@ void app_main(void) {
 
     d2e_x86_cpu_init(&cpu, conventional_memory,
                      sizeof(conventional_memory), NULL);
-    d2e_x86_map_cga_vram(&cpu, cga_vram);
+    d2e_pc_at_init(&pc_at, cga_vram, sizeof(cga_vram));
+    d2e_pc_at_attach(&pc_at, &cpu);
     if (!d2e_native_load(&cpu, &d2e_generated_program)) {
         esp_rom_printf("D2E_NATIVE_FAIL,load,reason=%u,address=%08x\n",
                        (unsigned)cpu.stop_reason,

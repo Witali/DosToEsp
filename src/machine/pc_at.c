@@ -555,6 +555,7 @@ static int services_interrupt(d2e_x86_cpu *cpu) {
 
 void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
                     size_t cga_vram_size) {
+    unsigned channel;
     memset(machine, 0, sizeof(*machine));
     d2e_cga_init(&machine->cga);
     machine->cga_vram = cga_vram;
@@ -567,6 +568,12 @@ void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
     machine->character_height = 8U;
     machine->cursor_start = 6U;
     machine->cursor_end = 7U;
+    for (channel = 0U; channel < 3U; ++channel) {
+        machine->pit_reload[channel] = UINT16_C(0xffff);
+        machine->pit_counter[channel] = UINT16_C(0xffff);
+        machine->pit_access[channel] = 3U;
+        machine->pit_mode[channel] = 3U;
+    }
     if (cga_vram != NULL) {
         memset(cga_vram, 0, cga_vram_size);
         clear_text_page(machine, 0U, UINT8_C(0x07));
@@ -576,6 +583,8 @@ void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
 void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     d2e_x86_map_cga_vram(cpu, machine->cga_vram);
     d2e_x86_configure_interrupts(cpu, machine, d2e_pc_at_interrupt);
+    d2e_x86_configure_ports(cpu, machine, d2e_pc_at_port_in8,
+                            d2e_pc_at_port_out8);
     update_video_bda(machine, cpu);
 }
 
@@ -603,6 +612,115 @@ int d2e_pc_at_interrupt(void *context, d2e_x86_cpu *cpu,
         default:
             return 0;
     }
+}
+
+int d2e_pc_at_port_in8(void *context, uint16_t port, uint8_t *value) {
+    d2e_pc_at *const machine = (d2e_pc_at *)context;
+    unsigned channel;
+    if (machine == NULL || value == NULL) {
+        return 0;
+    }
+    if (port == UINT16_C(0x03d4)) {
+        *value = machine->cga_crtc_index;
+        return 1;
+    }
+    if (port == UINT16_C(0x03d5)) {
+        *value = machine->cga_crtc[machine->cga_crtc_index & 31U];
+        return 1;
+    }
+    if (port == UINT16_C(0x03da)) {
+        machine->cga_status ^= UINT8_C(0x09);
+        *value = machine->cga_status;
+        return 1;
+    }
+    if (port >= UINT16_C(0x0040) && port <= UINT16_C(0x0042)) {
+        uint16_t counter;
+        channel = (unsigned)(port - UINT16_C(0x0040));
+        if (machine->pit_access[channel] != 3U ||
+            machine->pit_read_high_next[channel] == 0U) {
+            machine->pit_counter[channel] =
+                (uint16_t)(machine->pit_counter[channel] - UINT16_C(0x0101));
+        }
+        counter = machine->pit_counter[channel];
+        if (machine->pit_access[channel] == 2U ||
+            (machine->pit_access[channel] == 3U &&
+             machine->pit_read_high_next[channel] != 0U)) {
+            *value = (uint8_t)(counter >> 8U);
+        } else {
+            *value = (uint8_t)counter;
+        }
+        if (machine->pit_access[channel] == 3U) {
+            machine->pit_read_high_next[channel] ^= 1U;
+        }
+        return 1;
+    }
+    if (port == UINT16_C(0x0061)) {
+        machine->system_port_b ^= UINT8_C(0x10);
+        *value = machine->system_port_b;
+        return 1;
+    }
+    return 0;
+}
+
+int d2e_pc_at_port_out8(void *context, uint16_t port, uint8_t value) {
+    d2e_pc_at *const machine = (d2e_pc_at *)context;
+    unsigned channel;
+    if (machine == NULL) {
+        return 0;
+    }
+    if (port == UINT16_C(0x03d4)) {
+        machine->cga_crtc_index = value & UINT8_C(0x1f);
+        return 1;
+    }
+    if (port == UINT16_C(0x03d5)) {
+        machine->cga_crtc[machine->cga_crtc_index & 31U] = value;
+        return 1;
+    }
+    if (port == UINT16_C(0x03d8) || port == UINT16_C(0x03d9)) {
+        d2e_cga_port_write(&machine->cga, port, value);
+        return 1;
+    }
+    if (port == UINT16_C(0x0043)) {
+        const unsigned selected = (unsigned)(value >> 6U);
+        const uint8_t access = (uint8_t)((value >> 4U) & 3U);
+        if (selected == 3U) {
+            return 1;
+        }
+        channel = selected;
+        if (access == 0U) {
+            machine->pit_read_high_next[channel] = 0U;
+            return 1;
+        }
+        machine->pit_access[channel] = access;
+        machine->pit_mode[channel] = (uint8_t)((value >> 1U) & 7U);
+        machine->pit_write_high_next[channel] = 0U;
+        machine->pit_read_high_next[channel] = 0U;
+        return 1;
+    }
+    if (port >= UINT16_C(0x0040) && port <= UINT16_C(0x0042)) {
+        uint16_t reload;
+        channel = (unsigned)(port - UINT16_C(0x0040));
+        reload = machine->pit_reload[channel];
+        if (machine->pit_access[channel] == 2U ||
+            (machine->pit_access[channel] == 3U &&
+             machine->pit_write_high_next[channel] != 0U)) {
+            reload = (uint16_t)((reload & UINT16_C(0x00ff)) |
+                                ((uint16_t)value << 8U));
+        } else {
+            reload = (uint16_t)((reload & UINT16_C(0xff00)) | value);
+        }
+        machine->pit_reload[channel] = reload;
+        machine->pit_counter[channel] = reload;
+        if (machine->pit_access[channel] == 3U) {
+            machine->pit_write_high_next[channel] ^= 1U;
+        }
+        return 1;
+    }
+    if (port == UINT16_C(0x0061)) {
+        machine->system_port_b = value;
+        return 1;
+    }
+    return 0;
 }
 
 int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,

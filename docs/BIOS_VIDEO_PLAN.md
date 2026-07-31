@@ -58,6 +58,9 @@ independent reference for all calls used by both programs.
 ## 4. CGA output
 
 - [x] Map direct `B8000h` accesses ahead of conventional RAM.
+- [x] Model the observed CGA CRTC, mode, palette and status ports.
+- [x] Model deterministic PIT channels and PC/AT system port `61h` used by
+  Alley Cat timing and speaker setup.
 - [x] Render CGA modes 4/5 (320x200, two bits per pixel) to RGB565.
 - [ ] Render CGA mode 6 (640x200 monochrome) with horizontal downsampling for
   the 320-pixel panel.
