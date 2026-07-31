@@ -103,6 +103,9 @@ if ($LASTEXITCODE -ne 0) { throw "Host tests failed" }
 & (Join-Path $build "d2e_cga_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "CGA tests failed" }
 
+& (Join-Path $build "d2e_pc_at_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "PC/AT BIOS tests failed" }
+
 & (Join-Path $build "d2e_loader_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "MZ loader tests failed" }
 

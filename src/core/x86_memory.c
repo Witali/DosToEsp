@@ -6,12 +6,12 @@ static uint32_t wrap_address(uint32_t address) {
 
 static const uint8_t *resolve_read(const d2e_x86_cpu *cpu, uint32_t address) {
     const uint32_t wrapped = wrap_address(address);
-    if (wrapped < cpu->memory_size) {
-        return cpu->memory + wrapped;
-    }
     if (cpu->cga_vram != NULL && wrapped >= UINT32_C(0xb8000) &&
         wrapped < UINT32_C(0xbc000)) {
         return cpu->cga_vram + (wrapped - UINT32_C(0xb8000));
+    }
+    if (wrapped < cpu->memory_size) {
+        return cpu->memory + wrapped;
     }
     return NULL;
 }

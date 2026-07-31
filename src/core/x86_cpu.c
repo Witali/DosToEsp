@@ -19,6 +19,8 @@ void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     void *const port_context = cpu->port_context;
     const d2e_x86_port_in8_fn port_in8 = cpu->port_in8;
     const d2e_x86_port_out8_fn port_out8 = cpu->port_out8;
+    void *const interrupt_context = cpu->interrupt_context;
+    const d2e_x86_interrupt_fn interrupt = cpu->interrupt;
 
     memset(cpu, 0, sizeof(*cpu));
     cpu->memory = memory;
@@ -28,6 +30,8 @@ void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     cpu->port_context = port_context;
     cpu->port_in8 = port_in8;
     cpu->port_out8 = port_out8;
+    cpu->interrupt_context = interrupt_context;
+    cpu->interrupt = interrupt;
     cpu->flags = D2E_X86_FLAG_FIXED;
     cpu->stop_reason = D2E_X86_RUNNING;
 }
@@ -42,6 +46,12 @@ void d2e_x86_configure_ports(d2e_x86_cpu *cpu, void *context,
     cpu->port_context = context;
     cpu->port_in8 = input;
     cpu->port_out8 = output;
+}
+
+void d2e_x86_configure_interrupts(d2e_x86_cpu *cpu, void *context,
+                                  d2e_x86_interrupt_fn interrupt) {
+    cpu->interrupt_context = context;
+    cpu->interrupt = interrupt;
 }
 
 uint8_t d2e_x86_port_in8(d2e_x86_cpu *cpu, uint16_t port) {

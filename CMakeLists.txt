@@ -7,6 +7,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 add_library(d2e_core
     src/devices/cga.c
+    src/machine/pc_at.c
     src/core/native_runtime.c
     src/core/x86_alu.c
     src/core/x86_cpu.c
@@ -45,6 +46,17 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME d2e_cga_tests COMMAND d2e_cga_tests)
+
+    add_executable(d2e_pc_at_tests tests/test_pc_at.c)
+    target_link_libraries(d2e_pc_at_tests PRIVATE d2e_core)
+    if(MSVC)
+        target_compile_options(d2e_pc_at_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(d2e_pc_at_tests PRIVATE
+            -Wall -Wextra -Wpedantic -Werror
+        )
+    endif()
+    add_test(NAME d2e_pc_at_tests COMMAND d2e_pc_at_tests)
 
     add_executable(d2e_loader_tests tests/test_loader.c)
     target_link_libraries(d2e_loader_tests PRIVATE d2e_core)

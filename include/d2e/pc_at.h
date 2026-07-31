@@ -1,0 +1,56 @@
+#ifndef D2E_PC_AT_H
+#define D2E_PC_AT_H
+
+#include "d2e/cga.h"
+#include "d2e/x86_cpu.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define D2E_PC_AT_KEY_QUEUE_CAPACITY 16U
+#define D2E_PC_AT_TEXT_PAGES 8U
+
+typedef struct d2e_pc_at_key {
+    uint8_t ascii;
+    uint8_t scan;
+} d2e_pc_at_key;
+
+typedef struct d2e_pc_at {
+    d2e_cga cga;
+    uint8_t *cga_vram;
+    size_t cga_vram_size;
+    uint16_t equipment_word;
+    uint16_t conventional_kib;
+    uint32_t timer_ticks;
+    uint8_t midnight_rollover;
+    uint8_t video_mode;
+    uint8_t columns;
+    uint8_t rows;
+    uint8_t character_height;
+    uint8_t active_page;
+    uint8_t cursor_start;
+    uint8_t cursor_end;
+    uint8_t cursor_row[D2E_PC_AT_TEXT_PAGES];
+    uint8_t cursor_column[D2E_PC_AT_TEXT_PAGES];
+    uint8_t keyboard_shift_flags;
+    d2e_pc_at_key key_queue[D2E_PC_AT_KEY_QUEUE_CAPACITY];
+    uint8_t key_head;
+    uint8_t key_count;
+} d2e_pc_at;
+
+void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
+                    size_t cga_vram_size);
+void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu);
+int d2e_pc_at_interrupt(void *context, d2e_x86_cpu *cpu,
+                        uint8_t interrupt_number);
+int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,
+                          uint8_t scan);
+void d2e_pc_at_set_timer_ticks(d2e_pc_at *machine, uint32_t ticks,
+                               uint8_t midnight_rollover);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

@@ -169,7 +169,13 @@ void d2e_native_interrupt(d2e_x86_cpu *cpu, uint8_t interrupt_number) {
         cpu->stop_reason = D2E_X86_EXITED;
         return;
     }
+    if (cpu->interrupt != NULL &&
+        cpu->interrupt(cpu->interrupt_context, cpu, interrupt_number)) {
+        return;
+    }
     cpu->fault_cs = cpu->segments[D2E_X86_CS];
     cpu->fault_ip = cpu->ip;
+    cpu->fault_address =
+        ((uint32_t)interrupt_number << 8U) | d2e_x86_get_reg8(cpu, 4U);
     cpu->stop_reason = D2E_X86_UNHANDLED_INTERRUPT;
 }
