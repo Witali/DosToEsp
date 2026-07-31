@@ -8,10 +8,12 @@ overlapping segments and writes into executable memory. DosToEsp handles this
 with an ahead-of-time (AOT) basic-block translator on the development PC:
 
 1. the translator disassembles all statically reachable 8086 blocks;
-2. it emits a native function for every block and a lookup table for indirect
-   control-flow targets;
-3. ESP-IDF compiles those functions into Xtensa LX6 instructions;
-4. profiling or an emulator trace can add targets missed by static analysis,
+2. it groups compatible blocks into native regions whose internal edges are C
+   labels and direct branches, with a target switch only at external entries;
+3. live guest registers become region-local C values so the Xtensa compiler
+   keeps them in hardware registers across internal block edges;
+4. ESP-IDF compiles those regions into Xtensa LX6 instructions;
+5. profiling or an emulator trace can add targets missed by static analysis,
    then the game is translated and rebuilt again.
 
 The firmware must not contain an x86 fetch/decode/execute loop, bytecode
@@ -26,7 +28,8 @@ lowers each source block before the firmware is built.
 - `translator`: host-only 8086 decoder, control-flow discovery and source
   emitter. It is not linked into the ESP32 firmware.
 - `runtime`: the guest register file, 20-bit address helpers, flags, native
-  block dispatcher and platform call boundary. It has no x86 opcode decoder.
+  region entry/fallback dispatcher and platform call boundary. It has no x86
+  opcode decoder.
 - `machine`: COM/MZ loading plus a narrow DOS/BIOS environment. Interrupts are
   routed to explicit services; unsupported calls stop with a diagnostic rather
   than silently returning invented results.

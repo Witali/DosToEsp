@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 typedef void (*d2e_native_block_fn)(d2e_x86_cpu *cpu);
+typedef uint32_t (*d2e_native_region_fn)(d2e_x86_cpu *cpu,
+                                         uint32_t block_budget);
 
 typedef struct d2e_native_block {
     uint16_t ip;
@@ -22,6 +24,7 @@ typedef struct d2e_native_program {
     size_t image_size;
     const d2e_native_block *blocks;
     size_t block_count;
+    d2e_native_region_fn region;
 } d2e_native_program;
 
 int d2e_native_load_com(d2e_x86_cpu *cpu,
@@ -36,4 +39,3 @@ void d2e_native_interrupt(d2e_x86_cpu *cpu, uint8_t interrupt_number);
 #endif
 
 #endif
-

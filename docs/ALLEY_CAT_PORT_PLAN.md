@@ -70,11 +70,14 @@ instruction diagnostics and passes differential semantic tests.
 
 ### 5. Native register caching
 
-- [ ] Form native superblocks from compatible guest basic blocks.
-- [ ] Keep live AX/BX/CX/DX/SI/DI/BP/SP values in compiler-allocated Xtensa
+- [x] Form native regions from compatible guest basic blocks.
+- [x] Keep used AX/BX/CX/DX/SI/DI/BP/SP values in compiler-allocated Xtensa
   registers across internal edges.
-- [ ] Spill only at runtime calls, indirect exits and diagnostic boundaries.
-- [ ] Add liveness information and an assembly audit for hot paths.
+- [x] Spill at runtime calls, budget yields and diagnostic boundaries.
+- [ ] Replace the current used-register set with block-level liveness and
+  selective spill information for large real-game regions.
+- [x] Audit that internal guest blocks do not become Xtensa ABI function
+  boundaries.
 
 Acceptance gate: host state remains identical while Xtensa assembly shows
 fewer guest-state loads/stores and no x86 interpreter dispatch.

@@ -33,11 +33,30 @@ if ($LASTEXITCODE -ne 0) { throw "COM translation failed" }
     -I (Join-Path $project "include") -S $generated -o $assembly
 if ($LASTEXITCODE -ne 0) { throw "Xtensa compilation failed" }
 
+$generatedText = Get-Content -LiteralPath $generated -Raw
+foreach ($pattern in @(
+        "static uint32_t program_region",
+        "uint16_t r_ax;",
+        "uint16_t r_cx;",
+        "goto block_0106;")) {
+    if ($generatedText -notmatch [regex]::Escape($pattern)) {
+        throw "Expected native region pattern was not emitted: $pattern"
+    }
+}
+if ($generatedText -match "static void block_") {
+    throw "Legacy per-block functions were emitted instead of a cached region"
+}
+
 $text = Get-Content -LiteralPath $assembly -Raw
 foreach ($mnemonic in @("entry", "l32i", "s16i", "call8")) {
     if ($text -notmatch "(?m)^\s*$mnemonic(?:\.n)?\s") {
         throw "Expected Xtensa instruction was not emitted: $mnemonic"
     }
 }
+if ($text -notmatch "(?m)^program_region:") {
+    throw "The generated native region is missing from Xtensa assembly"
+}
+if ($text -match "(?m)^block_[0-9a-f]+:") {
+    throw "Guest blocks became ABI function boundaries in Xtensa assembly"
+}
 Write-Host "Xtensa native-code audit passed: $assembly"
-

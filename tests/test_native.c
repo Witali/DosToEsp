@@ -22,6 +22,20 @@ int main(void) {
     if (!d2e_native_load_com(&cpu, &d2e_generated_program)) {
         fprintf(stderr, "COM load failed\n");
         failed = 1;
+    } else if (d2e_native_run(&cpu, &d2e_generated_program, 2U) !=
+               D2E_X86_BUDGET_EXHAUSTED) {
+        fprintf(stderr, "native region did not yield at its block budget\n");
+        failed = 1;
+    } else if (cpu.ip != UINT16_C(0x0106) ||
+               cpu.regs[D2E_X86_AX] != UINT16_C(6) ||
+               cpu.regs[D2E_X86_CX] != UINT16_C(2) ||
+               cpu.instructions_retired != UINT64_C(5)) {
+        fprintf(stderr,
+                "unexpected yielded state: ip=%04x ax=%04x cx=%04x "
+                "instructions=%llu\n",
+                cpu.ip, cpu.regs[D2E_X86_AX], cpu.regs[D2E_X86_CX],
+                (unsigned long long)cpu.instructions_retired);
+        failed = 1;
     } else if (d2e_native_run(&cpu, &d2e_generated_program, 100U) !=
                D2E_X86_EXITED) {
         fprintf(stderr, "native program stopped: %u at %04x:%04x\n",

@@ -53,6 +53,13 @@ d2e_x86_stop_reason d2e_native_run(d2e_x86_cpu *cpu,
                                    uint32_t block_budget) {
     uint32_t block_count = 0;
     cpu->stop_reason = D2E_X86_RUNNING;
+    if (program->region != NULL) {
+        (void)program->region(cpu, block_budget);
+        if (cpu->stop_reason == D2E_X86_RUNNING) {
+            cpu->stop_reason = D2E_X86_BUDGET_EXHAUSTED;
+        }
+        return cpu->stop_reason;
+    }
     while (cpu->stop_reason == D2E_X86_RUNNING &&
            block_count < block_budget) {
         const d2e_native_block *const block = find_block(program, cpu->ip);

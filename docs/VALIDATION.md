@@ -25,3 +25,20 @@ the one-megabyte application partition free.
 This milestone verifies native translated control flow, arithmetic, flags,
 DOS process exit, sparse conventional memory, and the ESP32 build boundary. It
 does not yet claim that a complete game is supported.
+
+## 2026-07-31: register-cached native regions
+
+The generator now emits one native C region for the reachable fixture CFG.
+AX and CX remain compiler-allocated values across direct internal edges and
+the three loop iterations; guest blocks are labels rather than Xtensa ABI
+function boundaries. State is committed at an interrupt, diagnostic boundary
+or scheduler budget yield.
+
+Host testing forced a yield after two dynamic blocks and observed
+`IP=0106, AX=0006, CX=0002, instructions=5`; resuming reached the original
+15-instruction exit state. The strengthened Xtensa assembly audit found the
+single `program_region` symbol and no guest `block_*` function symbols.
+
+The regenerated firmware passed both QEMU and physical COM8 smoke tests with
+the same state as above. Its application image was 145440 bytes, leaving 86%
+of the application partition free.
