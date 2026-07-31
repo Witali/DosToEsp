@@ -1,0 +1,14 @@
+build/
+build-*/
+local_tools/
+out/
+sdkconfig
+sdkconfig.old
+*.com
+*.exe
+*.ghidra
+*.rep
+*.img
+*.bin
+!tests/fixtures/*.bin
+
