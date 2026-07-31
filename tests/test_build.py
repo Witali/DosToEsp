@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import d2e_analyze
 import d2e_build
+import d2e_translate
 
 
 def main() -> int:
@@ -50,6 +51,13 @@ def main() -> int:
         assert ".entry_cs = UINT16_C(0x0000)" in native
         assert ".entry_ip = UINT16_C(0x0000)" in native
         assert "cpu->segments[D2E_X86_CS] - UINT16_C(0x1000)" in native
+
+        partitions = d2e_translate.partition_blocks(
+            {address: [] for address in range(257)}
+        )
+        assert len(partitions) == 2
+        assert len(partitions[0]) == d2e_translate.MZ_REGION_BLOCK_LIMIT
+        assert list(partitions[1]) == [256]
     print("unified source build tests passed")
     return 0
 

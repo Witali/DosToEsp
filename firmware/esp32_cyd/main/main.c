@@ -49,6 +49,27 @@ void app_main(void) {
         finish(1);
     }
 
+#if D2E_ALLEY_CAT
+    esp_rom_printf(
+        "D2E_ALLEY_START,csip=%04x:%04x,sssp=%04x:%04x,heap=%u\n",
+        (unsigned)cpu.segments[D2E_X86_CS], (unsigned)cpu.ip,
+        (unsigned)cpu.segments[D2E_X86_SS],
+        (unsigned)cpu.regs[D2E_X86_SP],
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    reason = d2e_native_run(&cpu, &d2e_generated_program, UINT32_C(100000));
+    esp_rom_printf(
+        "D2E_ALLEY_STOP,reason=%u,csip=%04x:%04x,ax=%04x,bx=%04x,"
+        "cx=%04x,dx=%04x,instructions=%" PRIu64 ",address=%08x,"
+        "heap=%u\n",
+        (unsigned)reason, (unsigned)cpu.segments[D2E_X86_CS],
+        (unsigned)cpu.ip, (unsigned)cpu.regs[D2E_X86_AX],
+        (unsigned)cpu.regs[D2E_X86_BX],
+        (unsigned)cpu.regs[D2E_X86_CX],
+        (unsigned)cpu.regs[D2E_X86_DX], cpu.instructions_retired,
+        (unsigned)cpu.fault_address,
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    finish(0);
+#else
     reason = d2e_native_run(&cpu, &d2e_generated_program, 100U);
     if (reason != D2E_X86_EXITED || cpu.exit_code != 42U ||
         cpu.regs[D2E_X86_AX] != UINT16_C(0x4c2a) ||
@@ -73,4 +94,5 @@ void app_main(void) {
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     finish(0);
+#endif
 }

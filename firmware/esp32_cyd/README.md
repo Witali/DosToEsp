@@ -23,6 +23,17 @@ Success is reported as `D2E_NATIVE_OK,...` followed by `D2E_QEMU_DONE,0`.
 The `-no-reboot` QEMU option turns the deliberate final ESP restart into a
 clean emulator exit.
 
+Generate, compile and probe the user-supplied Alley Cat executable in QEMU:
+
+```powershell
+.\qemu-alley-cat.ps1
+```
+
+This mode reports `D2E_ALLEY_START` followed by `D2E_ALLEY_STOP` at the first
+missing BIOS, port or other environment boundary. It exercises the generated
+MZ native code and is not expected to reach gameplay until those devices are
+implemented.
+
 Flash and verify the physical CYD2USB board (COM8 by default):
 
 ```powershell

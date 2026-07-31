@@ -117,6 +117,8 @@ physical board without timing-dependent speed changes.
 ### 8. End-to-end validation and optimisation
 
 - [ ] Headless test with scripted input and CGA frame hashes.
+- [x] Compile, link and boot the real generated Alley Cat firmware in ESP32
+  QEMU, reaching the first strict environment boundary after native entry.
 - [ ] QEMU boot of the real generated firmware with matching state/frame
   digests.
 - [ ] Physical CYD run with UART telemetry for frame times, heap, block counts
@@ -162,11 +164,17 @@ Completed foundations:
   covered by another compact generated COM program;
 - complete automatic `CAT.EXE` to `game_native.c` generation with 8368/8368
   instruction sites covered and the full output assembled to an Xtensa object;
+- automatic partitioning of the large MZ control-flow graph into 13 bounded
+  native regions, with `CS:IP` handoff and no x86 instruction dispatch loop;
+- successful ESP32 QEMU boot of the real 624,944-byte Alley Cat firmware,
+  executing five native-translated guest instructions before the first strict
+  environment boundary, BIOS `INT 11h`;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. capture a reference trace and resolve dynamic DX ports;
-2. connect PIT/PPI/keyboard callbacks and observed BIOS services;
-3. run the generated game headlessly until the first environment boundary.
+1. implement the observed BIOS `INT 11h` equipment-list service and continue
+   QEMU execution to the next strict environment boundary;
+2. capture a reference trace and resolve dynamic DX ports;
+3. connect PIT/PPI/keyboard callbacks and the remaining observed BIOS services.

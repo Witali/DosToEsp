@@ -71,3 +71,29 @@ sections total 531,407 bytes before the runtime and final link. This validates
 static source generation and target compilation; BIOS, ports, timing, input
 and display integration remain before the generated game can execute through
 gameplay.
+
+## 2026-07-31: first Alley Cat ESP32 QEMU execution
+
+The MZ generator now partitions large control-flow graphs into bounded native
+regions and emits a compact `CS:IP` router between them. Alley Cat currently
+produces 13 native regions; this avoids Xtensa literal-range overflows without
+introducing an x86 instruction interpreter. The Alley Cat firmware build also
+uses a single compiler job so its large generated translation fits reliably
+within the available host memory.
+
+ESP-IDF linked the real generated game into a 624,944-byte application image,
+leaving 40% of the one-megabyte application partition free. ESP32 QEMU booted
+that image and produced:
+
+```text
+D2E_ALLEY_START,csip=1723:0000,sssp=1000:0100,heap=157436
+D2E_ALLEY_STOP,reason=6,csip=1723:5c62,ax=0000,bx=0000,cx=0000,dx=0000,instructions=5,address=00000000,heap=157436
+D2E_QEMU_DONE,0
+```
+
+Stop reason 6 is the strict unhandled-interrupt boundary. The preceding target
+instruction is `INT 11h` at load-module offset `CE90h`, requesting the BIOS
+equipment list; the reported `CS:IP` is the following instruction. This proves
+that the automatic `CAT.EXE` translation can be compiled, linked, booted and
+entered as native Xtensa firmware. It does not yet claim title-screen or
+gameplay execution.

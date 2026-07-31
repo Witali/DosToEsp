@@ -779,11 +779,15 @@ def guest_ip_expression(target: int, image_format: str, load_segment: int) -> st
 
 
 def emit_region(
-    blocks: dict[int, list[Instruction]], load_segment: int, image_format: str = "com"
+    blocks: dict[int, list[Instruction]],
+    load_segment: int,
+    image_format: str = "com",
+    function_name: str = "program_region",
+    handoff_on_unknown: bool = False,
 ) -> list[str]:
     registers = cached_registers(blocks)
     lines = [
-        "static uint32_t program_region(d2e_x86_cpu *cpu, uint32_t block_budget) {",
+        f"static uint32_t {function_name}(d2e_x86_cpu *cpu, uint32_t block_budget) {{",
         "    uint32_t executed = 0;",
         "    uint64_t retired = 0;",
     ]
@@ -844,17 +848,19 @@ def emit_region(
         lines.append(
             f"    case {constant}(0x{leader:0{width}x}): goto block_{leader:04x};"
         )
-    lines.extend(
-        [
-            "    default:",
-            "        cpu->fault_cs = cpu->segments[D2E_X86_CS];",
-            "        cpu->fault_ip = cpu->ip;",
-            "        cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
-            "        goto finish;",
-            "    }",
-            "",
-        ]
-    )
+    lines.append("    default:")
+    if handoff_on_unknown:
+        lines.append("        goto finish;")
+    else:
+        lines.extend(
+            [
+                "        cpu->fault_cs = cpu->segments[D2E_X86_CS];",
+                "        cpu->fault_ip = cpu->ip;",
+                "        cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
+                "        goto finish;",
+            ]
+        )
+    lines.extend(["    }", ""])
 
     for leader in sorted(blocks):
         block = blocks[leader]
@@ -1077,6 +1083,90 @@ def emit_region(
     return lines
 
 
+MZ_REGION_BLOCK_LIMIT = 256
+
+
+def partition_blocks(
+    blocks: dict[int, list[Instruction]], limit: int = MZ_REGION_BLOCK_LIMIT
+) -> list[dict[int, list[Instruction]]]:
+    if limit <= 0:
+        raise ValueError("native region block limit must be positive")
+    leaders = sorted(blocks)
+    return [
+        {leader: blocks[leader] for leader in leaders[offset : offset + limit]}
+        for offset in range(0, len(leaders), limit)
+    ]
+
+
+def emit_mz_regions(
+    blocks: dict[int, list[Instruction]], load_segment: int
+) -> list[str]:
+    partitions = partition_blocks(blocks)
+    if len(partitions) == 1:
+        return emit_region(blocks, load_segment, "mz")
+
+    lines: list[str] = []
+    for index, partition in enumerate(partitions):
+        if lines:
+            lines.append("")
+        lines.extend(
+            emit_region(
+                partition,
+                load_segment,
+                "mz",
+                f"program_region_{index}",
+                handoff_on_unknown=True,
+            )
+        )
+
+    lines.extend(
+        [
+            "",
+            "static uint32_t program_region(d2e_x86_cpu *cpu, uint32_t block_budget) {",
+            "    uint32_t executed = 0;",
+            "    uint32_t step;",
+            "    uint32_t module_target;",
+            "    while (executed < block_budget &&",
+            "           cpu->stop_reason == D2E_X86_RUNNING) {",
+            f"        if (cpu->segments[D2E_X86_CS] < UINT16_C(0x{load_segment:04x})) {{",
+            "            goto unknown_target;",
+            "        }",
+            "        module_target =",
+            f"            ((uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - UINT16_C(0x{load_segment:04x})) << 4U) + cpu->ip;",
+        ]
+    )
+    for index, partition in enumerate(partitions):
+        keyword = "if" if index == 0 else "else if"
+        maximum = max(partition)
+        lines.extend(
+            [
+                f"        {keyword} (module_target <= UINT32_C(0x{maximum:05x})) {{",
+                f"            step = program_region_{index}(cpu, block_budget - executed);",
+                "        }",
+            ]
+        )
+    lines.extend(
+        [
+            "        else {",
+            "            goto unknown_target;",
+            "        }",
+            "        if (step == 0U && cpu->stop_reason == D2E_X86_RUNNING) {",
+            "            goto unknown_target;",
+            "        }",
+            "        executed += step;",
+            "    }",
+            "    return executed;",
+            "unknown_target:",
+            "    cpu->fault_cs = cpu->segments[D2E_X86_CS];",
+            "    cpu->fault_ip = cpu->ip;",
+            "    cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
+            "    return executed;",
+            "}",
+        ]
+    )
+    return lines
+
+
 def c_identifier(name: str) -> str:
     result = re.sub(r"[^A-Za-z0-9_]", "_", name)
     if not result or result[0].isdigit():
@@ -1147,7 +1237,7 @@ def emit_mz_program(
         '#include "d2e/x86_alu.h"',
         "",
     ]
-    lines.extend(emit_region(blocks, load_segment, "mz"))
+    lines.extend(emit_mz_regions(blocks, load_segment))
     lines.extend(["", "static const uint8_t program_image[] = {"])
     for offset in range(0, len(image), 12):
         chunk = image[offset : offset + 12]
