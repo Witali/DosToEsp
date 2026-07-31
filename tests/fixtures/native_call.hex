@@ -1,0 +1,8 @@
+# 0100: exercise general and segment-register push/pop
+b8 01 00 50 b8 05 00 5b 1e 07 8c c2
+# 010c: near call 0110; execution returns to HLT at 010f
+e8 01 00 f4
+# 0110: add BX, make a nested call to 0116, then return
+01 d8 e8 01 00 c3
+# 0116: increment and return
+40 c3

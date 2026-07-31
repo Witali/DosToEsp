@@ -53,7 +53,13 @@ def main() -> int:
         "op_str": "0x200",
         "operands": [{"type": "imm", "value": 0x200, "size": 2}],
     }
-    assert d2e_coverage.classify(call_instruction) == (False, "control_transfer")
+    assert d2e_coverage.classify(call_instruction) == (True, "supported")
+    call_instruction["op_str"] = "ax"
+    call_instruction["operands"] = [{"type": "reg", "reg": "ax", "size": 2}]
+    assert d2e_coverage.classify(call_instruction) == (
+        False,
+        "indirect_control_target",
+    )
     print("translator coverage tests passed")
     return 0
 

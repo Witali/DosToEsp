@@ -61,7 +61,8 @@ only and is not copied into DosToEsp.
 ### 4. Translation coverage
 
 - [x] Add ModR/M memory addressing and segment overrides.
-- [ ] Add stack, direct/indirect calls and returns.
+- [x] Add stack, direct near calls and near returns.
+- [ ] Add observed indirect targets and far control transfers.
 - [ ] Add boolean, shifts, rotates, multiply and divide as observed.
 - [ ] Add string operations and REP variants as observed.
 - [ ] Complete exact 8086 flags for every implemented operation.
@@ -141,11 +142,13 @@ Completed foundations:
   relocation metadata and no target-specific code;
 - common 8086 ModR/M addressing for 8/16-bit operands, including DS/SS default
   selection and explicit ES/CS/SS/DS overrides, compiled by the Xtensa audit;
+- cached-SP guest stack operations plus direct near calls/returns as native
+  region edges, including nested-call host and Xtensa regression fixtures;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. implement stack, direct calls and returns;
-2. implement boolean, shift and test semantics now exposed by ModR/M support;
+1. implement boolean, shift and test semantics now exposed by ModR/M support;
+2. implement the observed string operations and direction flag behaviour;
 3. capture the indirect target and dynamic port values in a reference trace.

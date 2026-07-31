@@ -112,6 +112,9 @@ if ($LASTEXITCODE -ne 0) { throw "Native translation tests failed" }
 & (Join-Path $build "d2e_native_memory_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native ModR/M memory tests failed" }
 
+& (Join-Path $build "d2e_native_call_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "Native stack/call tests failed" }
+
 $mzImageTest = Join-Path $build "d2e_mz_image_tests.exe"
 if (Test-Path -LiteralPath $mzImageTest -PathType Leaf) {
     & $mzImageTest

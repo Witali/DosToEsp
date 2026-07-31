@@ -267,6 +267,8 @@ def cached_base_register(name: str) -> str:
 
 
 def reg_read(name: str, cached: bool = False) -> tuple[str, int]:
+    if name in SEGMENTS:
+        return (f"cpu->segments[{SEGMENTS[name]}]", 16)
     if cached:
         base = cached_base_register(name)
         if name in REG16:
@@ -281,6 +283,8 @@ def reg_read(name: str, cached: bool = False) -> tuple[str, int]:
 
 
 def reg_write(name: str, expression: str, cached: bool = False) -> str:
+    if name in SEGMENTS:
+        return f"cpu->segments[{SEGMENTS[name]}] = (uint16_t)({expression});"
     if cached:
         base = cached_base_register(name)
         if name in REG16:
@@ -396,6 +400,40 @@ def write_operand(
     raise TranslationError("destination is not writable")
 
 
+def stack_pointer_expression(cached: bool) -> str:
+    return "r_sp" if cached else "cpu->regs[D2E_X86_SP]"
+
+
+def stack_push_statements(
+    operand: tuple[str, OperandValue], cached: bool
+) -> list[str]:
+    stack_pointer = stack_pointer_expression(cached)
+    value = value_expression(operand, 16, cached)
+    return [
+        f"{stack_pointer} = (uint16_t)({stack_pointer} - UINT16_C(2));",
+        (
+            "d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], "
+            f"{stack_pointer}, {value});"
+        ),
+        "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+    ]
+
+
+def stack_pop_statements(
+    operand: tuple[str, OperandValue], cached: bool
+) -> list[str]:
+    stack_pointer = stack_pointer_expression(cached)
+    lines = [
+        (
+            "stack_value = d2e_x86_read16_seg(cpu, "
+            f"cpu->segments[D2E_X86_SS], {stack_pointer});"
+        ),
+        f"{stack_pointer} = (uint16_t)({stack_pointer} + UINT16_C(2));",
+    ]
+    lines.extend(write_operand(operand, "stack_value", cached))
+    return lines
+
+
 def translate_data_instruction(
     instruction: Instruction, cached: bool = False
 ) -> list[str]:
@@ -404,6 +442,10 @@ def translate_data_instruction(
     location = f"{instruction.address:04x}: {mnemonic} {instruction.op_str}".rstrip()
     if mnemonic == "nop":
         return []
+    if mnemonic == "push" and len(operands) == 1:
+        return stack_push_statements(operands[0], cached)
+    if mnemonic == "pop" and len(operands) == 1:
+        return stack_pop_statements(operands[0], cached)
     if mnemonic == "mov" and len(operands) == 2:
         width = operand_width(operands[0], cached)
         return write_operand(
@@ -438,13 +480,17 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
         for instruction in block:
             for kind, value in instruction.operands:
                 if kind == "reg":
-                    used.add(cached_base_register(str(value)))
+                    name = str(value)
+                    if name not in SEGMENTS:
+                        used.add(cached_base_register(name))
                 elif kind == "mem" and isinstance(value, MemoryOperand):
                     for name in (value.base, value.index):
                         if name is not None:
                             used.add(cached_base_register(name))
             if instruction.mnemonic in ("loop", "jcxz"):
                 used.add("cx")
+            if instruction.mnemonic in ("call", "ret", "push", "pop"):
+                used.add("sp")
     return [name for name in REG16 if name in used]
 
 
@@ -498,6 +544,12 @@ def emit_region(
     ]
     if image_format == "mz":
         lines.append("    uint32_t module_target;")
+    if any(
+        instruction.mnemonic == "pop"
+        for block in blocks.values()
+        for instruction in block
+    ):
+        lines.append("    uint16_t stack_value;")
     for name in registers:
         lines.append(f"    uint16_t r_{name};")
     lines.extend(emit_cached_load(registers))
@@ -652,7 +704,45 @@ def emit_region(
                 lines.append("    cpu->stop_reason = D2E_X86_EXITED;")
                 lines.append("    goto finish;")
                 terminated = True
-            elif mnemonic in ("call", "ret", "retf", "iret"):
+            elif mnemonic == "call":
+                lines.extend(
+                    [
+                        "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",
+                        (
+                            "    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], "
+                            f"r_sp, {guest_ip_expression(instruction.next_address, image_format, load_segment)});"
+                        ),
+                        "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+                    ]
+                )
+                lines.append(f"    retired += UINT64_C({len(block)});")
+                emit_native_target(
+                    lines,
+                    direct_target(instruction),
+                    blocks,
+                    "    ",
+                    image_format,
+                    load_segment,
+                )
+                terminated = True
+            elif mnemonic == "ret":
+                stack_adjustment = 2
+                if instruction.operands:
+                    if len(instruction.operands) != 1 or instruction.operands[0][0] != "imm":
+                        raise TranslationError(
+                            f"unsupported ret operands {instruction.address:04x}: {instruction.op_str}"
+                        )
+                    stack_adjustment += int(instruction.operands[0][1])
+                lines.extend(
+                    [
+                        "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
+                        f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
+                        f"    retired += UINT64_C({len(block)});",
+                        "    goto dispatch;",
+                    ]
+                )
+                terminated = True
+            elif mnemonic in ("retf", "iret"):
                 raise TranslationError(
                     f"unsupported control transfer {instruction.address:04x}: {mnemonic} {instruction.op_str}"
                 )

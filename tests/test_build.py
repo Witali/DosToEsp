@@ -28,12 +28,15 @@ def main() -> int:
         assert "program_region" in native
         assert "D2E_NATIVE_IMAGE_COM" in native
 
-        mz = bytearray(33)
+        mz_module = d2e_analyze.read_hex(
+            ROOT / "tests" / "fixtures" / "native_call.hex"
+        )
+        mz = bytearray(32 + len(mz_module))
         mz[:2] = b"MZ"
         struct.pack_into("<H", mz, 0x02, len(mz))
         struct.pack_into("<H", mz, 0x04, 1)
         struct.pack_into("<H", mz, 0x08, 2)
-        mz[32] = 0xF4
+        mz[32:] = mz_module
         output = pathlib.Path(temporary) / "mz"
         manifest = d2e_build.build_sources(
             bytes(mz), "tiny.exe", "auto", "tiny", 0x1000, output
@@ -46,6 +49,7 @@ def main() -> int:
         assert "switch (module_target)" in native
         assert ".entry_cs = UINT16_C(0x0000)" in native
         assert ".entry_ip = UINT16_C(0x0000)" in native
+        assert "cpu->segments[D2E_X86_CS] - UINT16_C(0x1000)" in native
     print("unified source build tests passed")
     return 0
 

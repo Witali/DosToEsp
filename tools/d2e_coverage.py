@@ -16,8 +16,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 import d2e_translate
 
 
-SUPPORTED_CONTROL = set(d2e_translate.CONDITIONS) | {"jmp", "loop", "jcxz", "int", "hlt"}
-UNSUPPORTED_CONTROL = {"call", "lcall", "ret", "retf", "iret", "loope", "loopne"}
+SUPPORTED_CONTROL = set(d2e_translate.CONDITIONS) | {
+    "call", "ret", "jmp", "loop", "jcxz", "int", "hlt"
+}
+UNSUPPORTED_CONTROL = {"lcall", "retf", "iret", "loope", "loopne"}
 
 
 def translator_instruction(record: dict[str, Any]) -> d2e_translate.Instruction:
@@ -57,7 +59,13 @@ def classify(record: dict[str, Any]) -> tuple[bool, str]:
     if mnemonic in UNSUPPORTED_CONTROL:
         return False, "control_transfer"
     if mnemonic in SUPPORTED_CONTROL:
-        if mnemonic in ("hlt",):
+        if mnemonic == "ret":
+            if not operands or (
+                len(operands) == 1 and operands[0]["type"] == "imm"
+            ):
+                return True, "supported"
+            return False, "control_transfer"
+        if mnemonic == "hlt":
             return True, "supported"
         if len(operands) != 1 or operands[0]["type"] != "imm":
             return False, "indirect_control_target"
@@ -67,7 +75,11 @@ def classify(record: dict[str, Any]) -> tuple[bool, str]:
     for operand in operands:
         if operand["type"] == "reg":
             name = operand["reg"]
-            if name not in d2e_translate.REG16 and name not in d2e_translate.REG8:
+            if (
+                name not in d2e_translate.REG16
+                and name not in d2e_translate.REG8
+                and name not in d2e_translate.SEGMENTS
+            ):
                 return False, "segment_or_special_register"
     try:
         d2e_translate.translate_data_instruction(

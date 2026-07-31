@@ -95,7 +95,11 @@ The common ModR/M layer has since raised coverage to 3065 of 4224 sites
 segment overrides. The remaining blockers are 586 control transfers, 407
 missing instruction semantics, 90 sites where a still-unsupported operation
 uses memory, 75 segment or special-register sites and one indirect target.
-Direct `call`/`ret` and stack semantics are now the largest dependency.
+Direct `call`/`ret`, `push`/`pop` and segment-register moves have since raised
+coverage again to 3773 of 4224 sites (89.32%). The remaining 451 sites comprise
+357 missing instruction semantics, 90 memory-using forms of those operations,
+three control transfers (`loopne`, `loope`, `retf`) and one indirect jump.
+Boolean and shift semantics are now the largest dependency.
 
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
