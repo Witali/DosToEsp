@@ -45,6 +45,14 @@ boolean operations, shifts, stack operations and string operations. The tail
 also contains `mul`, `xchg`, `lods`, `stos`, `rcl/rcr`, `lahf/sahf`, `cli/sti`,
 `std/cld` and one `aaa`.
 
+## Recovered reachable inventory
+
+The bounded switch at `0747Bh` uses the compiler idiom `CMP BX,7; JBE; SUB
+BX,BX; SHL BX,1; JMP CS:[BX+0250h]`. The eight table entries resolve to seven
+unique in-module targets. Following those targets expands the deterministic
+inventory to 8368 instructions, 3203 basic blocks and 4848 CFG edges, with no
+unresolved control flow or decode issues.
+
 ## Observable PC boundary
 
 Statically reachable software interrupts:
@@ -73,7 +81,8 @@ that a normal play path may not execute.
 3. Stack, direct calls and returns.
 4. Boolean, shift/rotate and string instruction groups.
 5. Observed BIOS calls and port devices.
-6. Resolve the single jump table using static table recovery plus trace data.
+6. Resolve the single jump table using static table recovery, then confirm it
+   with trace data. Static recovery is complete.
 
 ## Current translator coverage
 
@@ -124,11 +133,11 @@ dynamic DX values still require PIT/PPI/keyboard device semantics driven by
 the reference trace.
 
 The remaining observed `MUL`, `XCHG`, `AAA`, `LOOPE`, `LOOPNE` and `RETF`
-forms are now emitted as native C and covered by a small end-to-end COM
-fixture. Coverage is therefore 4223 of 4224 sites (99.98%). The sole remaining
-translation blocker is `jmp word ptr cs:[bx + 0x250]` at module offset
-`0747Bh`; its finite jump-table target set must be recovered statically and
-confirmed by the reference trace.
+forms are emitted as native C and covered by a small end-to-end COM fixture.
+Static jump-table recovery then exposed a much larger reachable region and
+five new semantic sites: two `PUSHF`, two `POPF` and one byte `ADC`. A second
+small COM fixture covers those flag-stack and carry semantics. The resulting
+coverage is 8368 of 8368 sites (100.00%).
 
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
@@ -136,8 +145,12 @@ The runtime MZ loader and common native emitter now pack the complete
 MZ target keys. The same path is regression-tested with a fully covered tiny
 MZ input; no Alley Cat-specific code is used.
 
-The unified frontend currently writes `out/generated/alley-cat/game_image.c`,
-the inventory and coverage reports, and a `blocked` manifest naming that one
-indirect target. It will change the manifest to `complete` and add
-`game_native.c` only when the same general backend can translate every
-required site; no Alley Cat routine is maintained as handwritten ESP32 code.
+The unified frontend now writes `out/generated/alley-cat/game_native.c`, the
+inventory and coverage reports, and a `complete` manifest. The 3,045,220-byte
+generated C file compiles to valid Xtensa assembly and a 1,655,940-byte object
+with Espressif GCC 14.2.0. Its code, literal and read-only-data sections total
+531,407 bytes before linking the runtime, while the remaining object size is
+mostly assembler/linker metadata. No Alley Cat routine is maintained as
+handwritten ESP32 code. Execution still requires the observed BIOS and
+hardware-device environment; 100% instruction coverage is not yet a gameplay
+claim.

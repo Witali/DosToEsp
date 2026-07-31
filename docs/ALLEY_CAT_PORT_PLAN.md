@@ -62,8 +62,8 @@ only and is not copied into DosToEsp.
 
 - [x] Add ModR/M memory addressing and segment overrides.
 - [x] Add stack, direct near calls and near returns.
-- [ ] Add observed indirect targets; direct far return is implemented and
-  regression-tested.
+- [x] Recover the bounded CS-relative jump table and add direct far return,
+  both with generated regression programs.
 - [x] Add boolean, shifts, rotates and multiply forms observed in the target
   (no divide site is present in the current inventory).
 - [x] Add string operations and REP variants as observed.
@@ -156,11 +156,17 @@ Completed foundations:
   unknown-port stops and native immediate/DX port operands;
 - native MUL, XCHG, AAA, LOOPE/LOOPNE and RETF semantics, exercised together
   by a compact generated COM program on both the host and Xtensa compiler;
+- strict recovery of the compiler's bounded `CS:[BX+table]` switch idiom,
+  expanding the Alley Cat CFG to 8368 instructions with no unresolved edges;
+- native ADC plus PUSHF/POPF semantics discovered behind that table, each
+  covered by another compact generated COM program;
+- complete automatic `CAT.EXE` to `game_native.c` generation with 8368/8368
+  instruction sites covered and the full output assembled to an Xtensa object;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. recover and validate the remaining indirect jump-table target;
-2. resolve dynamic DX ports from a reference trace;
-3. connect PIT/PPI/keyboard callbacks and observed BIOS services.
+1. capture a reference trace and resolve dynamic DX ports;
+2. connect PIT/PPI/keyboard callbacks and observed BIOS services;
+3. run the generated game headlessly until the first environment boundary.

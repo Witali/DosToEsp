@@ -46,6 +46,7 @@ class Instruction:
     mnemonic: str
     op_str: str
     operands: tuple[tuple[str, OperandValue], ...]
+    indirect_targets: tuple[int, ...] = ()
 
     @property
     def next_address(self) -> int:
@@ -176,9 +177,61 @@ def direct_target(instruction: Instruction) -> int:
     return int(instruction.operands[0][1])
 
 
+def recover_cs_bx_jump_table(
+    image: bytes, base: int, instruction: Instruction
+) -> tuple[int, ...]:
+    """Recover the bounded 8086 switch idiom used by the target compiler."""
+    if (
+        instruction.mnemonic != "jmp"
+        or len(instruction.operands) != 1
+        or instruction.operands[0][0] != "mem"
+        or not isinstance(instruction.operands[0][1], MemoryOperand)
+    ):
+        return ()
+    memory = instruction.operands[0][1]
+    if (
+        memory.width != 16
+        or memory.segment != "cs"
+        or memory.base != "bx"
+        or memory.index is not None
+    ):
+        return ()
+
+    instruction_offset = instruction.address - base
+    pattern_offset = instruction_offset - 9
+    if pattern_offset < 0 or instruction.next_address - base > len(image):
+        return ()
+    pattern = image[pattern_offset:instruction_offset]
+    if (
+        len(pattern) != 9
+        or pattern[0:2] != bytes((0x83, 0xFB))
+        or pattern[3:] != bytes((0x76, 0x02, 0x2B, 0xDB, 0xD1, 0xE3))
+    ):
+        return ()
+
+    entry_count = pattern[2] + 1
+    table_offset = instruction.next_address - base
+    table_end = table_offset + entry_count * 2
+    segment_base = instruction.next_address - (memory.displacement & 0xFFFF)
+    if table_end > len(image):
+        return ()
+
+    targets: list[int] = []
+    image_end = base + len(image)
+    for offset in range(table_offset, table_end, 2):
+        target_ip = image[offset] | (image[offset + 1] << 8)
+        target = segment_base + target_ip
+        if target < base or target >= image_end:
+            return ()
+        targets.append(target)
+    return tuple(dict.fromkeys(targets))
+
+
 def successors(instruction: Instruction) -> tuple[int, ...]:
     mnemonic = instruction.mnemonic
     if mnemonic == "jmp":
+        if instruction.indirect_targets:
+            return instruction.indirect_targets
         return (direct_target(instruction),)
     if mnemonic in CONDITIONS or mnemonic in ("loop", "loope", "loopne", "jcxz"):
         return (direct_target(instruction), instruction.next_address)
@@ -220,6 +273,11 @@ def discover(image: bytes, base: int, entry: int) -> dict[int, Instruction]:
                 f"control flow enters the middle of {owner:04x} at {address:04x}"
             )
         instruction = decode_one(disassembler, image, base, address)
+        indirect_targets = recover_cs_bx_jump_table(image, base, instruction)
+        if indirect_targets:
+            instruction = dataclasses.replace(
+                instruction, indirect_targets=indirect_targets
+            )
         for byte_address in range(address, instruction.next_address):
             previous = occupied.get(byte_address)
             if previous is not None and previous != address:
@@ -502,6 +560,24 @@ def translate_data_instruction(
         return stack_push_statements(operands[0], cached)
     if mnemonic == "pop" and len(operands) == 1:
         return stack_pop_statements(operands[0], cached)
+    if mnemonic == "pushf" and not operands:
+        stack_pointer = stack_pointer_expression(cached)
+        return [
+            f"{stack_pointer} = (uint16_t)({stack_pointer} - UINT16_C(2));",
+            "d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], "
+            f"{stack_pointer}, (uint16_t)(cpu->flags | D2E_X86_FLAG_FIXED));",
+            "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+        ]
+    if mnemonic == "popf" and not operands:
+        stack_pointer = stack_pointer_expression(cached)
+        return [
+            "stack_value = d2e_x86_read16_seg(cpu, "
+            f"cpu->segments[D2E_X86_SS], {stack_pointer});",
+            f"{stack_pointer} = (uint16_t)({stack_pointer} + UINT16_C(2));",
+            "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+            "cpu->flags = (uint16_t)((stack_value & UINT16_C(0x0fd5)) | "
+            "D2E_X86_FLAG_FIXED);",
+        ]
     if mnemonic.removeprefix("rep ") in (
         "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw"
     ):
@@ -529,7 +605,7 @@ def translate_data_instruction(
         return write_operand(
             operands[0], value_expression(operands[1], width, cached), cached
         )
-    if mnemonic in ("add", "sub", "xor", "and", "or", "cmp", "test") and len(operands) == 2:
+    if mnemonic in ("add", "adc", "sub", "xor", "and", "or", "cmp", "test") and len(operands) == 2:
         width = operand_width(operands[0], cached)
         left = value_expression(operands[0], width, cached)
         right = value_expression(operands[1], width, cached)
@@ -646,7 +722,9 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                             used.add(cached_base_register(name))
             if instruction.mnemonic in ("loop", "loope", "loopne", "jcxz"):
                 used.add("cx")
-            if instruction.mnemonic in ("call", "ret", "retf", "push", "pop"):
+            if instruction.mnemonic in (
+                "call", "ret", "retf", "push", "pop", "pushf", "popf"
+            ):
                 used.add("sp")
             if instruction.mnemonic in ("lahf", "sahf"):
                 used.add("ax")
@@ -712,7 +790,7 @@ def emit_region(
     if image_format == "mz":
         lines.append("    uint32_t module_target;")
     if any(
-        instruction.mnemonic == "pop"
+        instruction.mnemonic in ("pop", "popf")
         for block in blocks.values()
         for instruction in block
     ):
@@ -812,14 +890,21 @@ def emit_region(
                 terminated = True
             elif mnemonic == "jmp":
                 lines.append(f"    retired += UINT64_C({len(block)});")
-                emit_native_target(
-                    lines,
-                    direct_target(instruction),
-                    blocks,
-                    "    ",
-                    image_format,
-                    load_segment,
-                )
+                if instruction.indirect_targets:
+                    operand = instruction.operands[0]
+                    target = value_expression(operand, 16, cached=True)
+                    lines.append(f"    cpu->ip = (uint16_t)({target});")
+                    lines.append("    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
+                    lines.append("    goto dispatch;")
+                else:
+                    emit_native_target(
+                        lines,
+                        direct_target(instruction),
+                        blocks,
+                        "    ",
+                        image_format,
+                        load_segment,
+                    )
                 terminated = True
             elif mnemonic == "loop":
                 target = direct_target(instruction)

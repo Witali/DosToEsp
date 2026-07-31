@@ -61,6 +61,27 @@ def main() -> int:
         {"address": 0x100, "kind": "jump", "operand": "ax"}
     ]
 
+    jump_table_data = d2e_analyze.read_hex(
+        ROOT / "tests" / "fixtures" / "native_indirect.hex"
+    )
+    jump_table = d2e_analyze.analyze(
+        d2e_analyze.identify(jump_table_data, "com", None, None),
+        "native_indirect.com",
+    )
+    assert jump_table["unresolved_flow"] == []
+    assert jump_table["recovered_indirect_flow"] == [
+        {
+            "address": 0x10C,
+            "operand": "word ptr cs:[bx + 0x111]",
+            "targets": [0x117, 0x11B, 0x11F],
+        }
+    ]
+    assert any(
+        edge == {"source": 0x10C, "target": 0x11B, "kind": "jump_table"}
+        for block in jump_table["blocks"]
+        for edge in block["successors"]
+    )
+
     mz = bytearray(33)
     mz[:2] = b"MZ"
     struct.pack_into("<H", mz, 0x02, len(mz))

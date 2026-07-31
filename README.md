@@ -69,6 +69,10 @@ native regions addressed through preserved real-mode `CS:IP` state.
 ```
 
 Generated sources and reports are written under ignored `out/generated/`.
+For the fingerprinted Alley Cat target, the current frontend resolves the
+bounded jump table, covers all 8368 reachable instruction sites and emits a
+`complete` manifest plus `game_native.c`. The remaining work is the emulated
+DOS/BIOS and PC-device boundary, not an x86 CPU interpreter.
 
 The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
 

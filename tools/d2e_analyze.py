@@ -16,6 +16,7 @@ from typing import Any
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 LOCAL_PACKAGES = PROJECT_ROOT / "local_tools" / "python_packages"
+sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 sys.path.insert(0, str(LOCAL_PACKAGES))
 
 try:
@@ -25,6 +26,8 @@ except ImportError as error:
     raise SystemExit(
         "Capstone is missing. Run scripts/setup-analysis-tools.ps1 first."
     ) from error
+
+import d2e_translate
 
 
 @dataclass(frozen=True)
@@ -198,6 +201,21 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
                     for operand in instruction.operands
                 ],
             }
+            translated_instruction = d2e_translate.Instruction(
+                address=address,
+                size=int(instruction.size),
+                mnemonic=instruction.mnemonic.lower(),
+                op_str=instruction.op_str,
+                operands=tuple(
+                    d2e_translate.operand_tuple(instruction, operand)
+                    for operand in instruction.operands
+                ),
+            )
+            indirect_targets = d2e_translate.recover_cs_bx_jump_table(
+                image.module_bytes, image.base, translated_instruction
+            )
+            if indirect_targets:
+                record["indirect_targets"] = list(indirect_targets)
             for byte_address in range(address, address + instruction.size):
                 previous = occupied.get(byte_address)
                 if previous is not None and previous != address:
@@ -212,7 +230,11 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
             target = direct_target(record)
             if kind == "jump":
                 if target is None:
-                    unresolved.add((address, kind, record["op_str"]))
+                    if indirect_targets:
+                        for indirect_target in indirect_targets:
+                            enqueue(address, indirect_target, "jump_table")
+                    else:
+                        unresolved.add((address, kind, record["op_str"]))
                 else:
                     enqueue(address, target, kind)
                 break
@@ -357,6 +379,15 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
             {"address": address, "kind": kind, "operand": operand}
             for address, kind, operand in sorted(unresolved)
         ],
+        "recovered_indirect_flow": [
+            {
+                "address": record["address"],
+                "operand": record["op_str"],
+                "targets": record["indirect_targets"],
+            }
+            for record in ordered_instructions
+            if record.get("indirect_targets")
+        ],
         "issues": [
             {"address": address, "message": message}
             for address, message in sorted(issues)
@@ -453,6 +484,17 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
     for item in report["issues"]:
         lines.append(f"- `{hex_address(item['address'])}`: {item['message']}")
+    lines.extend(["", "### Recovered indirect control flow", ""])
+    if report["recovered_indirect_flow"]:
+        for item in report["recovered_indirect_flow"]:
+            targets = ", ".join(
+                f"`{hex_address(target)}`" for target in item["targets"]
+            )
+            lines.append(
+                f"- `{hex_address(item['address'])}`: `{item['operand']}` -> {targets}"
+            )
+    else:
+        lines.append("None.")
     lines.append("")
     return "\n".join(lines)
 

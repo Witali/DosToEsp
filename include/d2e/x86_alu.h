@@ -9,6 +9,8 @@ extern "C" {
 
 uint8_t d2e_x86_add8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right);
 uint16_t d2e_x86_add16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right);
+uint8_t d2e_x86_adc8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right);
+uint16_t d2e_x86_adc16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right);
 uint8_t d2e_x86_sub8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right);
 uint16_t d2e_x86_sub16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right);
 uint8_t d2e_x86_inc8(d2e_x86_cpu *cpu, uint8_t value);

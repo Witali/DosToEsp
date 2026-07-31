@@ -24,6 +24,10 @@ $portGenerated = Join-Path $outputDirectory "native_port.c"
 $portAssembly = Join-Path $outputDirectory "native_port.xtensa.s"
 $rareGenerated = Join-Path $outputDirectory "native_rare.c"
 $rareAssembly = Join-Path $outputDirectory "native_rare.xtensa.s"
+$indirectGenerated = Join-Path $outputDirectory "native_indirect.c"
+$indirectAssembly = Join-Path $outputDirectory "native_indirect.xtensa.s"
+$adcFlagsGenerated = Join-Path $outputDirectory "native_adc_flags.c"
+$adcFlagsAssembly = Join-Path $outputDirectory "native_adc_flags.xtensa.s"
 
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
     throw "Xtensa ESP32 compiler was not found: $compiler"
@@ -110,6 +114,24 @@ if ($LASTEXITCODE -ne 0) { throw "Rare-instruction fixture translation failed" }
     -I (Join-Path $project "include") -S $rareGenerated -o $rareAssembly
 if ($LASTEXITCODE -ne 0) { throw "Rare-instruction Xtensa compilation failed" }
 
+& $python (Join-Path $project "tools\d2e_translate.py") `
+    --hex-input --name native_indirect `
+    (Join-Path $project "tests\fixtures\native_indirect.hex") $indirectGenerated
+if ($LASTEXITCODE -ne 0) { throw "Indirect jump-table fixture translation failed" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -S $indirectGenerated -o $indirectAssembly
+if ($LASTEXITCODE -ne 0) { throw "Indirect jump-table Xtensa compilation failed" }
+
+& $python (Join-Path $project "tools\d2e_translate.py") `
+    --hex-input --name native_adc_flags `
+    (Join-Path $project "tests\fixtures\native_adc_flags.hex") $adcFlagsGenerated
+if ($LASTEXITCODE -ne 0) { throw "ADC/flags-stack fixture translation failed" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -S $adcFlagsGenerated -o $adcFlagsAssembly
+if ($LASTEXITCODE -ne 0) { throw "ADC/flags-stack Xtensa compilation failed" }
+
 $generatedText = Get-Content -LiteralPath $generated -Raw
 foreach ($pattern in @(
         "static uint32_t program_region",
@@ -151,4 +173,4 @@ if ($text -match "(?m)^block_[0-9a-f]+:") {
 Write-Host `
     "Xtensa native-code audit passed: $assembly, $memoryAssembly, " `
     "$callAssembly, $logicAssembly, $shiftAssembly, $stringAssembly, " `
-    "$portAssembly, $rareAssembly"
+    "$portAssembly, $rareAssembly, $indirectAssembly, $adcFlagsAssembly"

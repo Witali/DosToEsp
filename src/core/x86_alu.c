@@ -71,6 +71,45 @@ uint16_t d2e_x86_add16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right) {
     return result;
 }
 
+uint8_t d2e_x86_adc8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right) {
+    const uint16_t carry =
+        (cpu->flags & D2E_X86_FLAG_CF) != 0U ? UINT16_C(1) : 0U;
+    const uint16_t wide = (uint16_t)left + (uint16_t)right + carry;
+    const uint8_t result = (uint8_t)wide;
+    uint16_t flags = common_flags8(result);
+    if (wide > UINT8_MAX) {
+        flags |= D2E_X86_FLAG_CF;
+    }
+    if (((left ^ right ^ result) & UINT8_C(0x10)) != 0U) {
+        flags |= D2E_X86_FLAG_AF;
+    }
+    if (((uint8_t)~(left ^ right) & (left ^ result) & UINT8_C(0x80)) != 0U) {
+        flags |= D2E_X86_FLAG_OF;
+    }
+    replace_arithmetic_flags(cpu, flags);
+    return result;
+}
+
+uint16_t d2e_x86_adc16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right) {
+    const uint32_t carry =
+        (cpu->flags & D2E_X86_FLAG_CF) != 0U ? UINT32_C(1) : 0U;
+    const uint32_t wide = (uint32_t)left + (uint32_t)right + carry;
+    const uint16_t result = (uint16_t)wide;
+    uint16_t flags = common_flags16(result);
+    if (wide > UINT16_MAX) {
+        flags |= D2E_X86_FLAG_CF;
+    }
+    if (((left ^ right ^ result) & UINT16_C(0x10)) != 0U) {
+        flags |= D2E_X86_FLAG_AF;
+    }
+    if (((uint16_t)~(left ^ right) & (left ^ result) &
+         UINT16_C(0x8000)) != 0U) {
+        flags |= D2E_X86_FLAG_OF;
+    }
+    replace_arithmetic_flags(cpu, flags);
+    return result;
+}
+
 uint8_t d2e_x86_sub8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right) {
     const uint8_t result = (uint8_t)(left - right);
     uint16_t flags = common_flags8(result);

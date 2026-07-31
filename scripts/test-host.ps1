@@ -130,6 +130,12 @@ if ($LASTEXITCODE -ne 0) { throw "Native port-boundary tests failed" }
 & (Join-Path $build "d2e_native_rare_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native rare-instruction tests failed" }
 
+& (Join-Path $build "d2e_native_indirect_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "Native indirect jump-table tests failed" }
+
+& (Join-Path $build "d2e_native_adc_flags_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "Native ADC/flags-stack tests failed" }
+
 $mzImageTest = Join-Path $build "d2e_mz_image_tests.exe"
 if (Test-Path -LiteralPath $mzImageTest -PathType Leaf) {
     & $mzImageTest

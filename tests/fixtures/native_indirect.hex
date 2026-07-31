@@ -1,0 +1,6 @@
+# BX is range-checked, scaled and used to select one of three CS-relative words.
+bb 01 00 83 fb 02 76 02 2b db d1 e3 2e ff a7 11 01
+# Jump table: target_zero, target_one, target_two.
+17 01 1b 01 1f 01
+# Each target leaves a distinct AX value.
+b8 11 11 f4 b8 22 22 f4 b8 33 33 f4

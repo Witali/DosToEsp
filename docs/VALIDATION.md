@@ -53,3 +53,21 @@ loader also rejects a relocation whose target is outside the MZ load module.
 
 The extended program ABI retained compatibility with the translated COM
 fixture: host tests, Xtensa assembly audit and ESP32 QEMU smoke all passed.
+
+## 2026-07-31: complete Alley Cat static source generation
+
+A strict recognizer recovered the eight-entry `CS:[BX+0250h]` jump table after
+proving the preceding BX range check and scale. This expanded the reachable
+CFG from 4224 to 8368 instructions and exposed `ADC`, `PUSHF` and `POPF`
+semantics that were not visible before. Dedicated COM fixtures for the jump
+table and carry/flags stack pass on the host and compile with the Xtensa
+toolchain.
+
+The automatic frontend now reports `complete`, emits a 3,045,220-byte
+`game_native.c`, and covers 8368/8368 instruction sites. Espressif GCC 14.2.0
+produced a complete 3,609,428-byte Xtensa assembly file, which assembled into
+a 1,655,940-byte object. The load-relevant `.literal`, `.text` and `.rodata`
+sections total 531,407 bytes before the runtime and final link. This validates
+static source generation and target compilation; BIOS, ports, timing, input
+and display integration remain before the generated game can execute through
+gameplay.

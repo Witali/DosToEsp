@@ -67,6 +67,8 @@ def classify(record: dict[str, Any]) -> tuple[bool, str]:
             return False, "control_transfer"
         if mnemonic == "hlt":
             return True, "supported"
+        if mnemonic == "jmp" and record.get("indirect_targets"):
+            return True, "supported"
         if len(operands) != 1 or operands[0]["type"] != "imm":
             return False, "indirect_control_target"
         return True, "supported"

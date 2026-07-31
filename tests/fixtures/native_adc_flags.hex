@@ -1,0 +1,6 @@
+# Save carry, deliberately clear it, then restore it with POPF.
+f9 9c f8 9d
+# Point DS:BX+SI at the trailing zero byte and compute ff + 00 + carry.
+0e 1f bb 14 01 be 00 00 b0 ff 12 00
+# Preserve the ADC flags across another deliberate CLC.
+9c f8 9d f4 00
