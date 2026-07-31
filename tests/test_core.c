@@ -1,4 +1,5 @@
 #include "d2e/x86_cpu.h"
+#include "d2e/x86_alu.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,6 +74,56 @@ static void test_stack(d2e_x86_cpu *cpu) {
     CHECK(cpu->regs[D2E_X86_SP] == 1U);
 }
 
+static void test_alu_flags(d2e_x86_cpu *cpu) {
+    uint16_t result16;
+    uint8_t result8;
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    result8 = d2e_x86_add8(cpu, UINT8_C(0x7f), 1U);
+    CHECK(result8 == UINT8_C(0x80));
+    CHECK((cpu->flags & D2E_X86_FLAG_OF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_SF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_AF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) == 0U);
+
+    result8 = d2e_x86_add8(cpu, UINT8_C(0xff), 1U);
+    CHECK(result8 == 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_ZF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_PF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_OF) == 0U);
+
+    result16 = d2e_x86_sub16(cpu, UINT16_C(0x8000), 1U);
+    CHECK(result16 == UINT16_C(0x7fff));
+    CHECK((cpu->flags & D2E_X86_FLAG_OF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) == 0U);
+
+    result16 = d2e_x86_sub16(cpu, 0U, 1U);
+    CHECK(result16 == UINT16_C(0xffff));
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_SF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_PF) != 0U);
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF;
+    result16 = d2e_x86_inc16(cpu, UINT16_C(0x7fff));
+    CHECK(result16 == UINT16_C(0x8000));
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_OF) != 0U);
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    result8 = d2e_x86_dec8(cpu, UINT8_C(0x80));
+    CHECK(result8 == UINT8_C(0x7f));
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) == 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_OF) != 0U);
+
+    result16 = d2e_x86_logic16(cpu, UINT16_C(0x0003));
+    CHECK(result16 == UINT16_C(0x0003));
+    CHECK((cpu->flags & D2E_X86_FLAG_PF) != 0U);
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF |
+                         D2E_X86_FLAG_AF | D2E_X86_FLAG_ZF |
+                         D2E_X86_FLAG_SF)) == 0U);
+}
+
 int main(void) {
     uint8_t *const memory = calloc(D2E_X86_MEMORY_SIZE, 1);
     uint32_t *const generations = calloc(D2E_X86_PAGE_COUNT, sizeof(uint32_t));
@@ -90,6 +141,7 @@ int main(void) {
     test_address_wrap(&cpu);
     test_fetch_wrap(&cpu);
     test_stack(&cpu);
+    test_alu_flags(&cpu);
 
     free(generations);
     free(memory);

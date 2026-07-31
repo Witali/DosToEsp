@@ -27,6 +27,23 @@ The game binary is intentionally not part of the repository. Place a legally
 obtained image under `games/` when it becomes available; that directory is
 ignored by Git.
 
+## Developer smoke test
+
+The setup script installs the pinned Capstone disassembler under the ignored
+`local_tools/` directory and verifies its official PyPI SHA-256. The normal
+test command builds a tiny synthetic COM through the complete translation
+pipeline and verifies its final registers and DOS exit code:
+
+```powershell
+.\scripts\setup-analysis-tools.ps1
+.\scripts\test-host.ps1
+.\scripts\audit-xtensa.ps1
+```
+
+The last command asks the ESP32 Xtensa compiler used by the sibling HLV-codec
+project for assembly output and checks for native LX6 instructions such as
+`entry`, `l32i`, `s16i` and `call8`.
+
 There is no x86 opcode interpreter in the firmware. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the execution model and
 acceptance gates.

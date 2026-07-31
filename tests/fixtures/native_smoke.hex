@@ -1,0 +1,11 @@
+# 0100: mov ax,5; mov cx,3
+b8 05 00 b9 03 00
+# 0106: add ax,1; dec cx; jne 0106
+83 c0 01 49 75 fa
+# 010c: cmp ax,8; jne fail
+3d 08 00 75 05
+# 0111: DOS exit(42)
+b8 2a 4c cd 21
+# 0116 fail: DOS exit(255)
+b8 ff 4c cd 21
+

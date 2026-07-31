@@ -27,6 +27,16 @@ $ninja = Find-Tool "ninja.exe" @(
     (Join-Path $sibling "firmware\esp32_2432s028_hlv_player_idf_c\.tools\espressif\tools\ninja\1.12.1\ninja.exe"),
     (Join-Path $sibling "local_tools\msys2\msys64\mingw64\bin\ninja.exe")
 )
+$siblingPython = Join-Path $sibling "local_tools\python\python.exe"
+$python = if (Test-Path -LiteralPath $siblingPython -PathType Leaf) {
+    $siblingPython
+} else {
+    Find-Tool "python.exe" @()
+}
+$capstone = Join-Path $project "local_tools\python_packages\capstone\__init__.py"
+if (-not (Test-Path -LiteralPath $capstone -PathType Leaf)) {
+    & (Join-Path $PSScriptRoot "setup-analysis-tools.ps1")
+}
 $compiler = $null
 $vswhere = Join-Path ${env:ProgramFiles(x86)} `
     "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -63,6 +73,7 @@ if ($Clean -and (Test-Path -LiteralPath $build)) {
 & $cmake -S $project -B $build -G Ninja `
     "-DCMAKE_MAKE_PROGRAM=$ninja" `
     "-DCMAKE_C_COMPILER=$compiler" `
+    "-DD2E_PYTHON=$python" `
     "-DCMAKE_BUILD_TYPE=Debug"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 
@@ -71,3 +82,6 @@ if ($LASTEXITCODE -ne 0) { throw "Host build failed" }
 
 & (Join-Path $build "d2e_core_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Host tests failed" }
+
+& (Join-Path $build "d2e_native_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "Native translation tests failed" }

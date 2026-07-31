@@ -67,6 +67,7 @@ typedef struct d2e_x86_cpu {
     d2e_x86_stop_reason stop_reason;
     uint16_t fault_cs;
     uint16_t fault_ip;
+    uint8_t exit_code;
     uint64_t instructions_retired;
 } d2e_x86_cpu;
 
