@@ -89,6 +89,10 @@ The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
 .\firmware\esp32_cyd\board-smoke.ps1
 ```
 
+The Alley Cat board image runs continuously in translated-code slices. The
+BOOT button sends Space. A serial terminal on UART0 can send letters, digits,
+Enter, Backspace and ANSI arrow-key sequences; the backtick key sends Escape.
+
 There is no x86 opcode interpreter in the firmware. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the execution model and
 acceptance gates.

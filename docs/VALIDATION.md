@@ -125,8 +125,10 @@ The firmware now uses the verified HLV-codec ST7789 SPI2 DMA path. CGA modes
 rows centered vertically on the 320x240 panel. Text rendering covers 25- and
 43-row layouts, active-page offsets, cursor, blink and box-drawing glyphs.
 
-The physical Alley Cat configuration compiled and linked successfully as a
-681,312-byte application image (`0xA6560`), leaving 35% of its one-megabyte
+The physical Alley Cat configuration compiled and linked successfully. After
+adding continuous translated-code slices, an 18.2065 Hz BIOS clock, deferred
+`INT 16h` completion, BOOT-as-Space and UART/ANSI keyboard input, its
+application image is 693,888 bytes (`0xA9680`), leaving 34% of its one-megabyte
 partition free. The QEMU configuration still reaches the same 340,875
 instruction budget boundary after the display sources are linked. This is a
 build and QEMU validation; the new Alley Cat image has not yet been flashed for

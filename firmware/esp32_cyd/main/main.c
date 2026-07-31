@@ -7,13 +7,18 @@
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_system.h"
+#include "esp_timer.h"
+#include "driver/gpio.h"
+#include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "d2e/cga.h"
 #include "d2e/native_runtime.h"
 #include "d2e/pc_at.h"
+#include "d2e/pc_input.h"
 #include "d2e/text_video.h"
+#include "board_config.h"
 #include "cyd_display.h"
 
 #define D2E_CONVENTIONAL_BYTES (UINT32_C(128) * 1024U)
@@ -27,6 +32,64 @@ static d2e_pc_at pc_at;
 static cyd_display_t display;
 
 #if D2E_ALLEY_CAT
+static d2e_pc_input pc_input;
+static uint8_t boot_button_down;
+static uint64_t last_clock_day;
+
+static esp_err_t init_pc_input(void) {
+    gpio_config_t button = {0};
+    button.pin_bit_mask = 1ULL << BOARD_BOOT_BUTTON;
+    button.mode = GPIO_MODE_INPUT;
+    button.pull_up_en = GPIO_PULLUP_ENABLE;
+    button.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    button.intr_type = GPIO_INTR_DISABLE;
+    d2e_pc_input_init(&pc_input);
+    if (!uart_is_driver_installed(UART_NUM_0)) {
+        const esp_err_t uart_result =
+            uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0);
+        if (uart_result != ESP_OK) {
+            return uart_result;
+        }
+    }
+    return gpio_config(&button);
+}
+
+static void poll_pc_input_and_clock(void) {
+    uint8_t bytes[32];
+    size_t buffered = 0U;
+    const uint8_t button_down =
+        gpio_get_level(BOARD_BOOT_BUTTON) == 0 ? 1U : 0U;
+    const uint64_t micros = (uint64_t)esp_timer_get_time();
+    const uint64_t day = micros / UINT64_C(86400000000);
+    const uint64_t day_micros = micros % UINT64_C(86400000000);
+    const uint32_t ticks = (uint32_t)(
+        day_micros * UINT64_C(182065) / UINT64_C(10000000000));
+
+    if (button_down != 0U && boot_button_down == 0U) {
+        (void)d2e_pc_at_enqueue_key(&pc_at, UINT8_C(' '), UINT8_C(0x39));
+    }
+    boot_button_down = button_down;
+    d2e_pc_at_set_timer_ticks(
+        &pc_at, ticks, (uint8_t)(day > last_clock_day ? day - last_clock_day
+                                                       : 0U));
+    last_clock_day = day;
+
+    if (uart_get_buffered_data_len(UART_NUM_0, &buffered) == ESP_OK &&
+        buffered != 0U) {
+        int received;
+        if (buffered > sizeof(bytes)) {
+            buffered = sizeof(bytes);
+        }
+        received = uart_read_bytes(UART_NUM_0, bytes, buffered, 0U);
+        if (received > 0) {
+            int index;
+            for (index = 0; index < received; ++index) {
+                (void)d2e_pc_input_feed_byte(&pc_input, &pc_at, bytes[index]);
+            }
+        }
+    }
+}
+
 static esp_err_t render_pc_frame(void) {
     const int rows_per_transfer = cyd_display_rows_per_transfer(&display);
     d2e_text_render_config text_config = {0};
@@ -111,6 +174,9 @@ void app_main(void) {
     d2e_pc_at_attach(&pc_at, &cpu);
 #if !D2E_QEMU_SMOKE
     ESP_ERROR_CHECK(cyd_display_init(&display));
+#if D2E_ALLEY_CAT
+    ESP_ERROR_CHECK(init_pc_input());
+#endif
 #endif
     if (!d2e_native_load(&cpu, &d2e_generated_program)) {
         esp_rom_printf("D2E_NATIVE_FAIL,load,reason=%u,address=%08x\n",
@@ -126,7 +192,22 @@ void app_main(void) {
         (unsigned)cpu.segments[D2E_X86_SS],
         (unsigned)cpu.regs[D2E_X86_SP],
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+#if D2E_QEMU_SMOKE
     reason = d2e_native_run(&cpu, &d2e_generated_program, UINT32_C(100000));
+#else
+    for (;;) {
+        reason =
+            d2e_native_run(&cpu, &d2e_generated_program, UINT32_C(100000));
+        ESP_ERROR_CHECK(render_pc_frame());
+        poll_pc_input_and_clock();
+        if (reason == D2E_X86_BUDGET_EXHAUSTED ||
+            reason == D2E_X86_WAITING_INPUT) {
+            vTaskDelay(pdMS_TO_TICKS(16));
+            continue;
+        }
+        break;
+    }
+#endif
     esp_rom_printf(
         "D2E_ALLEY_STOP,reason=%u,csip=%04x:%04x,ax=%04x,bx=%04x,"
         "cx=%04x,dx=%04x,instructions=%" PRIu64 ",address=%08x,"
@@ -138,9 +219,6 @@ void app_main(void) {
         (unsigned)cpu.regs[D2E_X86_DX], cpu.instructions_retired,
         (unsigned)cpu.fault_address,
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
-#if !D2E_QEMU_SMOKE
-    ESP_ERROR_CHECK(render_pc_frame());
-#endif
     finish(0);
 #else
     reason = d2e_native_run(&cpu, &d2e_generated_program, 100U);

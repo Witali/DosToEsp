@@ -36,9 +36,10 @@ and function; supported services return without an x86 interpreter.
 - [x] Implement the observed baseline `INT 15h` services (`86h`, `88h`, `90h`,
   `91h`, `C0h`) as strict deterministic PC/AT responses.
 - [x] Maintain BIOS Data Area video fields used by DOS software.
-- [ ] Drive ticks at 18.2065 Hz and implement midnight/RTC behaviour from the
+- [x] Drive ticks at 18.2065 Hz and implement midnight rollover from the
   ESP32 clock.
-- [ ] Map board input to BIOS scan/ASCII codes and modifier state.
+- [x] Map BOOT and UART/ANSI input to BIOS scan/ASCII codes; modifier state
+  remains for a future multi-button or USB keyboard source.
 - [ ] Confirm every observed subfunction with a reference trace.
 
 Acceptance: Alley Cat and Volkov Commander pass every observed non-video BIOS
