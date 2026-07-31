@@ -109,6 +109,9 @@ if ($LASTEXITCODE -ne 0) { throw "Text video tests failed" }
 & (Join-Path $build "d2e_pc_at_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "PC/AT BIOS tests failed" }
 
+& (Join-Path $build "d2e_pc_input_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "PC keyboard input tests failed" }
+
 & (Join-Path $build "d2e_loader_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "MZ loader tests failed" }
 

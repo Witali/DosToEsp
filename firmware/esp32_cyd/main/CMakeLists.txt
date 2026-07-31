@@ -25,6 +25,7 @@ idf_component_register(
         "${d2e_root}/src/devices/cp437_font.c"
         "${d2e_root}/src/devices/text_video.c"
         "${d2e_root}/src/machine/pc_at.c"
+        "${d2e_root}/src/machine/pc_input.c"
     INCLUDE_DIRS
         "."
         "${d2e_root}/include"
