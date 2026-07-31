@@ -193,7 +193,35 @@ void app_main(void) {
         (unsigned)cpu.regs[D2E_X86_SP],
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 #if D2E_QEMU_SMOKE
-    reason = d2e_native_run(&cpu, &d2e_generated_program, UINT32_C(100000));
+    {
+        unsigned slice;
+        unsigned slices = 0U;
+        for (slice = 0U; slice < 64U; ++slice) {
+            d2e_pc_at_set_timer_ticks(&pc_at, (uint32_t)slice, 0U);
+            reason = d2e_native_run(&cpu, &d2e_generated_program,
+                                    UINT32_C(100000));
+            ++slices;
+            if (reason != D2E_X86_BUDGET_EXHAUSTED) {
+                break;
+            }
+        }
+        esp_rom_printf("D2E_ALLEY_SLICES,%u\n", slices);
+        {
+            uint32_t hash = UINT32_C(2166136261);
+            size_t nonzero = 0U;
+            size_t index;
+            for (index = 0U; index < sizeof(cga_vram); ++index) {
+                hash = (hash ^ cga_vram[index]) * UINT32_C(16777619);
+                if (cga_vram[index] != 0U) {
+                    ++nonzero;
+                }
+            }
+            esp_rom_printf(
+                "D2E_ALLEY_VIDEO,mode=%u,nonzero=%u,fnv1a=%08x\n",
+                (unsigned)pc_at.video_mode, (unsigned)nonzero,
+                (unsigned)hash);
+        }
+    }
 #else
     for (;;) {
         reason =

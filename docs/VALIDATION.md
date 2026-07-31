@@ -129,7 +129,16 @@ The physical Alley Cat configuration compiled and linked successfully. After
 adding continuous translated-code slices, an 18.2065 Hz BIOS clock, deferred
 `INT 16h` completion, BOOT-as-Space and UART/ANSI keyboard input, its
 application image is 693,888 bytes (`0xA9680`), leaving 34% of its one-megabyte
-partition free. The QEMU configuration still reaches the same 340,875
-instruction budget boundary after the display sources are linked. This is a
-build and QEMU validation; the new Alley Cat image has not yet been flashed for
-visual inspection on the physical panel.
+partition free. A 64-slice QEMU probe then executed 21,778,510 translated
+instructions without an unsupported boundary and reported:
+
+```text
+D2E_ALLEY_SLICES,64
+D2E_ALLEY_VIDEO,mode=4,nonzero=15002,fnv1a=9337185a
+D2E_ALLEY_STOP,reason=8,csip=1723:2b4b,ax=0000,bx=c41a,cx=0000,dx=3a98,instructions=21778510,address=00000000,heap=157260
+```
+
+This proves that initialization reaches a non-empty CGA mode 4 frame with a
+deterministic VRAM hash. Physical serial-port enumeration found no connected
+COM device during this run, so the new Alley Cat image has not yet been flashed
+for visual inspection on the panel.
