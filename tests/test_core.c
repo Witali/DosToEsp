@@ -124,6 +124,24 @@ static void test_alu_flags(d2e_x86_cpu *cpu) {
                          D2E_X86_FLAG_SF)) == 0U);
 }
 
+static void test_sparse_video_mapping(void) {
+    uint8_t conventional[UINT16_C(0x1000)];
+    uint8_t cga_vram[UINT16_C(0x4000)];
+    d2e_x86_cpu cpu;
+
+    memset(conventional, 0, sizeof(conventional));
+    memset(cga_vram, 0, sizeof(cga_vram));
+    d2e_x86_cpu_init(&cpu, conventional, sizeof(conventional), NULL);
+    d2e_x86_map_cga_vram(&cpu, cga_vram);
+    d2e_x86_write8(&cpu, UINT32_C(0xb8123), UINT8_C(0x5a));
+    CHECK(cga_vram[UINT16_C(0x0123)] == UINT8_C(0x5a));
+    CHECK(d2e_x86_read8(&cpu, UINT32_C(0xb8123)) == UINT8_C(0x5a));
+    CHECK(d2e_x86_read8(&cpu, UINT32_C(0xa0000)) == UINT8_C(0xff));
+    d2e_x86_write8(&cpu, UINT32_C(0xa0000), 0);
+    CHECK(cpu.stop_reason == D2E_X86_UNMAPPED_MEMORY);
+    CHECK(cpu.fault_address == UINT32_C(0xa0000));
+}
+
 int main(void) {
     uint8_t *const memory = calloc(D2E_X86_MEMORY_SIZE, 1);
     uint32_t *const generations = calloc(D2E_X86_PAGE_COUNT, sizeof(uint32_t));
@@ -136,12 +154,13 @@ int main(void) {
         return 2;
     }
 
-    d2e_x86_cpu_init(&cpu, memory, generations);
+    d2e_x86_cpu_init(&cpu, memory, D2E_X86_MEMORY_SIZE, generations);
     test_register_bytes(&cpu);
     test_address_wrap(&cpu);
     test_fetch_wrap(&cpu);
     test_stack(&cpu);
     test_alu_flags(&cpu);
+    test_sparse_video_mapping();
 
     free(generations);
     free(memory);

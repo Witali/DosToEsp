@@ -52,6 +52,7 @@ typedef enum d2e_x86_stop_reason {
     D2E_X86_EXITED,
     D2E_X86_UNTRANSLATED_TARGET,
     D2E_X86_CODE_MODIFIED,
+    D2E_X86_UNMAPPED_MEMORY,
     D2E_X86_DIVIDE_ERROR,
     D2E_X86_UNHANDLED_INTERRUPT,
     D2E_X86_BUDGET_EXHAUSTED
@@ -63,17 +64,21 @@ typedef struct d2e_x86_cpu {
     uint16_t ip;
     uint16_t flags;
     uint8_t *memory;
+    size_t memory_size;
+    uint8_t *cga_vram;
     uint32_t *page_generations;
     d2e_x86_stop_reason stop_reason;
     uint16_t fault_cs;
     uint16_t fault_ip;
+    uint32_t fault_address;
     uint8_t exit_code;
     uint64_t instructions_retired;
 } d2e_x86_cpu;
 
-void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory,
+void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory, size_t memory_size,
                       uint32_t *page_generations);
 void d2e_x86_cpu_reset(d2e_x86_cpu *cpu);
+void d2e_x86_map_cga_vram(d2e_x86_cpu *cpu, uint8_t *cga_vram);
 
 uint8_t d2e_x86_get_reg8(const d2e_x86_cpu *cpu, unsigned encoded_reg);
 void d2e_x86_set_reg8(d2e_x86_cpu *cpu, unsigned encoded_reg, uint8_t value);

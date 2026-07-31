@@ -2,23 +2,32 @@
 
 #include <string.h>
 
-void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory,
+void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory, size_t memory_size,
                       uint32_t *page_generations) {
     memset(cpu, 0, sizeof(*cpu));
     cpu->memory = memory;
+    cpu->memory_size = memory_size;
     cpu->page_generations = page_generations;
     d2e_x86_cpu_reset(cpu);
 }
 
 void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     uint8_t *const memory = cpu->memory;
+    const size_t memory_size = cpu->memory_size;
+    uint8_t *const cga_vram = cpu->cga_vram;
     uint32_t *const page_generations = cpu->page_generations;
 
     memset(cpu, 0, sizeof(*cpu));
     cpu->memory = memory;
+    cpu->memory_size = memory_size;
+    cpu->cga_vram = cga_vram;
     cpu->page_generations = page_generations;
     cpu->flags = D2E_X86_FLAG_FIXED;
     cpu->stop_reason = D2E_X86_RUNNING;
+}
+
+void d2e_x86_map_cga_vram(d2e_x86_cpu *cpu, uint8_t *cga_vram) {
+    cpu->cga_vram = cga_vram;
 }
 
 uint8_t d2e_x86_get_reg8(const d2e_x86_cpu *cpu, unsigned encoded_reg) {

@@ -28,7 +28,8 @@ int d2e_native_load_com(d2e_x86_cpu *cpu,
         d2e_x86_linear(program->load_segment, UINT16_C(0x0100));
 
     if (program->image_size > UINT16_C(0xff00) ||
-        image + program->image_size > D2E_X86_MEMORY_SIZE) {
+        psp + UINT16_C(0x0100) > cpu->memory_size ||
+        image + program->image_size > cpu->memory_size) {
         return 0;
     }
 
@@ -44,7 +45,7 @@ int d2e_native_load_com(d2e_x86_cpu *cpu,
     cpu->regs[D2E_X86_SP] = UINT16_C(0xfffe);
     cpu->ip = program->entry_ip;
     d2e_x86_write16_seg(cpu, program->load_segment, UINT16_C(0xfffe), 0);
-    return 1;
+    return cpu->stop_reason == D2E_X86_RUNNING;
 }
 
 d2e_x86_stop_reason d2e_native_run(d2e_x86_cpu *cpu,
@@ -87,4 +88,3 @@ void d2e_native_interrupt(d2e_x86_cpu *cpu, uint8_t interrupt_number) {
     cpu->fault_ip = cpu->ip;
     cpu->stop_reason = D2E_X86_UNHANDLED_INTERRUPT;
 }
-

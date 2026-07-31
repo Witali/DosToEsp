@@ -4,6 +4,22 @@ static uint32_t wrap_address(uint32_t address) {
     return address & D2E_X86_ADDRESS_MASK;
 }
 
+static const uint8_t *resolve_read(const d2e_x86_cpu *cpu, uint32_t address) {
+    const uint32_t wrapped = wrap_address(address);
+    if (wrapped < cpu->memory_size) {
+        return cpu->memory + wrapped;
+    }
+    if (cpu->cga_vram != NULL && wrapped >= UINT32_C(0xb8000) &&
+        wrapped < UINT32_C(0xbc000)) {
+        return cpu->cga_vram + (wrapped - UINT32_C(0xb8000));
+    }
+    return NULL;
+}
+
+static uint8_t *resolve_write(d2e_x86_cpu *cpu, uint32_t address) {
+    return (uint8_t *)resolve_read(cpu, address);
+}
+
 static void mark_write(d2e_x86_cpu *cpu, uint32_t address) {
     if (cpu->page_generations != NULL) {
         ++cpu->page_generations[wrap_address(address) >> D2E_X86_PAGE_SHIFT];
@@ -16,7 +32,8 @@ uint32_t d2e_x86_linear(uint16_t segment, uint16_t offset) {
 }
 
 uint8_t d2e_x86_read8(const d2e_x86_cpu *cpu, uint32_t address) {
-    return cpu->memory[wrap_address(address)];
+    const uint8_t *const location = resolve_read(cpu, address);
+    return location != NULL ? *location : UINT8_C(0xff);
 }
 
 uint16_t d2e_x86_read16(const d2e_x86_cpu *cpu, uint32_t address) {
@@ -27,7 +44,13 @@ uint16_t d2e_x86_read16(const d2e_x86_cpu *cpu, uint32_t address) {
 
 void d2e_x86_write8(d2e_x86_cpu *cpu, uint32_t address, uint8_t value) {
     const uint32_t wrapped = wrap_address(address);
-    cpu->memory[wrapped] = value;
+    uint8_t *const location = resolve_write(cpu, wrapped);
+    if (location == NULL) {
+        cpu->fault_address = wrapped;
+        cpu->stop_reason = D2E_X86_UNMAPPED_MEMORY;
+        return;
+    }
+    *location = value;
     mark_write(cpu, wrapped);
 }
 

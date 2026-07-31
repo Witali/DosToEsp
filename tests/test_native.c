@@ -6,7 +6,8 @@
 extern const d2e_native_program d2e_generated_program;
 
 int main(void) {
-    uint8_t *const memory = calloc(D2E_X86_MEMORY_SIZE, 1);
+    const size_t conventional_size = UINT32_C(128) * 1024U;
+    uint8_t *const memory = calloc(conventional_size, 1);
     uint32_t *const generations = calloc(D2E_X86_PAGE_COUNT, sizeof(uint32_t));
     d2e_x86_cpu cpu;
     int failed = 0;
@@ -17,7 +18,7 @@ int main(void) {
         free(memory);
         return 2;
     }
-    d2e_x86_cpu_init(&cpu, memory, generations);
+    d2e_x86_cpu_init(&cpu, memory, conventional_size, generations);
     if (!d2e_native_load_com(&cpu, &d2e_generated_program)) {
         fprintf(stderr, "COM load failed\n");
         failed = 1;
@@ -43,4 +44,3 @@ int main(void) {
     puts("native translated COM test passed");
     return 0;
 }
-
