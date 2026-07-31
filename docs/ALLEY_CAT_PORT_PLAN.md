@@ -84,8 +84,10 @@ fewer guest-state loads/stores and no x86 interpreter dispatch.
 
 ### 6. Program and DOS machine loading
 
-- [ ] Complete PSP and COM startup semantics, or implement MZ header,
-  relocation and initial register loading if the fingerprinted target is EXE.
+- [x] Pack the fingerprinted MZ load module and implement PSP, relocation and
+  initial register loading with all nine target relocations verified.
+- [ ] Generate segmented native target keys and connect the MZ image to its
+  translated regions.
 - [ ] Add only the DOS/BIOS calls observed in the inventory.
 - [ ] Model the required conventional-memory allocation and files from bundled
   game assets.

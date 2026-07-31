@@ -76,11 +76,20 @@ if ($Clean -and (Test-Path -LiteralPath $build)) {
     Remove-Item -LiteralPath $resolvedBuild -Recurse -Force
 }
 
-& $cmake -S $project -B $build -G Ninja `
-    "-DCMAKE_MAKE_PROGRAM=$ninja" `
-    "-DCMAKE_C_COMPILER=$compiler" `
-    "-DD2E_PYTHON=$python" `
+$configureArguments = @(
+    "-S", $project,
+    "-B", $build,
+    "-G", "Ninja",
+    "-DCMAKE_MAKE_PROGRAM=$ninja",
+    "-DCMAKE_C_COMPILER=$compiler",
+    "-DD2E_PYTHON=$python",
     "-DCMAKE_BUILD_TYPE=Debug"
+)
+$alleyCat = Join-Path $project "games\Alley-Cat_DOS_EN\alley-cat\CAT.EXE"
+if (Test-Path -LiteralPath $alleyCat -PathType Leaf) {
+    $configureArguments += "-DD2E_ALLEY_CAT_EXE=$alleyCat"
+}
+& $cmake @configureArguments
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 
 & $cmake --build $build
@@ -92,5 +101,14 @@ if ($LASTEXITCODE -ne 0) { throw "Host tests failed" }
 & (Join-Path $build "d2e_cga_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "CGA tests failed" }
 
+& (Join-Path $build "d2e_loader_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "MZ loader tests failed" }
+
 & (Join-Path $build "d2e_native_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native translation tests failed" }
+
+$mzImageTest = Join-Path $build "d2e_mz_image_tests.exe"
+if (Test-Path -LiteralPath $mzImageTest -PathType Leaf) {
+    & $mzImageTest
+    if ($LASTEXITCODE -ne 0) { throw "Generated Alley Cat MZ image test failed" }
+}

@@ -65,13 +65,20 @@ def main() -> int:
     mz[:2] = b"MZ"
     struct.pack_into("<H", mz, 0x02, len(mz))
     struct.pack_into("<H", mz, 0x04, 1)
+    struct.pack_into("<H", mz, 0x06, 1)
     struct.pack_into("<H", mz, 0x08, 2)
+    struct.pack_into("<H", mz, 0x18, 0x1C)
+    struct.pack_into("<HH", mz, 0x1C, 0, 0)
     mz[32] = 0xF4
     mz_image = d2e_analyze.identify(bytes(mz), "auto", None, None)
     mz_report = d2e_analyze.analyze(mz_image, "tiny.exe")
     assert mz_report["file"]["format"] == "mz"
     assert mz_report["file"]["module_size"] == 1
+    assert mz_report["relocations"] == [{"offset": 0, "segment": 0}]
     assert mz_report["instruction_frequency"] == {"hlt": 1}
+    packed = __import__("d2e_pack_mz").emit(mz_image, "tiny", 0x1000)
+    assert ".format = D2E_NATIVE_IMAGE_MZ" in packed
+    assert "{UINT16_C(0x0000), UINT16_C(0x0000)}" in packed
     print("static inventory tests passed")
     return 0
 

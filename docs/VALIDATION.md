@@ -42,3 +42,14 @@ single `program_region` symbol and no guest `block_*` function symbols.
 The regenerated firmware passed both QEMU and physical COM8 smoke tests with
 the same state as above. Its application image was 145440 bytes, leaving 86%
 of the application partition free.
+
+## 2026-07-31: Alley Cat MZ load image
+
+The ignored user-supplied `CAT.EXE` is packed into generated C during local
+host testing. The loader copied its 54555-byte load module, created the PSP,
+set initial `CS:IP=1723:0000`, `SS:SP=1000:0100`, `DS=ES=0FF0`, and verified
+all nine relocated words after adding module segment `1000h`. The generic
+loader also rejects a relocation whose target is outside the MZ load module.
+
+The extended program ABI retained compatibility with the translated COM
+fixture: host tests, Xtensa assembly audit and ESP32 QEMU smoke all passed.

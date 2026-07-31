@@ -92,3 +92,8 @@ The largest single gain is therefore a shared ModR/M memory operand layer. It
 unblocks 976 `mov`, 305 `cmp` and many arithmetic/boolean sites. Direct
 `call`/`ret` and stack semantics are the second critical dependency rather than
 isolated opcode work.
+
+The runtime MZ loader and local packer now load the complete 54555-byte module,
+construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and `ES`, and verify all
+nine relocation results in a generated host test. Native code generation still
+needs segmented MZ target keys before the game can execute.

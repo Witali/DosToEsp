@@ -27,7 +27,8 @@ int d2e_native_load_com(d2e_x86_cpu *cpu,
     const uint32_t image =
         d2e_x86_linear(program->load_segment, UINT16_C(0x0100));
 
-    if (program->image_size > UINT16_C(0xff00) ||
+    if (program->format != D2E_NATIVE_IMAGE_COM ||
+        program->image_size > UINT16_C(0xff00) ||
         psp + UINT16_C(0x0100) > cpu->memory_size ||
         image + program->image_size > cpu->memory_size) {
         return 0;
@@ -45,6 +46,68 @@ int d2e_native_load_com(d2e_x86_cpu *cpu,
     cpu->regs[D2E_X86_SP] = UINT16_C(0xfffe);
     cpu->ip = program->entry_ip;
     d2e_x86_write16_seg(cpu, program->load_segment, UINT16_C(0xfffe), 0);
+    return cpu->stop_reason == D2E_X86_RUNNING;
+}
+
+int d2e_native_load_mz(d2e_x86_cpu *cpu,
+                       const d2e_native_program *program) {
+    uint16_t psp_segment;
+    uint32_t psp;
+    uint32_t image;
+    size_t index;
+
+    if (program->format != D2E_NATIVE_IMAGE_MZ ||
+        program->load_segment < UINT16_C(0x0010) ||
+        (program->relocation_count != 0U && program->relocations == NULL)) {
+        return 0;
+    }
+    psp_segment = (uint16_t)(program->load_segment - UINT16_C(0x0010));
+    psp = d2e_x86_linear(psp_segment, 0);
+    image = d2e_x86_linear(program->load_segment, 0);
+    if (psp + UINT16_C(0x0100) > cpu->memory_size ||
+        image + program->image_size > cpu->memory_size) {
+        return 0;
+    }
+    for (index = 0; index < program->relocation_count; ++index) {
+        const d2e_mz_relocation *const relocation =
+            &program->relocations[index];
+        const uint32_t module_offset =
+            (uint32_t)relocation->segment * UINT32_C(16) +
+            relocation->offset;
+        if (module_offset + 1U >= program->image_size) {
+            return 0;
+        }
+    }
+
+    d2e_x86_cpu_reset(cpu);
+    memset(cpu->memory + psp, 0, UINT16_C(0x0100));
+    memcpy(cpu->memory + image, program->image, program->image_size);
+    cpu->memory[psp] = UINT8_C(0xcd);
+    cpu->memory[psp + 1U] = UINT8_C(0x20);
+
+    for (index = 0; index < program->relocation_count; ++index) {
+        const d2e_mz_relocation *const relocation =
+            &program->relocations[index];
+        const uint32_t module_offset =
+            (uint32_t)relocation->segment * UINT32_C(16) +
+            relocation->offset;
+        const uint32_t address = image + module_offset;
+        uint16_t value;
+        value = (uint16_t)(cpu->memory[address] |
+                           ((uint16_t)cpu->memory[address + 1U] << 8U));
+        value = (uint16_t)(value + program->load_segment);
+        cpu->memory[address] = (uint8_t)value;
+        cpu->memory[address + 1U] = (uint8_t)(value >> 8U);
+    }
+
+    cpu->segments[D2E_X86_CS] =
+        (uint16_t)(program->load_segment + program->entry_cs);
+    cpu->segments[D2E_X86_SS] =
+        (uint16_t)(program->load_segment + program->initial_ss);
+    cpu->segments[D2E_X86_DS] = psp_segment;
+    cpu->segments[D2E_X86_ES] = psp_segment;
+    cpu->regs[D2E_X86_SP] = program->initial_sp;
+    cpu->ip = program->entry_ip;
     return cpu->stop_reason == D2E_X86_RUNNING;
 }
 

@@ -35,6 +35,7 @@ class Image:
     base: int
     entry: int
     metadata: dict[str, int]
+    relocations: tuple[tuple[int, int], ...]
 
 
 def read_hex(path: pathlib.Path) -> bytes:
@@ -66,13 +67,26 @@ def identify(data: bytes, requested: str, base: int | None, entry: int | None) -
         module = data[header_bytes:declared_size]
         initial_cs = u16(data, 0x16)
         initial_ip = u16(data, 0x14)
+        relocation_count = u16(data, 0x06)
+        relocation_table_offset = u16(data, 0x18)
+        relocation_end = relocation_table_offset + relocation_count * 4
+        if relocation_end > header_bytes or relocation_end > len(data):
+            raise ValueError("MZ relocation table leaves the executable header")
+        relocations = tuple(
+            (
+                u16(data, relocation_table_offset + index * 4),
+                u16(data, relocation_table_offset + index * 4 + 2),
+            )
+            for index in range(relocation_count)
+        )
         module_base = 0 if base is None else base
         image_entry = module_base + initial_cs * 16 + initial_ip
         if entry is not None:
             image_entry = entry
         metadata = {
             "header_bytes": header_bytes,
-            "relocation_count": u16(data, 0x06),
+            "relocation_count": relocation_count,
+            "relocation_table_offset": relocation_table_offset,
             "initial_cs": initial_cs,
             "initial_ip": initial_ip,
             "initial_ss": u16(data, 0x0E),
@@ -80,13 +94,15 @@ def identify(data: bytes, requested: str, base: int | None, entry: int | None) -
             "minimum_extra_paragraphs": u16(data, 0x0A),
             "maximum_extra_paragraphs": u16(data, 0x0C),
         }
-        return Image(data, module, "mz", module_base, image_entry, metadata)
+        return Image(
+            data, module, "mz", module_base, image_entry, metadata, relocations
+        )
 
     if image_format not in ("com", "raw"):
         raise ValueError(f"unsupported image format: {image_format}")
     module_base = (0x100 if image_format == "com" else 0) if base is None else base
     image_entry = module_base if entry is None else entry
-    return Image(data, data, image_format, module_base, image_entry, {})
+    return Image(data, data, image_format, module_base, image_entry, {}, ())
 
 
 def operand_record(instruction: Any, operand: Any) -> dict[str, Any]:
@@ -333,6 +349,10 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
         "segment_overrides": segment_overrides,
         "cga_candidates": cga_candidates,
         "memory_write_instructions": sorted(set(memory_writes)),
+        "relocations": [
+            {"offset": offset, "segment": segment}
+            for offset, segment in image.relocations
+        ],
         "unresolved_flow": [
             {"address": address, "kind": kind, "operand": operand}
             for address, kind, operand in sorted(unresolved)
