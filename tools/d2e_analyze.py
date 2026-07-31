@@ -133,7 +133,7 @@ def operand_record(instruction: Any, operand: Any) -> dict[str, Any]:
 def direct_target(record: dict[str, Any]) -> int | None:
     operands = record["operands"]
     if len(operands) == 1 and operands[0]["type"] == "imm":
-        return int(operands[0]["value"])
+        return int(operands[0]["value"]) & 0xFFFF
     return None
 
 

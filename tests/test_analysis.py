@@ -61,6 +61,24 @@ def main() -> int:
         {"address": 0x100, "kind": "jump", "operand": "ax"}
     ]
 
+    high_target_data = bytearray(0x8F01)
+    high_target_data[:3] = bytes.fromhex("e9 fd 8e")
+    high_target_data[-1] = 0xF4
+    high_target = d2e_analyze.analyze(
+        d2e_analyze.identify(bytes(high_target_data), "com", None, None),
+        "high-target.com",
+    )
+    assert high_target["summary"] == {
+        "instruction_count": 2,
+        "block_count": 2,
+        "edge_count": 1,
+        "unresolved_flow_count": 0,
+        "issue_count": 0,
+    }
+    assert high_target["blocks"][0]["successors"] == [
+        {"kind": "jump", "source": 0x100, "target": 0x9000}
+    ]
+
     jump_table_data = d2e_analyze.read_hex(
         ROOT / "tests" / "fixtures" / "native_indirect.hex"
     )
