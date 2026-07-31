@@ -196,11 +196,14 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
             except d2e_translate.TranslationError as error:
                 issues.add((address, str(error)))
                 break
+            mnemonic = d2e_translate.normalize_8086_mnemonic(
+                bytes(instruction.bytes), instruction.mnemonic
+            )
             record = {
                 "address": address,
                 "size": int(instruction.size),
                 "bytes": bytes(instruction.bytes).hex(),
-                "mnemonic": instruction.mnemonic.lower(),
+                "mnemonic": mnemonic,
                 "op_str": instruction.op_str,
                 "prefixes": [f"0x{value:02x}" for value in instruction.prefix if value],
                 "operands": [
@@ -211,7 +214,7 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
             translated_instruction = d2e_translate.Instruction(
                 address=address,
                 size=int(instruction.size),
-                mnemonic=instruction.mnemonic.lower(),
+                mnemonic=mnemonic,
                 op_str=instruction.op_str,
                 operands=tuple(
                     d2e_translate.operand_tuple(instruction, operand)

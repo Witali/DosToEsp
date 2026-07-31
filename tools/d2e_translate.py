@@ -139,6 +139,23 @@ def require_8086_encoding(encoded: bytes, address: int) -> None:
         )
 
 
+def normalize_8086_mnemonic(encoded: bytes, mnemonic: str) -> str:
+    """Correct operand-size-dependent names using the fixed 16-bit profile."""
+    opcode_index = 0
+    while (
+        opcode_index < len(encoded)
+        and encoded[opcode_index] in INTEL_8086_PREFIXES
+    ):
+        opcode_index += 1
+    if opcode_index < len(encoded):
+        opcode = encoded[opcode_index]
+        if opcode == 0x98:
+            return "cbw"
+        if opcode == 0x99:
+            return "cwd"
+    return mnemonic.lower()
+
+
 def read_hex(path: pathlib.Path) -> bytes:
     chunks: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -187,7 +204,9 @@ def decode_one(disassembler: Cs, image: bytes, base: int, address: int) -> Instr
     return Instruction(
         address=address,
         size=decoded.size,
-        mnemonic=decoded.mnemonic.lower(),
+        mnemonic=normalize_8086_mnemonic(
+            bytes(decoded.bytes), decoded.mnemonic
+        ),
         op_str=decoded.op_str,
         operands=tuple(operand_tuple(decoded, operand) for operand in decoded.operands),
     )
@@ -699,6 +718,13 @@ def translate_data_instruction(
         raise TranslationError(f"unsupported MUL width {width}")
     if mnemonic == "aaa" and not operands:
         return ["r_ax = d2e_x86_aaa(cpu, r_ax);"]
+    if mnemonic == "cbw" and not operands:
+        return ["r_ax = (uint16_t)(int16_t)(int8_t)(uint8_t)r_ax;"]
+    if mnemonic == "cwd" and not operands:
+        return [
+            "r_dx = (r_ax & UINT16_C(0x8000)) != 0U "
+            "? UINT16_C(0xffff) : UINT16_C(0x0000);"
+        ]
     if mnemonic in ("clc", "cld", "cli") and not operands:
         flag = {
             "clc": "D2E_X86_FLAG_CF",
@@ -752,6 +778,10 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 used.add("sp")
             if instruction.mnemonic in ("lahf", "sahf"):
                 used.add("ax")
+            if instruction.mnemonic == "cbw":
+                used.add("ax")
+            if instruction.mnemonic == "cwd":
+                used.update(("ax", "dx"))
             if instruction.mnemonic.startswith("rep "):
                 used.add("cx")
             if instruction.mnemonic in ("mul", "aaa"):

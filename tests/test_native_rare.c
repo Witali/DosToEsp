@@ -21,16 +21,16 @@ int main(void) {
         fprintf(stderr, "rare fixture failed: reason=%u target=%04x:%04x\n",
                 (unsigned)cpu.stop_reason, cpu.fault_cs, cpu.fault_ip);
         failed = 1;
-    } else if (cpu.regs[D2E_X86_AX] != UINT16_C(0x0a00) ||
+    } else if (cpu.regs[D2E_X86_AX] != UINT16_C(0xff80) ||
                cpu.regs[D2E_X86_BX] != UINT16_C(2) ||
                cpu.regs[D2E_X86_CX] != UINT16_C(1) ||
-               cpu.regs[D2E_X86_DX] != UINT16_C(0x0139) ||
+               cpu.regs[D2E_X86_DX] != UINT16_C(0xffff) ||
                cpu.regs[D2E_X86_BP] != UINT16_C(0x0a00) ||
                cpu.regs[D2E_X86_SI] != UINT16_C(6) ||
                cpu.regs[D2E_X86_DI] != UINT16_C(0x3412) ||
                cpu.regs[D2E_X86_SP] != UINT16_C(0xfffe) ||
-               cpu.ip != UINT16_C(0x013a) ||
-               cpu.instructions_retired != UINT64_C(26)) {
+               cpu.ip != UINT16_C(0x013e) ||
+               cpu.instructions_retired != UINT64_C(29)) {
         fprintf(stderr,
                 "unexpected rare state: ax=%04x bx=%04x cx=%04x dx=%04x "
                 "bp=%04x si=%04x di=%04x sp=%04x ip=%04x instructions=%llu\n",
