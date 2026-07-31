@@ -1,24 +1,32 @@
 # Architecture
 
-## Why a block translator
+## Native translation contract
 
 Directly converting a whole DOS executable into fixed Xtensa addresses is not
 safe for the software we want to run. Real-mode code can use computed jumps,
-overlapping segments and writes into executable memory. DosToEsp therefore
-uses a dynamic binary translator (DBT): it decodes one straight-line 8086
-basic block on first execution and caches a compact array of micro-operations.
-The C compiler turns the executor and its hot paths into Xtensa LX6 machine
-code as part of the ESP-IDF build.
+overlapping segments and writes into executable memory. DosToEsp handles this
+with an ahead-of-time (AOT) basic-block translator on the development PC:
 
-This first representation is intentionally portable. Once traces identify a
-real bottleneck, individual micro-operations or complete hot blocks can gain
-Xtensa-specific templates without changing guest-visible behaviour.
+1. the translator disassembles all statically reachable 8086 blocks;
+2. it emits a native function for every block and a lookup table for indirect
+   control-flow targets;
+3. ESP-IDF compiles those functions into Xtensa LX6 instructions;
+4. profiling or an emulator trace can add targets missed by static analysis,
+   then the game is translated and rebuilt again.
+
+The firmware must not contain an x86 fetch/decode/execute loop, bytecode
+executor or micro-operation interpreter. Unsupported code addresses stop with
+a diagnostic so that the next offline translation pass can include them.
+Performance-critical operations may use explicit Xtensa assembly templates;
+ordinary emitted C is still native translation because the Xtensa compiler
+lowers each source block before the firmware is built.
 
 ## Components
 
-- `core`: 8086 registers, 20-bit memory wrapping, flags, instruction decoder,
-  micro-operation cache and executor. This code is freestanding C99 and owns
-  no files, display or input devices.
+- `translator`: host-only 8086 decoder, control-flow discovery and source
+  emitter. It is not linked into the ESP32 firmware.
+- `runtime`: the guest register file, 20-bit address helpers, flags, native
+  block dispatcher and platform call boundary. It has no x86 opcode decoder.
 - `machine`: COM/MZ loading plus a narrow DOS/BIOS environment. Interrupts are
   routed to explicit services; unsupported calls stop with a diagnostic rather
   than silently returning invented results.
@@ -35,12 +43,13 @@ Xtensa-specific templates without changing guest-visible behaviour.
   back unused regions sparsely, but reads and writes must keep the same API.
 - COM programs start with a synthetic PSP and DOS-compatible registers:
   `CS=DS=ES=SS=psp_segment`, `IP=0x100`, and a stack below the segment limit.
-- Every guest write bumps page generations. A cached block records the pages
-  containing its source bytes and is discarded when a generation changes.
+- Writes to addresses that contained translated code are diagnosed. If the
+  target really uses self-modifying code, the AOT pass must identify the finite
+  variants and emit a guarded native version for each one.
 
 ## Initial 8086 coverage
 
-Implementation proceeds by semantic groups, each gated by host tests:
+Translation proceeds by semantic groups, each gated by generated-code tests:
 
 1. data movement, stack and exchange;
 2. integer arithmetic and all status flags;
@@ -66,12 +75,13 @@ so no full RGB framebuffer is required. Guest B800 memory remains only 16 KiB.
 
 ## Validation gates
 
-- Every implemented instruction has boundary tests for results and flags.
+- Every implemented translation has boundary tests for results and flags.
 - Random differential cases are compared with an independent 16-bit x86
   engine or disassembler where that engine exposes the required behaviour.
 - A synthetic COM integration fixture must produce an identical state digest
   on the host and ESP32.
-- QEMU must boot the actual ESP-IDF image and report the expected digest.
+- QEMU must boot the actual ESP-IDF image, execute only translated native
+  blocks and report the expected digest.
 - Physical-board validation records chip, free heap, translated-block counts,
   invalidations, frames and frame-time percentiles over serial.
 
@@ -82,3 +92,9 @@ so no full RGB framebuffer is required. Guest B800 memory remains only 16 KiB.
 - unobserved DOS APIs and hardware devices;
 - distributing proprietary game files.
 
+## Reference implementation boundary
+
+`C:/Work/r36sx_disasm/homebrew/pico_286` is a useful behavioural reference for
+CGA, BIOS, DOS, keyboard, timer and speaker details. Its instruction dispatch
+and CPU interpreter are explicitly outside the implementation path: copying
+them would defeat the native-translation goal.
