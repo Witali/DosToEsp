@@ -5,9 +5,10 @@ real-mode DOS games such as *Alley Cat*. It targets the two-USB
 ESP32-2432S028 (CYD2USB) used by the sibling HLV-codec project: classic
 ESP32-D0WD-V3, 320x240 ST7789 display, microSD, GPIO26 DAC and BOOT on GPIO0.
 
-The project is deliberately split into a portable C99 core and a thin
-ESP-IDF platform layer. The same decoder, translator and DOS machine therefore
-run in fast host tests, Espressif QEMU and on the physical board.
+The project is deliberately split into a host-only translator, a portable C99
+runtime and a thin ESP-IDF platform layer. The generated blocks and runtime run
+in fast host tests, Espressif QEMU and on the physical board; disassembly never
+happens on the ESP32.
 
 ## Current milestone
 
@@ -43,6 +44,14 @@ pipeline and verifies its final registers and DOS exit code:
 The last command asks the ESP32 Xtensa compiler used by the sibling HLV-codec
 project for assembly output and checks for native LX6 instructions such as
 `entry`, `l32i`, `s16i` and `call8`.
+
+The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
+
+```powershell
+.\firmware\esp32_cyd\qemu-smoke.ps1
+.\firmware\esp32_cyd\flash.ps1
+.\firmware\esp32_cyd\board-smoke.ps1
+```
 
 There is no x86 opcode interpreter in the firmware. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the execution model and

@@ -10,5 +10,5 @@ sdkconfig.old
 *.rep
 *.img
 *.bin
+firmware/esp32_cyd/main/generated/
 !tests/fixtures/*.bin
-
