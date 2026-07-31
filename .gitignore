@@ -4,6 +4,7 @@ local_tools/
 __pycache__/
 *.pyc
 out/
+games/
 sdkconfig
 sdkconfig.old
 *.com
