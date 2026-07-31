@@ -75,9 +75,10 @@ the physical panel shows the Alley Cat title and first playable scene.
 - [ ] Add EGA planar `A0000h` memory, sequencer/graphics-controller registers
   and 16-colour palette state for observed accesses.
 - [ ] Render observed EGA graphics modes to 320x240 RGB565.
-- [ ] Add an attributed text renderer for 40/80-column modes using CP437,
+- [x] Add an attributed text renderer for 40/80-column modes using CP437,
   including box-drawing characters used by Volkov Commander.
-- [ ] Support 25/43-row EGA text metrics, cursor and active-page display.
+- [x] Support 25/43-row text scaling, attributes, blink, cursor and page
+  offsets in the display renderer.
 - [ ] Reuse the verified HLV-codec ST7789 DMA submission path.
 
 Acceptance: deterministic text/EGA frame hashes and a readable Volkov Commander

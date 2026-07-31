@@ -21,6 +21,8 @@ idf_component_register(
         "${d2e_root}/src/core/x86_cpu.c"
         "${d2e_root}/src/core/x86_memory.c"
         "${d2e_root}/src/devices/cga.c"
+        "${d2e_root}/src/devices/cp437_font.c"
+        "${d2e_root}/src/devices/text_video.c"
         "${d2e_root}/src/machine/pc_at.c"
     INCLUDE_DIRS
         "."
