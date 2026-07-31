@@ -111,6 +111,21 @@ int d2e_native_load_mz(d2e_x86_cpu *cpu,
     return cpu->stop_reason == D2E_X86_RUNNING;
 }
 
+int d2e_native_load(d2e_x86_cpu *cpu,
+                    const d2e_native_program *program) {
+    if (program == NULL) {
+        return 0;
+    }
+    switch (program->format) {
+        case D2E_NATIVE_IMAGE_COM:
+            return d2e_native_load_com(cpu, program);
+        case D2E_NATIVE_IMAGE_MZ:
+            return d2e_native_load_mz(cpu, program);
+        default:
+            return 0;
+    }
+}
+
 d2e_x86_stop_reason d2e_native_run(d2e_x86_cpu *cpu,
                                    const d2e_native_program *program,
                                    uint32_t block_budget) {

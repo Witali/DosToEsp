@@ -19,7 +19,7 @@ int main(void) {
         return 2;
     }
     d2e_x86_cpu_init(&cpu, memory, conventional_size, generations);
-    if (!d2e_native_load_com(&cpu, &d2e_generated_program)) {
+    if (!d2e_native_load(&cpu, &d2e_generated_program)) {
         fprintf(stderr, "COM load failed\n");
         failed = 1;
     } else if (d2e_native_run(&cpu, &d2e_generated_program, 2U) !=

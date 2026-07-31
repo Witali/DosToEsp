@@ -42,7 +42,7 @@ void app_main(void) {
     d2e_x86_cpu_init(&cpu, conventional_memory,
                      sizeof(conventional_memory), NULL);
     d2e_x86_map_cga_vram(&cpu, cga_vram);
-    if (!d2e_native_load_com(&cpu, &d2e_generated_program)) {
+    if (!d2e_native_load(&cpu, &d2e_generated_program)) {
         esp_rom_printf("D2E_NATIVE_FAIL,load,reason=%u,address=%08x\n",
                        (unsigned)cpu.stop_reason,
                        (unsigned)cpu.fault_address);

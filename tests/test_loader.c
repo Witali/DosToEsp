@@ -38,7 +38,7 @@ static int test_mz_load(void) {
         return 1;
     }
     d2e_x86_cpu_init(&cpu, memory, memory_size, NULL);
-    if (!d2e_native_load_mz(&cpu, &program)) {
+    if (!d2e_native_load(&cpu, &program)) {
         fprintf(stderr, "synthetic MZ load failed\n");
         failed = 1;
     } else if (cpu.segments[D2E_X86_CS] != UINT16_C(0x1002) ||
@@ -92,8 +92,25 @@ static int test_rejects_bad_mz(void) {
     return 0;
 }
 
+static int test_rejects_unknown_format(void) {
+    static const d2e_native_program program = {
+        .name = "unknown",
+        .format = (d2e_native_image_format)99,
+    };
+    uint8_t memory[UINT16_C(0x0200)] = {0};
+    d2e_x86_cpu cpu;
+
+    d2e_x86_cpu_init(&cpu, memory, sizeof(memory), NULL);
+    if (d2e_native_load(&cpu, NULL) || d2e_native_load(&cpu, &program)) {
+        fprintf(stderr, "generic loader accepted an invalid program\n");
+        return 1;
+    }
+    return 0;
+}
+
 int main(void) {
-    if (test_mz_load() || test_rejects_bad_mz()) {
+    if (test_mz_load() || test_rejects_bad_mz() ||
+        test_rejects_unknown_format()) {
         return 1;
     }
     puts("MZ loader tests passed");

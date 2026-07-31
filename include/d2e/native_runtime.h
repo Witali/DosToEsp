@@ -47,6 +47,8 @@ int d2e_native_load_com(d2e_x86_cpu *cpu,
                         const d2e_native_program *program);
 int d2e_native_load_mz(d2e_x86_cpu *cpu,
                        const d2e_native_program *program);
+int d2e_native_load(d2e_x86_cpu *cpu,
+                    const d2e_native_program *program);
 d2e_x86_stop_reason d2e_native_run(d2e_x86_cpu *cpu,
                                    const d2e_native_program *program,
                                    uint32_t block_budget);
