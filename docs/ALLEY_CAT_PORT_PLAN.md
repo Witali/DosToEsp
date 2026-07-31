@@ -136,5 +136,5 @@ Completed foundations:
 Immediate work queue:
 
 1. implement the MZ loader and its nine relocations;
-2. use the coverage gap to order instruction/runtime implementation;
+2. implement the shared ModR/M memory layer identified by the coverage gap;
 3. capture the indirect target and dynamic port values in a reference trace.

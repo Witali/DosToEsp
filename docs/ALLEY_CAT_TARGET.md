@@ -74,3 +74,21 @@ that a normal play path may not execute.
 4. Boolean, shift/rotate and string instruction groups.
 5. Observed BIOS calls and port devices.
 6. Resolve the single jump table using static table recovery plus trace data.
+
+## Current translator coverage
+
+`scripts/report-coverage.ps1 -Name alley-cat` compares every inventoried site
+against the actual translator semantics. At the initial target baseline:
+
+- supported: 1633 of 4224 sites (38.66%);
+- unsupported: 2591 sites;
+- memory operands: 1524 sites;
+- call/return and other control transfers: 586 sites;
+- missing instruction semantics: 407 sites;
+- segment or special registers: 73 sites;
+- indirect control target: 1 site.
+
+The largest single gain is therefore a shared ModR/M memory operand layer. It
+unblocks 976 `mov`, 305 `cmp` and many arithmetic/boolean sites. Direct
+`call`/`ret` and stack semantics are the second critical dependency rather than
+isolated opcode work.
