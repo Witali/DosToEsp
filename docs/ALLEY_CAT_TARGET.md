@@ -112,6 +112,11 @@ of 4224 sites (97.49%). The final 106 static sites are 63 port operations, 30
 string operations, four multiply, four exchange, four control-flow and one
 AAA instruction.
 
+All 30 observed MOVS/STOS/LODS and REP sites are now native, raising coverage
+to 4148 of 4224 sites (98.20%). Port I/O accounts for 63 of the remaining 76
+sites, so the next large step is the explicit PC-device boundary rather than
+more general x86 decoding.
+
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
 `ES`, apply all nine relocations and address native regions through segmented

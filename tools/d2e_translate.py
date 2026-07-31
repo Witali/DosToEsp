@@ -434,6 +434,50 @@ def stack_pop_statements(
     return lines
 
 
+def string_index_update(register: str, width: int) -> str:
+    forward = f"UINT16_C(0x{width:04x})"
+    backward = f"UINT16_C(0x{(-width) & 0xffff:04x})"
+    return (
+        f"r_{register} = (uint16_t)(r_{register} + "
+        f"((cpu->flags & D2E_X86_FLAG_DF) != 0U ? {backward} : {forward}));"
+    )
+
+
+def string_statements(
+    mnemonic: str,
+    operands: tuple[tuple[str, OperandValue], ...],
+    cached: bool,
+) -> list[str]:
+    repeated = mnemonic.startswith("rep ")
+    operation = mnemonic.removeprefix("rep ")
+    if operation not in ("movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw"):
+        raise TranslationError(f"unsupported string instruction {mnemonic}")
+    width = 1 if operation.endswith("b") else 2
+    if len(operands) != 2:
+        raise TranslationError(f"unexpected operands for {mnemonic}")
+    lines: list[str] = []
+    if repeated:
+        lines.append("while (r_cx != 0U) {")
+    indent = "    " if repeated else ""
+    destination, source = operands
+    statements = write_operand(
+        destination, value_expression(source, width * 8, cached), cached
+    )
+    lines.extend(f"{indent}{statement}" for statement in statements)
+    if operation.startswith(("movs", "lods")):
+        lines.append(indent + string_index_update("si", width))
+    if operation.startswith(("movs", "stos")):
+        lines.append(indent + string_index_update("di", width))
+    if repeated:
+        lines.extend(
+            [
+                "    r_cx = (uint16_t)(r_cx - UINT16_C(1));",
+                "}",
+            ]
+        )
+    return lines
+
+
 def translate_data_instruction(
     instruction: Instruction, cached: bool = False
 ) -> list[str]:
@@ -446,6 +490,10 @@ def translate_data_instruction(
         return stack_push_statements(operands[0], cached)
     if mnemonic == "pop" and len(operands) == 1:
         return stack_pop_statements(operands[0], cached)
+    if mnemonic.removeprefix("rep ") in (
+        "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw"
+    ):
+        return string_statements(mnemonic, operands, cached)
     if mnemonic == "mov" and len(operands) == 2:
         width = operand_width(operands[0], cached)
         return write_operand(
@@ -541,6 +589,8 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 used.add("sp")
             if instruction.mnemonic in ("lahf", "sahf"):
                 used.add("ax")
+            if instruction.mnemonic.startswith("rep "):
+                used.add("cx")
     return [name for name in REG16 if name in used]
 
 

@@ -64,7 +64,7 @@ only and is not copied into DosToEsp.
 - [x] Add stack, direct near calls and near returns.
 - [ ] Add observed indirect targets and far control transfers.
 - [ ] Add boolean, shifts, rotates, multiply and divide as observed.
-- [ ] Add string operations and REP variants as observed.
+- [x] Add string operations and REP variants as observed.
 - [ ] Complete exact 8086 flags for every implemented operation.
 - [ ] Reject unobserved 80186/386 instructions unless the target requires a
   documented profile extension.
@@ -148,11 +148,13 @@ Completed foundations:
   LAHF/SAHF transfer semantics with generated flag regression tests;
 - exact count-zero/one flag handling and native helpers for observed SHL, SHR,
   RCL and RCR forms, including register, CL-count and memory operands;
+- native MOVS/STOS/LODS loops for byte/word and observed REP forms, with
+  DS:SI/ES:DI wrapping, CX completion and DF-controlled direction;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. implement the observed string operations and REP behaviour;
-2. add traced IN/OUT device boundaries and resolve the indirect target;
-3. implement the remaining MUL/XCHG/AAA and rare control-flow forms.
+1. add traced IN/OUT device boundaries and resolve the indirect target;
+2. implement the remaining MUL/XCHG/AAA and rare control-flow forms;
+3. connect the now-near-complete native program to observed BIOS services.

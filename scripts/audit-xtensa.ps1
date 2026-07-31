@@ -18,6 +18,8 @@ $logicGenerated = Join-Path $outputDirectory "native_logic.c"
 $logicAssembly = Join-Path $outputDirectory "native_logic.xtensa.s"
 $shiftGenerated = Join-Path $outputDirectory "native_shift.c"
 $shiftAssembly = Join-Path $outputDirectory "native_shift.xtensa.s"
+$stringGenerated = Join-Path $outputDirectory "native_string.c"
+$stringAssembly = Join-Path $outputDirectory "native_string.xtensa.s"
 
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
     throw "Xtensa ESP32 compiler was not found: $compiler"
@@ -77,6 +79,15 @@ if ($LASTEXITCODE -ne 0) { throw "Shift/rotate fixture translation failed" }
     -I (Join-Path $project "include") -S $shiftGenerated -o $shiftAssembly
 if ($LASTEXITCODE -ne 0) { throw "Shift/rotate Xtensa compilation failed" }
 
+& $python (Join-Path $project "tools\d2e_translate.py") `
+    --hex-input --name native_string `
+    (Join-Path $project "tests\fixtures\native_string.hex") $stringGenerated
+if ($LASTEXITCODE -ne 0) { throw "String/REP fixture translation failed" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -S $stringGenerated -o $stringAssembly
+if ($LASTEXITCODE -ne 0) { throw "String/REP Xtensa compilation failed" }
+
 $generatedText = Get-Content -LiteralPath $generated -Raw
 foreach ($pattern in @(
         "static uint32_t program_region",
@@ -117,4 +128,4 @@ if ($text -match "(?m)^block_[0-9a-f]+:") {
 }
 Write-Host `
     "Xtensa native-code audit passed: $assembly, $memoryAssembly, " `
-    "$callAssembly, $logicAssembly, $shiftAssembly"
+    "$callAssembly, $logicAssembly, $shiftAssembly, $stringAssembly"
