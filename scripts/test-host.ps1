@@ -83,5 +83,8 @@ if ($LASTEXITCODE -ne 0) { throw "Host build failed" }
 & (Join-Path $build "d2e_core_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Host tests failed" }
 
+& (Join-Path $build "d2e_cga_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "CGA tests failed" }
+
 & (Join-Path $build "d2e_native_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native translation tests failed" }
