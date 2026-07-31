@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Translate statically reachable 8086 COM blocks into native C functions."""
+"""Translate statically reachable 8086 DOS blocks into native C regions."""
 
 from __future__ import annotations
 
@@ -349,17 +349,34 @@ def emit_cached_store(registers: list[str], indent: str = "    ") -> list[str]:
 
 
 def emit_native_target(
-    lines: list[str], target: int, blocks: dict[int, list[Instruction]], indent: str
+    lines: list[str],
+    target: int,
+    blocks: dict[int, list[Instruction]],
+    indent: str,
+    image_format: str,
+    load_segment: int,
 ) -> None:
     if target in blocks:
         lines.append(f"{indent}goto block_{target:04x};")
     else:
-        lines.append(f"{indent}cpu->ip = UINT16_C(0x{target:04x});")
+        lines.append(
+            f"{indent}cpu->ip = {guest_ip_expression(target, image_format, load_segment)};"
+        )
         lines.append(f"{indent}goto dispatch;")
 
 
+def guest_ip_expression(target: int, image_format: str, load_segment: int) -> str:
+    if image_format == "com":
+        return f"UINT16_C(0x{target:04x})"
+    return (
+        f"(uint16_t)(UINT32_C(0x{target:05x}) - "
+        f"((uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - "
+        f"UINT16_C(0x{load_segment:04x})) << 4U))"
+    )
+
+
 def emit_region(
-    blocks: dict[int, list[Instruction]], load_segment: int
+    blocks: dict[int, list[Instruction]], load_segment: int, image_format: str = "com"
 ) -> list[str]:
     registers = cached_registers(blocks)
     lines = [
@@ -367,24 +384,44 @@ def emit_region(
         "    uint32_t executed = 0;",
         "    uint64_t retired = 0;",
     ]
+    if image_format == "mz":
+        lines.append("    uint32_t module_target;")
     for name in registers:
         lines.append(f"    uint16_t r_{name};")
     lines.extend(emit_cached_load(registers))
-    lines.extend(
-        [
-            "",
-            "dispatch:",
-            f"    if (cpu->segments[D2E_X86_CS] != UINT16_C(0x{load_segment:04x})) {{",
-            "        cpu->fault_cs = cpu->segments[D2E_X86_CS];",
-            "        cpu->fault_ip = cpu->ip;",
-            "        cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
-            "        goto finish;",
-            "    }",
-            "    switch (cpu->ip) {",
-        ]
-    )
+    lines.extend(["", "dispatch:"])
+    if image_format == "com":
+        lines.extend(
+            [
+                f"    if (cpu->segments[D2E_X86_CS] != UINT16_C(0x{load_segment:04x})) {{",
+                "        cpu->fault_cs = cpu->segments[D2E_X86_CS];",
+                "        cpu->fault_ip = cpu->ip;",
+                "        cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
+                "        goto finish;",
+                "    }",
+                "    switch (cpu->ip) {",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"    if (cpu->segments[D2E_X86_CS] < UINT16_C(0x{load_segment:04x})) {{",
+                "        cpu->fault_cs = cpu->segments[D2E_X86_CS];",
+                "        cpu->fault_ip = cpu->ip;",
+                "        cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
+                "        goto finish;",
+                "    }",
+                "    module_target =",
+                f"        ((uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - UINT16_C(0x{load_segment:04x})) << 4U) + cpu->ip;",
+                "    switch (module_target) {",
+            ]
+        )
     for leader in sorted(blocks):
-        lines.append(f"    case UINT16_C(0x{leader:04x}): goto block_{leader:04x};")
+        constant = "UINT16_C" if image_format == "com" else "UINT32_C"
+        width = 4 if image_format == "com" else 5
+        lines.append(
+            f"    case {constant}(0x{leader:0{width}x}): goto block_{leader:04x};"
+        )
     lines.extend(
         [
             "    default:",
@@ -403,7 +440,7 @@ def emit_region(
             [
                 f"block_{leader:04x}:",
                 "    if (executed >= block_budget) {",
-                f"        cpu->ip = UINT16_C(0x{leader:04x});",
+                f"        cpu->ip = {guest_ip_expression(leader, image_format, load_segment)};",
                 "        goto finish;",
                 "    }",
                 "    ++executed;",
@@ -416,34 +453,70 @@ def emit_region(
                 target = direct_target(instruction)
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append(f"    if ({CONDITIONS[mnemonic]}) {{")
-                emit_native_target(lines, target, blocks, "        ")
+                emit_native_target(
+                    lines, target, blocks, "        ", image_format, load_segment
+                )
                 lines.append("    }")
-                emit_native_target(lines, instruction.next_address, blocks, "    ")
+                emit_native_target(
+                    lines,
+                    instruction.next_address,
+                    blocks,
+                    "    ",
+                    image_format,
+                    load_segment,
+                )
                 terminated = True
             elif mnemonic == "jmp":
                 lines.append(f"    retired += UINT64_C({len(block)});")
-                emit_native_target(lines, direct_target(instruction), blocks, "    ")
+                emit_native_target(
+                    lines,
+                    direct_target(instruction),
+                    blocks,
+                    "    ",
+                    image_format,
+                    load_segment,
+                )
                 terminated = True
             elif mnemonic == "loop":
                 target = direct_target(instruction)
                 lines.append("    r_cx = (uint16_t)(r_cx - 1U);")
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append("    if (r_cx != 0U) {")
-                emit_native_target(lines, target, blocks, "        ")
+                emit_native_target(
+                    lines, target, blocks, "        ", image_format, load_segment
+                )
                 lines.append("    }")
-                emit_native_target(lines, instruction.next_address, blocks, "    ")
+                emit_native_target(
+                    lines,
+                    instruction.next_address,
+                    blocks,
+                    "    ",
+                    image_format,
+                    load_segment,
+                )
                 terminated = True
             elif mnemonic == "jcxz":
                 target = direct_target(instruction)
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append("    if (r_cx == 0U) {")
-                emit_native_target(lines, target, blocks, "        ")
+                emit_native_target(
+                    lines, target, blocks, "        ", image_format, load_segment
+                )
                 lines.append("    }")
-                emit_native_target(lines, instruction.next_address, blocks, "    ")
+                emit_native_target(
+                    lines,
+                    instruction.next_address,
+                    blocks,
+                    "    ",
+                    image_format,
+                    load_segment,
+                )
                 terminated = True
             elif mnemonic == "int":
                 interrupt_number = direct_target(instruction) & 0xFF
-                lines.append(f"    cpu->ip = UINT16_C(0x{instruction.next_address:04x});")
+                lines.append(
+                    f"    cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
+                )
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.extend(emit_cached_store(registers))
                 lines.extend(
@@ -460,7 +533,9 @@ def emit_region(
                 lines.append("    goto dispatch;")
                 terminated = True
             elif mnemonic == "hlt":
-                lines.append(f"    cpu->ip = UINT16_C(0x{instruction.next_address:04x});")
+                lines.append(
+                    f"    cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
+                )
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append("    cpu->stop_reason = D2E_X86_EXITED;")
                 lines.append("    goto finish;")
@@ -477,7 +552,9 @@ def emit_region(
         if not terminated:
             next_address = block[-1].next_address
             lines.append(f"    retired += UINT64_C({len(block)});")
-            emit_native_target(lines, next_address, blocks, "    ")
+            emit_native_target(
+                lines, next_address, blocks, "    ", image_format, load_segment
+            )
         lines.append("")
 
     lines.append("finish:")
@@ -545,9 +622,74 @@ def emit_program(
     return "\n".join(lines)
 
 
+def emit_mz_program(
+    image: bytes,
+    relocations: tuple[tuple[int, int], ...],
+    blocks: dict[int, list[Instruction]],
+    name: str,
+    load_segment: int,
+    entry_cs: int,
+    entry_ip: int,
+    initial_ss: int,
+    initial_sp: int,
+) -> str:
+    lines = [
+        "/* Generated by tools/d2e_translate.py. Do not edit. */",
+        '#include "d2e/native_runtime.h"',
+        '#include "d2e/x86_alu.h"',
+        "",
+    ]
+    lines.extend(emit_region(blocks, load_segment, "mz"))
+    lines.extend(["", "static const uint8_t program_image[] = {"])
+    for offset in range(0, len(image), 12):
+        chunk = image[offset : offset + 12]
+        lines.append(
+            "    " + ", ".join(f"UINT8_C(0x{value:02x})" for value in chunk) + ","
+        )
+    lines.extend(["};", ""])
+
+    if relocations:
+        lines.append("static const d2e_mz_relocation program_relocations[] = {")
+        for offset, segment in relocations:
+            lines.append(
+                f"    {{UINT16_C(0x{offset:04x}), UINT16_C(0x{segment:04x})}},"
+            )
+        lines.extend(["};", ""])
+        relocation_pointer = "program_relocations"
+        relocation_count = (
+            "sizeof(program_relocations) / sizeof(program_relocations[0])"
+        )
+    else:
+        relocation_pointer = "NULL"
+        relocation_count = "0"
+
+    lines.extend(
+        [
+            "const d2e_native_program d2e_generated_program = {",
+            f'    .name = "{c_identifier(name)}",',
+            "    .format = D2E_NATIVE_IMAGE_MZ,",
+            f"    .load_segment = UINT16_C(0x{load_segment:04x}),",
+            f"    .entry_cs = UINT16_C(0x{entry_cs:04x}),",
+            f"    .entry_ip = UINT16_C(0x{entry_ip:04x}),",
+            f"    .initial_ss = UINT16_C(0x{initial_ss:04x}),",
+            f"    .initial_sp = UINT16_C(0x{initial_sp:04x}),",
+            "    .image = program_image,",
+            "    .image_size = sizeof(program_image),",
+            f"    .relocations = {relocation_pointer},",
+            f"    .relocation_count = {relocation_count},",
+            "    .blocks = NULL,",
+            "    .block_count = 0,",
+            "    .region = program_region",
+            "};",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Translate statically reachable 8086 COM blocks to native C"
+        description="Translate statically reachable 8086 DOS blocks to native C"
     )
     parser.add_argument("input", type=pathlib.Path)
     parser.add_argument("output", type=pathlib.Path)

@@ -38,17 +38,14 @@ def main() -> int:
         manifest = d2e_build.build_sources(
             bytes(mz), "tiny.exe", "auto", "tiny", 0x1000, output
         )
-        assert manifest["status"] == "blocked"
-        assert manifest["generated_sources"] == ["game_image.c"]
-        assert manifest["blockers"] == [
-            {
-                "kind": "segmented_mz_codegen",
-                "message": (
-                    "native target keys must preserve CS:IP while using "
-                    "linear MZ module offsets"
-                ),
-            }
-        ]
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == ["game_native.c"]
+        assert manifest["blockers"] == []
+        native = (output / "game_native.c").read_text(encoding="utf-8")
+        assert "D2E_NATIVE_IMAGE_MZ" in native
+        assert "switch (module_target)" in native
+        assert ".entry_cs = UINT16_C(0x0000)" in native
+        assert ".entry_ip = UINT16_C(0x0000)" in native
     print("unified source build tests passed")
     return 0
 

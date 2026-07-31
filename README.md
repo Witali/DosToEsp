@@ -12,8 +12,10 @@ happens on the ESP32.
 
 ## Current milestone
 
-The first milestone is a deterministic `.COM` machine rather than a promise
-that an arbitrary DOS program already runs:
+The current milestone is an automatic DOS `.COM`/MZ `.EXE` to ESP32 source
+pipeline. It is deliberately strict: it produces runnable native sources only
+when every reachable instruction is supported, rather than claiming that an
+arbitrary DOS program already runs:
 
 1. load and analyse a COM image on the development PC;
 2. decode reachable 8086 basic blocks and emit portable C plus optional Xtensa
@@ -54,7 +56,9 @@ under the ignored `games/` directory:
 
 The product entry point is the automatic DOS executable to ESP32 source
 pipeline. It never silently emits a partial native program: incomplete opcode
-or segmented-code coverage produces a `blocked` manifest with exact reasons.
+coverage produces a `blocked` manifest with exact reasons. Fully covered MZ
+inputs produce one `game_native.c` containing the relocated load module and
+native regions addressed through preserved real-mode `CS:IP` state.
 
 ```powershell
 .\scripts\translate-game.ps1 `

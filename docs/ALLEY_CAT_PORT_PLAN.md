@@ -89,7 +89,7 @@ fewer guest-state loads/stores and no x86 interpreter dispatch.
 
 - [x] Pack the fingerprinted MZ load module and implement PSP, relocation and
   initial register loading with all nine target relocations verified.
-- [ ] Generate segmented native target keys and connect the MZ image to its
+- [x] Generate segmented native target keys and connect the MZ image to its
   translated regions.
 - [ ] Add only the DOS/BIOS calls observed in the inventory.
 - [ ] Model the required conventional-memory allocation and files from bundled
@@ -137,11 +137,13 @@ Completed foundations:
   for code locations, interrupts, ports and CGA writes;
 - unified executable-to-source frontend with deterministic reports, generated
   image/native files and a strict machine-readable completion/blocker manifest;
+- common segmented MZ native-region generation with preserved `CS:IP`, packed
+  relocation metadata and no target-specific code;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. implement the MZ loader and its nine relocations;
-2. implement the shared ModR/M memory layer identified by the coverage gap;
+1. implement the shared ModR/M memory layer identified by the coverage gap;
+2. implement stack, direct calls and returns;
 3. capture the indirect target and dynamic port values in a reference trace.

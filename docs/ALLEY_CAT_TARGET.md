@@ -93,10 +93,11 @@ unblocks 976 `mov`, 305 `cmp` and many arithmetic/boolean sites. Direct
 `call`/`ret` and stack semantics are the second critical dependency rather than
 isolated opcode work.
 
-The runtime MZ loader and local packer now load the complete 54555-byte module,
-construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and `ES`, and verify all
-nine relocation results in a generated host test. Native code generation still
-needs segmented MZ target keys before the game can execute.
+The runtime MZ loader and common native emitter now pack the complete
+54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
+`ES`, apply all nine relocations and address native regions through segmented
+MZ target keys. The same path is regression-tested with a fully covered tiny
+MZ input; no Alley Cat-specific code is used.
 
 The unified frontend currently writes `out/generated/alley-cat/game_image.c`,
 the inventory and coverage reports, and a `blocked` manifest. It will change

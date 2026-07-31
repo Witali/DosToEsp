@@ -14,7 +14,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 
 import d2e_analyze
 import d2e_coverage
-import d2e_pack_mz
 import d2e_translate
 
 
@@ -48,12 +47,16 @@ def build_sources(
     )
     write_text(output / "coverage.md", d2e_coverage.render_markdown(coverage))
 
-    if image.format == "mz":
-        write_text(output / "game_image.c", d2e_pack_mz.emit(image, name, load_segment))
-        generated.append("game_image.c")
-
     unsupported = coverage["summary"]["unsupported_instruction_count"]
     if unsupported:
+        if image.format == "mz":
+            import d2e_pack_mz
+
+            write_text(
+                output / "game_image.c",
+                d2e_pack_mz.emit(image, name, load_segment),
+            )
+            generated.append("game_image.c")
         blockers.append(
             {
                 "kind": "translator_coverage",
@@ -61,26 +64,30 @@ def build_sources(
                 "reasons": coverage["unsupported_reasons"],
             }
         )
-    elif image.format == "com":
+    else:
         decoded = d2e_translate.discover(
             image.module_bytes, image.base, image.entry
         )
         blocks = d2e_translate.make_blocks(decoded, image.entry)
-        native = d2e_translate.emit_program(
-            image.module_bytes, blocks, name, load_segment, image.entry
-        )
+        if image.format == "mz":
+            metadata = image.metadata
+            native = d2e_translate.emit_mz_program(
+                image.module_bytes,
+                image.relocations,
+                blocks,
+                name,
+                load_segment,
+                metadata["initial_cs"],
+                metadata["initial_ip"],
+                metadata["initial_ss"],
+                metadata["initial_sp"],
+            )
+        else:
+            native = d2e_translate.emit_program(
+                image.module_bytes, blocks, name, load_segment, image.entry
+            )
         write_text(output / "game_native.c", native)
         generated.append("game_native.c")
-    else:
-        blockers.append(
-            {
-                "kind": "segmented_mz_codegen",
-                "message": (
-                    "native target keys must preserve CS:IP while using "
-                    "linear MZ module offsets"
-                ),
-            }
-        )
 
     manifest = {
         "schema": "d2e-esp32-source-build-v1",
