@@ -141,3 +141,146 @@ uint16_t d2e_x86_logic16(d2e_x86_cpu *cpu, uint16_t value) {
     return value;
 }
 
+static void replace_shift_flags(d2e_x86_cpu *cpu, uint16_t common,
+                                uint16_t carry, uint8_t count,
+                                uint16_t overflow) {
+    uint16_t mask = D2E_X86_FLAG_CF | D2E_X86_FLAG_PF |
+                    D2E_X86_FLAG_ZF | D2E_X86_FLAG_SF;
+    uint16_t flags = common | carry;
+    if (count == 1U) {
+        mask |= D2E_X86_FLAG_OF;
+        flags |= overflow;
+    }
+    cpu->flags = (uint16_t)((cpu->flags & (uint16_t)~mask) | flags |
+                            D2E_X86_FLAG_FIXED);
+}
+
+uint8_t d2e_x86_shl8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
+    uint8_t result = value;
+    uint16_t carry = 0;
+    uint8_t index;
+    if (count == 0U) {
+        return value;
+    }
+    for (index = 0; index < count; ++index) {
+        carry = (result & UINT8_C(0x80)) != 0U ? D2E_X86_FLAG_CF : 0U;
+        result = (uint8_t)(result << 1U);
+    }
+    replace_shift_flags(
+        cpu, common_flags8(result), carry, count,
+        ((result & UINT8_C(0x80)) != 0U) != (carry != 0U)
+            ? D2E_X86_FLAG_OF
+            : 0U);
+    return result;
+}
+
+uint16_t d2e_x86_shl16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
+    uint16_t result = value;
+    uint16_t carry = 0;
+    uint8_t index;
+    if (count == 0U) {
+        return value;
+    }
+    for (index = 0; index < count; ++index) {
+        carry = (result & UINT16_C(0x8000)) != 0U ? D2E_X86_FLAG_CF : 0U;
+        result = (uint16_t)(result << 1U);
+    }
+    replace_shift_flags(
+        cpu, common_flags16(result), carry, count,
+        ((result & UINT16_C(0x8000)) != 0U) != (carry != 0U)
+            ? D2E_X86_FLAG_OF
+            : 0U);
+    return result;
+}
+
+uint8_t d2e_x86_shr8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
+    uint8_t result = value;
+    uint16_t carry = 0;
+    uint8_t index;
+    if (count == 0U) {
+        return value;
+    }
+    for (index = 0; index < count; ++index) {
+        carry = (result & 1U) != 0U ? D2E_X86_FLAG_CF : 0U;
+        result = (uint8_t)(result >> 1U);
+    }
+    replace_shift_flags(cpu, common_flags8(result), carry, count,
+                        (value & UINT8_C(0x80)) != 0U
+                            ? D2E_X86_FLAG_OF
+                            : 0U);
+    return result;
+}
+
+uint16_t d2e_x86_shr16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
+    uint16_t result = value;
+    uint16_t carry = 0;
+    uint8_t index;
+    if (count == 0U) {
+        return value;
+    }
+    for (index = 0; index < count; ++index) {
+        carry = (result & 1U) != 0U ? D2E_X86_FLAG_CF : 0U;
+        result = (uint16_t)(result >> 1U);
+    }
+    replace_shift_flags(cpu, common_flags16(result), carry, count,
+                        (value & UINT16_C(0x8000)) != 0U
+                            ? D2E_X86_FLAG_OF
+                            : 0U);
+    return result;
+}
+
+static uint32_t rotate_carry(d2e_x86_cpu *cpu, uint32_t value,
+                             uint8_t count, unsigned width, int right) {
+    const uint32_t value_mask = (UINT32_C(1) << width) - 1U;
+    uint32_t carry = (cpu->flags & D2E_X86_FLAG_CF) != 0U;
+    uint8_t index;
+    if (count == 0U) {
+        return value & value_mask;
+    }
+    for (index = 0; index < count; ++index) {
+        if (right) {
+            const uint32_t next_carry = value & 1U;
+            value = (value >> 1U) | (carry << (width - 1U));
+            carry = next_carry;
+        } else {
+            const uint32_t next_carry = (value >> (width - 1U)) & 1U;
+            value = ((value << 1U) & value_mask) | carry;
+            carry = next_carry;
+        }
+    }
+    cpu->flags = (uint16_t)((cpu->flags & (uint16_t)~D2E_X86_FLAG_CF) |
+                            (carry != 0U ? D2E_X86_FLAG_CF : 0U) |
+                            D2E_X86_FLAG_FIXED);
+    if (count == 1U) {
+        uint16_t overflow;
+        if (right) {
+            overflow = (((value >> (width - 1U)) ^
+                         (value >> (width - 2U))) & 1U) != 0U
+                           ? D2E_X86_FLAG_OF
+                           : 0U;
+        } else {
+            overflow = (((value >> (width - 1U)) & 1U) != carry)
+                           ? D2E_X86_FLAG_OF
+                           : 0U;
+        }
+        cpu->flags = (uint16_t)((cpu->flags & (uint16_t)~D2E_X86_FLAG_OF) |
+                                overflow | D2E_X86_FLAG_FIXED);
+    }
+    return value & value_mask;
+}
+
+uint8_t d2e_x86_rcl8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
+    return (uint8_t)rotate_carry(cpu, value, count, 8U, 0);
+}
+
+uint16_t d2e_x86_rcl16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
+    return (uint16_t)rotate_carry(cpu, value, count, 16U, 0);
+}
+
+uint8_t d2e_x86_rcr8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
+    return (uint8_t)rotate_carry(cpu, value, count, 8U, 1);
+}
+
+uint16_t d2e_x86_rcr16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
+    return (uint16_t)rotate_carry(cpu, value, count, 16U, 1);
+}

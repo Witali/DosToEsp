@@ -1,0 +1,4 @@
+# SHL by one, RCR through carry, then SHR by CL
+b8 01 80 d1 e0 b3 01 d0 db b1 04 d3 e8
+# Stop successfully
+f4

@@ -124,6 +124,34 @@ static void test_alu_flags(d2e_x86_cpu *cpu) {
                          D2E_X86_FLAG_SF)) == 0U);
 }
 
+static void test_shift_flags(d2e_x86_cpu *cpu) {
+    uint16_t flags;
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_DF;
+    CHECK(d2e_x86_shl8(cpu, UINT8_C(0x81), 1U) == UINT8_C(0x02));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+    CHECK((cpu->flags & D2E_X86_FLAG_DF) != 0U);
+
+    CHECK(d2e_x86_shr16(cpu, UINT16_C(0x8001), 1U) == UINT16_C(0x4000));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+
+    flags = cpu->flags;
+    CHECK(d2e_x86_shl16(cpu, UINT16_C(0x1234), 0U) == UINT16_C(0x1234));
+    CHECK(cpu->flags == flags);
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF;
+    CHECK(d2e_x86_rcl8(cpu, UINT8_C(0x80), 1U) == UINT8_C(0x01));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF;
+    CHECK(d2e_x86_rcr8(cpu, UINT8_C(0x01), 1U) == UINT8_C(0x80));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+}
+
 static void test_sparse_video_mapping(void) {
     uint8_t conventional[UINT16_C(0x1000)];
     uint8_t cga_vram[UINT16_C(0x4000)];
@@ -160,6 +188,7 @@ int main(void) {
     test_fetch_wrap(&cpu);
     test_stack(&cpu);
     test_alu_flags(&cpu);
+    test_shift_flags(&cpu);
     test_sparse_video_mapping();
 
     free(generations);

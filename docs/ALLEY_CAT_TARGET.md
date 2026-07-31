@@ -107,6 +107,11 @@ dominated by 107 shifts, 63 port I/O operations and 30 string operations; the
 rest are four multiply, four exchange, four control-flow and a few legacy
 instruction sites.
 
+With SHL/SHR and the observed carry rotates implemented, coverage is now 4118
+of 4224 sites (97.49%). The final 106 static sites are 63 port operations, 30
+string operations, four multiply, four exchange, four control-flow and one
+AAA instruction.
+
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
 `ES`, apply all nine relocations and address native regions through segmented

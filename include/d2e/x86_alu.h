@@ -17,10 +17,17 @@ uint8_t d2e_x86_dec8(d2e_x86_cpu *cpu, uint8_t value);
 uint16_t d2e_x86_dec16(d2e_x86_cpu *cpu, uint16_t value);
 uint8_t d2e_x86_logic8(d2e_x86_cpu *cpu, uint8_t value);
 uint16_t d2e_x86_logic16(d2e_x86_cpu *cpu, uint16_t value);
+uint8_t d2e_x86_shl8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count);
+uint16_t d2e_x86_shl16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count);
+uint8_t d2e_x86_shr8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count);
+uint16_t d2e_x86_shr16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count);
+uint8_t d2e_x86_rcl8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count);
+uint16_t d2e_x86_rcl16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count);
+uint8_t d2e_x86_rcr8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count);
+uint16_t d2e_x86_rcr16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-

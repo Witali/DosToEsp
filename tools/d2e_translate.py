@@ -481,6 +481,15 @@ def translate_data_instruction(
         return write_operand(
             operands[0], f"(uint{width}_t)(~(uint{width}_t)({value}))", cached
         )
+    if mnemonic in ("shl", "shr", "rcl", "rcr") and len(operands) == 2:
+        width = operand_width(operands[0], cached)
+        value = value_expression(operands[0], width, cached)
+        count = value_expression(operands[1], 8, cached)
+        return write_operand(
+            operands[0],
+            f"d2e_x86_{mnemonic}{width}(cpu, {value}, (uint8_t)({count}))",
+            cached,
+        )
     if mnemonic in ("clc", "cld", "cli") and not operands:
         flag = {
             "clc": "D2E_X86_FLAG_CF",

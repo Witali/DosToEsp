@@ -146,11 +146,13 @@ Completed foundations:
   region edges, including nested-call host and Xtensa regression fixtures;
 - native boolean/test/not operations, status-control instructions and
   LAHF/SAHF transfer semantics with generated flag regression tests;
+- exact count-zero/one flag handling and native helpers for observed SHL, SHR,
+  RCL and RCR forms, including register, CL-count and memory operands;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. implement SHL/SHR and the observed rotate forms;
-2. implement the observed string operations and REP behaviour;
-3. add traced IN/OUT device boundaries and resolve the indirect target.
+1. implement the observed string operations and REP behaviour;
+2. add traced IN/OUT device boundaries and resolve the indirect target;
+3. implement the remaining MUL/XCHG/AAA and rare control-flow forms.
