@@ -117,3 +117,17 @@ unsupported interrupt, port or instruction. The probe therefore executes
 340,875 native-translated 8086 instructions through the current initialization
 path without crossing a strict hardware boundary. Rendering and input remain
 the next acceptance gates; this result alone does not claim playable output.
+
+## 2026-07-31: CYD display build
+
+The firmware now uses the verified HLV-codec ST7789 SPI2 DMA path. CGA modes
+4/5/6 and attributed 40/80-column CP437 text are rendered as 320x200 RGB565
+rows centered vertically on the 320x240 panel. Text rendering covers 25- and
+43-row layouts, active-page offsets, cursor, blink and box-drawing glyphs.
+
+The physical Alley Cat configuration compiled and linked successfully as a
+681,312-byte application image (`0xA6560`), leaving 35% of its one-megabyte
+partition free. The QEMU configuration still reaches the same 340,875
+instruction budget boundary after the display sources are linked. This is a
+build and QEMU validation; the new Alley Cat image has not yet been flashed for
+visual inspection on the physical panel.

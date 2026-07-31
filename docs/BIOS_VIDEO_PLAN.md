@@ -64,7 +64,7 @@ independent reference for all calls used by both programs.
 - [x] Render CGA modes 4/5 (320x200, two bits per pixel) to RGB565.
 - [x] Render CGA mode 6 (640x200 monochrome) with horizontal downsampling for
   the 320-pixel panel.
-- [ ] Submit 320x200 rows centered vertically on the 320x240 ST7789.
+- [x] Submit 320x200 rows centered vertically on the 320x240 ST7789.
 - [ ] Add dirty-row tracking so unchanged CGA rows are not retransmitted.
 
 Acceptance: direct VRAM and BIOS pixel writes produce identical frame hashes;
@@ -79,7 +79,7 @@ the physical panel shows the Alley Cat title and first playable scene.
   including box-drawing characters used by Volkov Commander.
 - [x] Support 25/43-row text scaling, attributes, blink, cursor and page
   offsets in the display renderer.
-- [ ] Reuse the verified HLV-codec ST7789 DMA submission path.
+- [x] Reuse the verified HLV-codec ST7789 DMA submission path.
 
 Acceptance: deterministic text/EGA frame hashes and a readable Volkov Commander
 panel on the physical CYD display.

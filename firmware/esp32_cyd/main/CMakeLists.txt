@@ -15,6 +15,7 @@ endif()
 idf_component_register(
     SRCS
         "main.c"
+        "cyd_display.c"
         "${d2e_generated_source}"
         "${d2e_root}/src/core/native_runtime.c"
         "${d2e_root}/src/core/x86_alu.c"
@@ -28,6 +29,9 @@ idf_component_register(
         "."
         "${d2e_root}/include"
     REQUIRES
+        esp_driver_gpio
+        esp_driver_spi
+        esp_lcd
         esp_system
         freertos
         heap

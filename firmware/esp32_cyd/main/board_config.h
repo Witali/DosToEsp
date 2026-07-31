@@ -1,0 +1,15 @@
+#ifndef D2E_BOARD_CONFIG_H
+#define D2E_BOARD_CONFIG_H
+
+#include "driver/gpio.h"
+
+#define BOARD_TFT_SCK GPIO_NUM_14
+#define BOARD_TFT_MOSI GPIO_NUM_13
+#define BOARD_TFT_MISO GPIO_NUM_12
+#define BOARD_TFT_CS GPIO_NUM_15
+#define BOARD_TFT_DC GPIO_NUM_2
+#define BOARD_TFT_BACKLIGHT GPIO_NUM_21
+
+#define BOARD_BOOT_BUTTON GPIO_NUM_0
+
+#endif

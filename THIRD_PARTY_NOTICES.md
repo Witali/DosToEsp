@@ -26,3 +26,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## HLV-codec CYD display driver
+
+The ESP32 firmware's `cyd_display.c` and `cyd_display.h` are adapted from the
+verified ST7789 SPI DMA path in the HLV-codec project supplied by the user.

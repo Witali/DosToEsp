@@ -75,12 +75,16 @@ Generated sources and reports are written under ignored `out/generated/`.
 For the fingerprinted Alley Cat target, the current frontend resolves the
 bounded jump table, covers all 8368 reachable instruction sites and emits a
 `complete` manifest plus `game_native.c`. The remaining work is the emulated
-DOS/BIOS and PC-device boundary, not an x86 CPU interpreter.
+DOS boundary for larger applications, complete input/timing, and any additional
+video operations exposed by execution traces, not an x86 CPU interpreter.
 
 The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
 
 ```powershell
 .\firmware\esp32_cyd\qemu-smoke.ps1
+.\firmware\esp32_cyd\qemu-alley-cat.ps1
+.\firmware\esp32_cyd\build-alley-cat.ps1
+.\firmware\esp32_cyd\flash-alley-cat.ps1 -Port COM8
 .\firmware\esp32_cyd\flash.ps1
 .\firmware\esp32_cyd\board-smoke.ps1
 ```
