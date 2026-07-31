@@ -96,6 +96,11 @@ static void test_keyboard(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     CHECK(cpu->stop_reason == D2E_X86_WAITING_INPUT);
 
     CHECK(d2e_pc_at_enqueue_key(machine, UINT8_C('x'), UINT8_C(0x2d)));
+    CHECK(cpu->regs[D2E_X86_AX] == UINT16_C(0x2d78));
+    CHECK(machine->key_count == 0U);
+    cpu->stop_reason = D2E_X86_RUNNING;
+
+    CHECK(d2e_pc_at_enqueue_key(machine, UINT8_C('x'), UINT8_C(0x2d)));
     interrupt(cpu, UINT8_C(0x16), UINT16_C(0x0100));
     CHECK((cpu->flags & D2E_X86_FLAG_ZF) == 0U);
     CHECK(cpu->regs[D2E_X86_AX] == UINT16_C(0x2d78));

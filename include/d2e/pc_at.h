@@ -47,6 +47,7 @@ typedef struct d2e_pc_at {
     d2e_pc_at_key key_queue[D2E_PC_AT_KEY_QUEUE_CAPACITY];
     uint8_t key_head;
     uint8_t key_count;
+    d2e_x86_cpu *waiting_keyboard_cpu;
 } d2e_pc_at;
 
 void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,

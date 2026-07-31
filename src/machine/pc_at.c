@@ -461,9 +461,11 @@ static int keyboard_interrupt(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     d2e_pc_at_key key;
     if (function == 0U || function == UINT8_C(0x10)) {
         if (machine->key_count == 0U) {
+            machine->waiting_keyboard_cpu = cpu;
             cpu->stop_reason = D2E_X86_WAITING_INPUT;
             return 1;
         }
+        machine->waiting_keyboard_cpu = NULL;
         key = machine->key_queue[machine->key_head];
         machine->key_head =
             (uint8_t)((machine->key_head + 1U) % D2E_PC_AT_KEY_QUEUE_CAPACITY);
@@ -581,6 +583,7 @@ void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
 }
 
 void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
+    machine->waiting_keyboard_cpu = NULL;
     d2e_x86_map_cga_vram(cpu, machine->cga_vram);
     d2e_x86_configure_interrupts(cpu, machine, d2e_pc_at_interrupt);
     d2e_x86_configure_ports(cpu, machine, d2e_pc_at_port_in8,
@@ -726,6 +729,12 @@ int d2e_pc_at_port_out8(void *context, uint16_t port, uint8_t value) {
 int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,
                           uint8_t scan) {
     uint8_t tail;
+    if (machine->waiting_keyboard_cpu != NULL) {
+        machine->waiting_keyboard_cpu->regs[D2E_X86_AX] =
+            (uint16_t)(((uint16_t)scan << 8U) | ascii);
+        machine->waiting_keyboard_cpu = NULL;
+        return 1;
+    }
     if (machine->key_count >= D2E_PC_AT_KEY_QUEUE_CAPACITY) {
         return 0;
     }
