@@ -1,0 +1,8 @@
+# 0100: form DS:[BX+SI+5], write/read a word
+bb 00 02 be 02 00 b8 34 12 89 40 05 8b 50 05
+# 010f: default BP addressing uses SS
+bd 00 03 c6 46 ff 7f
+# 0116: explicit ES override wins over the DS default
+26 c6 07 55
+# 011a: stop successfully
+f4

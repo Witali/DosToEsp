@@ -78,7 +78,7 @@ that a normal play path may not execute.
 ## Current translator coverage
 
 `scripts/report-coverage.ps1 -Name alley-cat` compares every inventoried site
-against the actual translator semantics. At the initial target baseline:
+against the actual translator semantics. The initial baseline was:
 
 - supported: 1633 of 4224 sites (38.66%);
 - unsupported: 2591 sites;
@@ -88,10 +88,14 @@ against the actual translator semantics. At the initial target baseline:
 - segment or special registers: 73 sites;
 - indirect control target: 1 site.
 
-The largest single gain is therefore a shared ModR/M memory operand layer. It
-unblocks 976 `mov`, 305 `cmp` and many arithmetic/boolean sites. Direct
-`call`/`ret` and stack semantics are the second critical dependency rather than
-isolated opcode work.
+The common ModR/M layer has since raised coverage to 3065 of 4224 sites
+(72.56%) and reduced unsupported memory operands from 1524 to 90. It covers
+8/16-bit reads, writes and read-modify-write operations, all 8086
+`BX/BP/SI/DI` effective-address combinations, DS/SS defaults and explicit
+segment overrides. The remaining blockers are 586 control transfers, 407
+missing instruction semantics, 90 sites where a still-unsupported operation
+uses memory, 75 segment or special-register sites and one indirect target.
+Direct `call`/`ret` and stack semantics are now the largest dependency.
 
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and

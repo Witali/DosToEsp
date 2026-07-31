@@ -21,12 +21,25 @@ UNSUPPORTED_CONTROL = {"call", "lcall", "ret", "retf", "iret", "loope", "loopne"
 
 
 def translator_instruction(record: dict[str, Any]) -> d2e_translate.Instruction:
-    operands: list[tuple[str, int | str]] = []
+    operands: list[tuple[str, d2e_translate.OperandValue]] = []
     for operand in record["operands"]:
         if operand["type"] == "reg":
             operands.append(("reg", operand["reg"]))
         elif operand["type"] == "imm":
             operands.append(("imm", operand["value"]))
+        elif operand["type"] == "mem":
+            operands.append(
+                (
+                    "mem",
+                    d2e_translate.MemoryOperand(
+                        width=int(operand["size"]) * 8,
+                        segment=operand["segment"],
+                        base=operand["base"],
+                        index=operand["index"],
+                        displacement=int(operand["displacement"]),
+                    ),
+                )
+            )
         else:
             operands.append(("unsupported", 0))
     return d2e_translate.Instruction(
@@ -49,8 +62,6 @@ def classify(record: dict[str, Any]) -> tuple[bool, str]:
         if len(operands) != 1 or operands[0]["type"] != "imm":
             return False, "indirect_control_target"
         return True, "supported"
-    if any(operand["type"] == "mem" for operand in operands):
-        return False, "memory_operand"
     if any(operand["type"] == "other" for operand in operands):
         return False, "unsupported_operand"
     for operand in operands:
@@ -63,7 +74,12 @@ def classify(record: dict[str, Any]) -> tuple[bool, str]:
             translator_instruction(record), cached=True
         )
     except d2e_translate.TranslationError:
-        return False, "instruction_semantics"
+        reason = (
+            "memory_operand"
+            if any(operand["type"] == "mem" for operand in operands)
+            else "instruction_semantics"
+        )
+        return False, reason
     return True, "supported"
 
 

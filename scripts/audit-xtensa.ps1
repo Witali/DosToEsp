@@ -10,6 +10,8 @@ $python = Join-Path $sibling "local_tools\python\python.exe"
 $outputDirectory = Join-Path $project "build-xtensa-audit"
 $generated = Join-Path $outputDirectory "native_smoke.c"
 $assembly = Join-Path $outputDirectory "native_smoke.xtensa.s"
+$memoryGenerated = Join-Path $outputDirectory "native_memory.c"
+$memoryAssembly = Join-Path $outputDirectory "native_memory.xtensa.s"
 
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
     throw "Xtensa ESP32 compiler was not found: $compiler"
@@ -33,6 +35,15 @@ if ($LASTEXITCODE -ne 0) { throw "COM translation failed" }
     -I (Join-Path $project "include") -S $generated -o $assembly
 if ($LASTEXITCODE -ne 0) { throw "Xtensa compilation failed" }
 
+& $python (Join-Path $project "tools\d2e_translate.py") `
+    --hex-input --name native_memory `
+    (Join-Path $project "tests\fixtures\native_memory.hex") $memoryGenerated
+if ($LASTEXITCODE -ne 0) { throw "ModR/M fixture translation failed" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -S $memoryGenerated -o $memoryAssembly
+if ($LASTEXITCODE -ne 0) { throw "ModR/M Xtensa compilation failed" }
+
 $generatedText = Get-Content -LiteralPath $generated -Raw
 foreach ($pattern in @(
         "static uint32_t program_region",
@@ -47,6 +58,18 @@ if ($generatedText -match "static void block_") {
     throw "Legacy per-block functions were emitted instead of a cached region"
 }
 
+$memoryText = Get-Content -LiteralPath $memoryGenerated -Raw
+foreach ($pattern in @(
+        "d2e_x86_read16_seg",
+        "d2e_x86_write16_seg",
+        "d2e_x86_write8",
+        "D2E_X86_SS",
+        "D2E_X86_ES")) {
+    if ($memoryText -notmatch [regex]::Escape($pattern)) {
+        throw "Expected ModR/M pattern was not emitted: $pattern"
+    }
+}
+
 $text = Get-Content -LiteralPath $assembly -Raw
 foreach ($mnemonic in @("entry", "l32i", "s16i", "call8")) {
     if ($text -notmatch "(?m)^\s*$mnemonic(?:\.n)?\s") {
@@ -59,4 +82,4 @@ if ($text -notmatch "(?m)^program_region:") {
 if ($text -match "(?m)^block_[0-9a-f]+:") {
     throw "Guest blocks became ABI function boundaries in Xtensa assembly"
 }
-Write-Host "Xtensa native-code audit passed: $assembly"
+Write-Host "Xtensa native-code audit passed: $assembly, $memoryAssembly"

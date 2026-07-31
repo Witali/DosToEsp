@@ -42,6 +42,9 @@ def main() -> int:
             },
         ],
     }
+    assert d2e_coverage.classify(memory_instruction) == (True, "supported")
+    memory_instruction["mnemonic"] = "or"
+    memory_instruction["op_str"] = "ax, word ptr [bx]"
     assert d2e_coverage.classify(memory_instruction) == (False, "memory_operand")
     call_instruction = {
         "address": 0x102,

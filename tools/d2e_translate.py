@@ -16,7 +16,7 @@ sys.path.insert(0, str(LOCAL_PACKAGES))
 
 try:
     from capstone import CS_ARCH_X86, CS_MODE_16, Cs
-    from capstone.x86_const import X86_OP_IMM, X86_OP_REG
+    from capstone.x86_const import X86_OP_IMM, X86_OP_MEM, X86_OP_REG
 except ImportError as error:
     raise SystemExit(
         "Capstone is missing. Run scripts/setup-analysis-tools.ps1 first."
@@ -28,12 +28,24 @@ class TranslationError(RuntimeError):
 
 
 @dataclasses.dataclass(frozen=True)
+class MemoryOperand:
+    width: int
+    segment: str | None
+    base: str | None
+    index: str | None
+    displacement: int
+
+
+OperandValue = int | str | MemoryOperand
+
+
+@dataclasses.dataclass(frozen=True)
 class Instruction:
     address: int
     size: int
     mnemonic: str
     op_str: str
-    operands: tuple[tuple[str, int | str], ...]
+    operands: tuple[tuple[str, OperandValue], ...]
 
     @property
     def next_address(self) -> int:
@@ -60,6 +72,13 @@ REG8 = {
     "ch": 5,
     "dh": 6,
     "bh": 7,
+}
+
+SEGMENTS = {
+    "es": "D2E_X86_ES",
+    "cs": "D2E_X86_CS",
+    "ss": "D2E_X86_SS",
+    "ds": "D2E_X86_DS",
 }
 
 CONDITIONS = {
@@ -107,11 +126,29 @@ def read_hex(path: pathlib.Path) -> bytes:
         raise TranslationError(f"invalid hexadecimal fixture {path}: {error}") from error
 
 
-def operand_tuple(instruction, operand) -> tuple[str, int | str]:
+def operand_tuple(instruction, operand) -> tuple[str, OperandValue]:
     if operand.type == X86_OP_REG:
         return ("reg", instruction.reg_name(operand.reg))
     if operand.type == X86_OP_IMM:
         return ("imm", int(operand.imm) & 0xFFFF)
+    if operand.type == X86_OP_MEM:
+        memory = operand.mem
+        if int(memory.scale) not in (0, 1):
+            return ("unsupported", 0)
+        return (
+            "mem",
+            MemoryOperand(
+                width=int(operand.size) * 8,
+                segment=(
+                    instruction.reg_name(memory.segment)
+                    if memory.segment
+                    else None
+                ),
+                base=instruction.reg_name(memory.base) if memory.base else None,
+                index=instruction.reg_name(memory.index) if memory.index else None,
+                displacement=int(memory.disp),
+            ),
+        )
     return ("unsupported", 0)
 
 
@@ -264,8 +301,73 @@ def reg_write(name: str, expression: str, cached: bool = False) -> str:
     raise TranslationError(f"unsupported register {name}")
 
 
+def memory_offset_expression(memory: MemoryOperand, cached: bool) -> str:
+    terms: list[str] = []
+    for name in (memory.base, memory.index):
+        if name is None:
+            continue
+        value, width = reg_read(name, cached)
+        if width != 16:
+            raise TranslationError(f"invalid 8086 address register {name}")
+        terms.append(value)
+    if memory.displacement or not terms:
+        terms.append(f"UINT16_C(0x{memory.displacement & 0xffff:04x})")
+    return f"(uint16_t)({' + '.join(terms)})"
+
+
+def memory_segment_expression(memory: MemoryOperand) -> str:
+    name = memory.segment
+    if name is None:
+        name = "ss" if "bp" in (memory.base, memory.index) else "ds"
+    if name not in SEGMENTS:
+        raise TranslationError(f"unsupported memory segment {name}")
+    return f"cpu->segments[{SEGMENTS[name]}]"
+
+
+def memory_read_expression(memory: MemoryOperand, cached: bool) -> str:
+    segment = memory_segment_expression(memory)
+    offset = memory_offset_expression(memory, cached)
+    if memory.width == 8:
+        return f"d2e_x86_read8(cpu, d2e_x86_linear({segment}, {offset}))"
+    if memory.width == 16:
+        return f"d2e_x86_read16_seg(cpu, {segment}, {offset})"
+    raise TranslationError(f"unsupported memory width {memory.width}")
+
+
+def memory_write_statements(
+    memory: MemoryOperand, expression: str, cached: bool
+) -> list[str]:
+    segment = memory_segment_expression(memory)
+    offset = memory_offset_expression(memory, cached)
+    if memory.width == 8:
+        statement = (
+            f"d2e_x86_write8(cpu, d2e_x86_linear({segment}, {offset}), "
+            f"(uint8_t)({expression}));"
+        )
+    elif memory.width == 16:
+        statement = (
+            f"d2e_x86_write16_seg(cpu, {segment}, {offset}, "
+            f"(uint16_t)({expression}));"
+        )
+    else:
+        raise TranslationError(f"unsupported memory width {memory.width}")
+    return [
+        statement,
+        "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+    ]
+
+
+def operand_width(operand: tuple[str, OperandValue], cached: bool) -> int:
+    kind, value = operand
+    if kind == "reg":
+        return reg_read(str(value), cached)[1]
+    if kind == "mem" and isinstance(value, MemoryOperand):
+        return value.width
+    raise TranslationError("operand has no data width")
+
+
 def value_expression(
-    operand: tuple[str, int | str], width: int, cached: bool = False
+    operand: tuple[str, OperandValue], width: int, cached: bool = False
 ) -> str:
     kind, value = operand
     if kind == "reg":
@@ -276,7 +378,22 @@ def value_expression(
     if kind == "imm":
         masked = int(value) & (0xFF if width == 8 else 0xFFFF)
         return f"UINT{width}_C(0x{masked:0{width // 4}x})"
-    raise TranslationError("memory operands are not implemented in this milestone")
+    if kind == "mem" and isinstance(value, MemoryOperand):
+        if value.width != width:
+            raise TranslationError("memory operand width mismatch")
+        return memory_read_expression(value, cached)
+    raise TranslationError("unsupported value operand")
+
+
+def write_operand(
+    operand: tuple[str, OperandValue], expression: str, cached: bool
+) -> list[str]:
+    kind, value = operand
+    if kind == "reg":
+        return [reg_write(str(value), expression, cached)]
+    if kind == "mem" and isinstance(value, MemoryOperand):
+        return memory_write_statements(value, expression, cached)
+    raise TranslationError("destination is not writable")
 
 
 def translate_data_instruction(
@@ -287,19 +404,14 @@ def translate_data_instruction(
     location = f"{instruction.address:04x}: {mnemonic} {instruction.op_str}".rstrip()
     if mnemonic == "nop":
         return []
-    if mnemonic == "mov" and len(operands) == 2 and operands[0][0] == "reg":
-        destination = str(operands[0][1])
-        _, width = reg_read(destination, cached)
-        return [
-            reg_write(
-                destination, value_expression(operands[1], width, cached), cached
-            )
-        ]
+    if mnemonic == "mov" and len(operands) == 2:
+        width = operand_width(operands[0], cached)
+        return write_operand(
+            operands[0], value_expression(operands[1], width, cached), cached
+        )
     if mnemonic in ("add", "sub", "xor", "cmp") and len(operands) == 2:
-        if operands[0][0] != "reg":
-            raise TranslationError(f"{location}: destination must be a register")
-        destination = str(operands[0][1])
-        left, width = reg_read(destination, cached)
+        width = operand_width(operands[0], cached)
+        left = value_expression(operands[0], width, cached)
         right = value_expression(operands[1], width, cached)
         if mnemonic == "xor":
             expression = f"d2e_x86_logic{width}(cpu, (uint{width}_t)({left} ^ {right}))"
@@ -308,19 +420,15 @@ def translate_data_instruction(
             expression = f"d2e_x86_{operation}{width}(cpu, {left}, {right})"
         if mnemonic == "cmp":
             return [f"(void){expression};"]
-        return [reg_write(destination, expression, cached)]
+        return write_operand(operands[0], expression, cached)
     if mnemonic in ("inc", "dec") and len(operands) == 1:
-        if operands[0][0] != "reg":
-            raise TranslationError(f"{location}: destination must be a register")
-        destination = str(operands[0][1])
-        value, width = reg_read(destination, cached)
-        return [
-            reg_write(
-                destination,
-                f"d2e_x86_{mnemonic}{width}(cpu, {value})",
-                cached,
-            )
-        ]
+        width = operand_width(operands[0], cached)
+        value = value_expression(operands[0], width, cached)
+        return write_operand(
+            operands[0],
+            f"d2e_x86_{mnemonic}{width}(cpu, {value})",
+            cached,
+        )
     raise TranslationError(f"unsupported instruction {location}")
 
 
@@ -331,6 +439,10 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
             for kind, value in instruction.operands:
                 if kind == "reg":
                     used.add(cached_base_register(str(value)))
+                elif kind == "mem" and isinstance(value, MemoryOperand):
+                    for name in (value.base, value.index):
+                        if name is not None:
+                            used.add(cached_base_register(name))
             if instruction.mnemonic in ("loop", "jcxz"):
                 used.add("cx")
     return [name for name in REG16 if name in used]
@@ -389,7 +501,7 @@ def emit_region(
     for name in registers:
         lines.append(f"    uint16_t r_{name};")
     lines.extend(emit_cached_load(registers))
-    lines.extend(["", "dispatch:"])
+    lines.extend(["", "    goto dispatch;", "dispatch:"])
     if image_format == "com":
         lines.extend(
             [

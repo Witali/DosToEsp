@@ -60,7 +60,7 @@ only and is not copied into DosToEsp.
 
 ### 4. Translation coverage
 
-- [ ] Add ModR/M memory addressing and segment overrides.
+- [x] Add ModR/M memory addressing and segment overrides.
 - [ ] Add stack, direct/indirect calls and returns.
 - [ ] Add boolean, shifts, rotates, multiply and divide as observed.
 - [ ] Add string operations and REP variants as observed.
@@ -139,11 +139,13 @@ Completed foundations:
   image/native files and a strict machine-readable completion/blocker manifest;
 - common segmented MZ native-region generation with preserved `CS:IP`, packed
   relocation metadata and no target-specific code;
+- common 8086 ModR/M addressing for 8/16-bit operands, including DS/SS default
+  selection and explicit ES/CS/SS/DS overrides, compiled by the Xtensa audit;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. implement the shared ModR/M memory layer identified by the coverage gap;
-2. implement stack, direct calls and returns;
+1. implement stack, direct calls and returns;
+2. implement boolean, shift and test semantics now exposed by ModR/M support;
 3. capture the indirect target and dynamic port values in a reference trace.
