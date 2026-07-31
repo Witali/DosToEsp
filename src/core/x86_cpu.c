@@ -16,18 +16,50 @@ void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     const size_t memory_size = cpu->memory_size;
     uint8_t *const cga_vram = cpu->cga_vram;
     uint32_t *const page_generations = cpu->page_generations;
+    void *const port_context = cpu->port_context;
+    const d2e_x86_port_in8_fn port_in8 = cpu->port_in8;
+    const d2e_x86_port_out8_fn port_out8 = cpu->port_out8;
 
     memset(cpu, 0, sizeof(*cpu));
     cpu->memory = memory;
     cpu->memory_size = memory_size;
     cpu->cga_vram = cga_vram;
     cpu->page_generations = page_generations;
+    cpu->port_context = port_context;
+    cpu->port_in8 = port_in8;
+    cpu->port_out8 = port_out8;
     cpu->flags = D2E_X86_FLAG_FIXED;
     cpu->stop_reason = D2E_X86_RUNNING;
 }
 
 void d2e_x86_map_cga_vram(d2e_x86_cpu *cpu, uint8_t *cga_vram) {
     cpu->cga_vram = cga_vram;
+}
+
+void d2e_x86_configure_ports(d2e_x86_cpu *cpu, void *context,
+                             d2e_x86_port_in8_fn input,
+                             d2e_x86_port_out8_fn output) {
+    cpu->port_context = context;
+    cpu->port_in8 = input;
+    cpu->port_out8 = output;
+}
+
+uint8_t d2e_x86_port_in8(d2e_x86_cpu *cpu, uint16_t port) {
+    uint8_t value = UINT8_C(0xff);
+    if (cpu->port_in8 == NULL ||
+        !cpu->port_in8(cpu->port_context, port, &value)) {
+        cpu->fault_address = port;
+        cpu->stop_reason = D2E_X86_UNHANDLED_PORT;
+    }
+    return value;
+}
+
+void d2e_x86_port_out8(d2e_x86_cpu *cpu, uint16_t port, uint8_t value) {
+    if (cpu->port_out8 == NULL ||
+        !cpu->port_out8(cpu->port_context, port, value)) {
+        cpu->fault_address = port;
+        cpu->stop_reason = D2E_X86_UNHANDLED_PORT;
+    }
 }
 
 uint8_t d2e_x86_get_reg8(const d2e_x86_cpu *cpu, unsigned encoded_reg) {

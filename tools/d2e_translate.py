@@ -478,6 +478,15 @@ def string_statements(
     return lines
 
 
+def port_expression(operand: tuple[str, OperandValue], cached: bool) -> str:
+    if operand[0] == "imm":
+        return f"UINT16_C(0x{int(operand[1]) & 0xffff:04x})"
+    value, width = reg_read(str(operand[1]), cached)
+    if operand[0] != "reg" or width != 16:
+        raise TranslationError("port must be an immediate or 16-bit register")
+    return value
+
+
 def translate_data_instruction(
     instruction: Instruction, cached: bool = False
 ) -> list[str]:
@@ -494,6 +503,24 @@ def translate_data_instruction(
         "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw"
     ):
         return string_statements(mnemonic, operands, cached)
+    if mnemonic == "in" and len(operands) == 2:
+        if operand_width(operands[0], cached) != 8:
+            raise TranslationError("only 8-bit IN is implemented")
+        lines = write_operand(
+            operands[0],
+            f"d2e_x86_port_in8(cpu, {port_expression(operands[1], cached)})",
+            cached,
+        )
+        lines.append("if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
+        return lines
+    if mnemonic == "out" and len(operands) == 2:
+        if operand_width(operands[1], cached) != 8:
+            raise TranslationError("only 8-bit OUT is implemented")
+        value = value_expression(operands[1], 8, cached)
+        return [
+            f"d2e_x86_port_out8(cpu, {port_expression(operands[0], cached)}, {value});",
+            "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+        ]
     if mnemonic == "mov" and len(operands) == 2:
         width = operand_width(operands[0], cached)
         return write_operand(

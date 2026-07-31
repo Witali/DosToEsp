@@ -150,11 +150,13 @@ Completed foundations:
   RCL and RCR forms, including register, CL-count and memory operands;
 - native MOVS/STOS/LODS loops for byte/word and observed REP forms, with
   DS:SI/ES:DI wrapping, CX completion and DF-controlled direction;
+- generic 8-bit IN/OUT callbacks preserved across program loading, with strict
+  unknown-port stops and native immediate/DX port operands;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. add traced IN/OUT device boundaries and resolve the indirect target;
-2. implement the remaining MUL/XCHG/AAA and rare control-flow forms;
-3. connect the now-near-complete native program to observed BIOS services.
+1. implement the remaining MUL/XCHG/AAA and rare control-flow forms;
+2. resolve the indirect target and dynamic DX ports from a reference trace;
+3. connect PIT/PPI/keyboard callbacks and observed BIOS services.

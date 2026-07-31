@@ -117,6 +117,12 @@ to 4148 of 4224 sites (98.20%). Port I/O accounts for 63 of the remaining 76
 sites, so the next large step is the explicit PC-device boundary rather than
 more general x86 decoding.
 
+All 63 byte `IN`/`OUT` sites now translate through a strict generic device
+callback boundary, bringing instruction coverage to 4211 of 4224 sites
+(99.69%). This covers opcode translation only: ports 40h/42h/43h/61h and the
+dynamic DX values still require PIT/PPI/keyboard device semantics driven by
+the reference trace.
+
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
 `ES`, apply all nine relocations and address native regions through segmented

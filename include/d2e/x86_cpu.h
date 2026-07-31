@@ -55,8 +55,14 @@ typedef enum d2e_x86_stop_reason {
     D2E_X86_UNMAPPED_MEMORY,
     D2E_X86_DIVIDE_ERROR,
     D2E_X86_UNHANDLED_INTERRUPT,
+    D2E_X86_UNHANDLED_PORT,
     D2E_X86_BUDGET_EXHAUSTED
 } d2e_x86_stop_reason;
+
+typedef int (*d2e_x86_port_in8_fn)(void *context, uint16_t port,
+                                   uint8_t *value);
+typedef int (*d2e_x86_port_out8_fn)(void *context, uint16_t port,
+                                    uint8_t value);
 
 typedef struct d2e_x86_cpu {
     uint16_t regs[D2E_X86_REG16_COUNT];
@@ -67,6 +73,9 @@ typedef struct d2e_x86_cpu {
     size_t memory_size;
     uint8_t *cga_vram;
     uint32_t *page_generations;
+    void *port_context;
+    d2e_x86_port_in8_fn port_in8;
+    d2e_x86_port_out8_fn port_out8;
     d2e_x86_stop_reason stop_reason;
     uint16_t fault_cs;
     uint16_t fault_ip;
@@ -79,6 +88,11 @@ void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory, size_t memory_size,
                       uint32_t *page_generations);
 void d2e_x86_cpu_reset(d2e_x86_cpu *cpu);
 void d2e_x86_map_cga_vram(d2e_x86_cpu *cpu, uint8_t *cga_vram);
+void d2e_x86_configure_ports(d2e_x86_cpu *cpu, void *context,
+                             d2e_x86_port_in8_fn input,
+                             d2e_x86_port_out8_fn output);
+uint8_t d2e_x86_port_in8(d2e_x86_cpu *cpu, uint16_t port);
+void d2e_x86_port_out8(d2e_x86_cpu *cpu, uint16_t port, uint8_t value);
 
 uint8_t d2e_x86_get_reg8(const d2e_x86_cpu *cpu, unsigned encoded_reg);
 void d2e_x86_set_reg8(d2e_x86_cpu *cpu, unsigned encoded_reg, uint8_t value);

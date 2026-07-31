@@ -1,0 +1,4 @@
+# Immediate IN, dynamic OUT, immediate OUT
+e4 60 ba 34 12 ee b0 55 e6 61
+# Stop successfully
+f4
