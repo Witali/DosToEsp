@@ -68,10 +68,32 @@ static void test_palette_controls(void) {
     CHECK(row[3] == cga.palette_rgb565[15]);
 }
 
+static void test_mode6_downsampling(void) {
+    uint8_t vram[D2E_CGA_VRAM_SIZE];
+    uint16_t row[D2E_CGA_WIDTH];
+    d2e_cga cga;
+
+    memset(vram, 0, sizeof(vram));
+    d2e_cga_init(&cga);
+    d2e_cga_set_mode(&cga, 6U);
+    d2e_cga_port_write(&cga, UINT16_C(0x03d9), UINT8_C(0x0e));
+    vram[0] = UINT8_C(0x90);
+    d2e_cga_render_320x200_row(&cga, vram, 0U, row);
+    CHECK(row[0] == cga.palette_rgb565[14]);
+    CHECK(row[1] == cga.palette_rgb565[14]);
+    CHECK(row[2] == cga.palette_rgb565[0]);
+    CHECK(row[3] == cga.palette_rgb565[0]);
+
+    d2e_cga_port_write(&cga, UINT16_C(0x03d9), 0U);
+    d2e_cga_render_320x200_row(&cga, vram, 0U, row);
+    CHECK(row[0] == cga.palette_rgb565[15]);
+}
+
 int main(void) {
     test_interleaved_rows();
     test_mode4_pixels();
     test_palette_controls();
+    test_mode6_downsampling();
     if (failures != 0U) {
         fprintf(stderr, "%u CGA test(s) failed\n", failures);
         return 1;
@@ -79,4 +101,3 @@ int main(void) {
     puts("CGA renderer tests passed");
     return 0;
 }
-

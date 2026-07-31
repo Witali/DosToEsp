@@ -64,11 +64,25 @@ void d2e_cga_render_320x200_row(const d2e_cga *cga, const uint8_t *vram,
     if (y >= D2E_CGA_HEIGHT) {
         return;
     }
+    source = vram + d2e_cga_row_offset(y);
+    if (cga->mode == 6U || (cga->mode_control & UINT8_C(0x10)) != 0U) {
+        const uint8_t configured = cga->color_control & UINT8_C(0x0f);
+        const uint8_t foreground = configured == 0U ? 15U : configured;
+        unsigned output_x;
+        for (output_x = 0U; output_x < D2E_CGA_WIDTH; ++output_x) {
+            const unsigned input_x = output_x * 2U;
+            const uint8_t packed = source[input_x >> 3U];
+            const unsigned shift = 6U - (input_x & 6U);
+            const uint8_t pair = (uint8_t)((packed >> shift) & 3U);
+            rgb565[output_x] = cga->palette_rgb565[pair == 0U ? 0U
+                                                               : foreground];
+        }
+        return;
+    }
     if (cga->mode == 5U || (cga->mode_control & UINT8_C(0x04)) != 0U) {
         palette_group = 2U;
     }
     palette = cga_graphics_palette[palette_group][intensity];
-    source = vram + d2e_cga_row_offset(y);
 
     for (byte_index = 0; byte_index < D2E_CGA_BYTES_PER_ROW; ++byte_index) {
         const uint8_t packed = source[byte_index];
@@ -81,4 +95,3 @@ void d2e_cga_render_320x200_row(const d2e_cga *cga, const uint8_t *vram,
         }
     }
 }
-
