@@ -127,6 +127,9 @@ if ($LASTEXITCODE -ne 0) { throw "Native string/REP tests failed" }
 & (Join-Path $build "d2e_native_port_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native port-boundary tests failed" }
 
+& (Join-Path $build "d2e_native_rare_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "Native rare-instruction tests failed" }
+
 $mzImageTest = Join-Path $build "d2e_mz_image_tests.exe"
 if (Test-Path -LiteralPath $mzImageTest -PathType Leaf) {
     & $mzImageTest

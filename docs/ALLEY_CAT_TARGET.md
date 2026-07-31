@@ -123,6 +123,13 @@ callback boundary, bringing instruction coverage to 4211 of 4224 sites
 dynamic DX values still require PIT/PPI/keyboard device semantics driven by
 the reference trace.
 
+The remaining observed `MUL`, `XCHG`, `AAA`, `LOOPE`, `LOOPNE` and `RETF`
+forms are now emitted as native C and covered by a small end-to-end COM
+fixture. Coverage is therefore 4223 of 4224 sites (99.98%). The sole remaining
+translation blocker is `jmp word ptr cs:[bx + 0x250]` at module offset
+`0747Bh`; its finite jump-table target set must be recovered statically and
+confirmed by the reference trace.
+
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
 `ES`, apply all nine relocations and address native regions through segmented
@@ -130,7 +137,7 @@ MZ target keys. The same path is regression-tested with a fully covered tiny
 MZ input; no Alley Cat-specific code is used.
 
 The unified frontend currently writes `out/generated/alley-cat/game_image.c`,
-the inventory and coverage reports, and a `blocked` manifest. It will change
-the manifest to `complete` and add `game_native.c` only when the same general
-backend can translate every required site; no Alley Cat routine is maintained
-as handwritten ESP32 code.
+the inventory and coverage reports, and a `blocked` manifest naming that one
+indirect target. It will change the manifest to `complete` and add
+`game_native.c` only when the same general backend can translate every
+required site; no Alley Cat routine is maintained as handwritten ESP32 code.

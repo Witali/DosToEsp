@@ -22,6 +22,8 @@ $stringGenerated = Join-Path $outputDirectory "native_string.c"
 $stringAssembly = Join-Path $outputDirectory "native_string.xtensa.s"
 $portGenerated = Join-Path $outputDirectory "native_port.c"
 $portAssembly = Join-Path $outputDirectory "native_port.xtensa.s"
+$rareGenerated = Join-Path $outputDirectory "native_rare.c"
+$rareAssembly = Join-Path $outputDirectory "native_rare.xtensa.s"
 
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
     throw "Xtensa ESP32 compiler was not found: $compiler"
@@ -99,6 +101,15 @@ if ($LASTEXITCODE -ne 0) { throw "Port-boundary fixture translation failed" }
     -I (Join-Path $project "include") -S $portGenerated -o $portAssembly
 if ($LASTEXITCODE -ne 0) { throw "Port-boundary Xtensa compilation failed" }
 
+& $python (Join-Path $project "tools\d2e_translate.py") `
+    --hex-input --name native_rare `
+    (Join-Path $project "tests\fixtures\native_rare.hex") $rareGenerated
+if ($LASTEXITCODE -ne 0) { throw "Rare-instruction fixture translation failed" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -S $rareGenerated -o $rareAssembly
+if ($LASTEXITCODE -ne 0) { throw "Rare-instruction Xtensa compilation failed" }
+
 $generatedText = Get-Content -LiteralPath $generated -Raw
 foreach ($pattern in @(
         "static uint32_t program_region",
@@ -140,4 +151,4 @@ if ($text -match "(?m)^block_[0-9a-f]+:") {
 Write-Host `
     "Xtensa native-code audit passed: $assembly, $memoryAssembly, " `
     "$callAssembly, $logicAssembly, $shiftAssembly, $stringAssembly, " `
-    "$portAssembly"
+    "$portAssembly, $rareAssembly"

@@ -1,0 +1,7 @@
+# MUL AH, register XCHG and AAA; save each result
+b8 03 02 f6 e4 89 c6 b9 34 12 86 cd 89 cf b8 0a 09 37 89 c5
+# LOOPE takes the branch, LOOPNE does not; BX must finish as 2
+bb 00 00 b9 02 00 39 c0 e1 03 bb ff ff 43
+b9 02 00 39 c0 e0 03 43 eb 03 bb ff ff
+# A non-taken direct edge makes the dynamic RETF target part of the AOT CFG
+39 c0 75 06 0e ba 39 01 52 cb f4

@@ -43,7 +43,7 @@ def main() -> int:
         ],
     }
     assert d2e_coverage.classify(memory_instruction) == (True, "supported")
-    memory_instruction["mnemonic"] = "mul"
+    memory_instruction["mnemonic"] = "div"
     memory_instruction["op_str"] = "word ptr [bx]"
     memory_instruction["operands"] = [memory_instruction["operands"][1]]
     assert d2e_coverage.classify(memory_instruction) == (False, "memory_operand")

@@ -62,8 +62,10 @@ only and is not copied into DosToEsp.
 
 - [x] Add ModR/M memory addressing and segment overrides.
 - [x] Add stack, direct near calls and near returns.
-- [ ] Add observed indirect targets and far control transfers.
-- [ ] Add boolean, shifts, rotates, multiply and divide as observed.
+- [ ] Add observed indirect targets; direct far return is implemented and
+  regression-tested.
+- [x] Add boolean, shifts, rotates and multiply forms observed in the target
+  (no divide site is present in the current inventory).
 - [x] Add string operations and REP variants as observed.
 - [ ] Complete exact 8086 flags for every implemented operation.
 - [ ] Reject unobserved 80186/386 instructions unless the target requires a
@@ -152,11 +154,13 @@ Completed foundations:
   DS:SI/ES:DI wrapping, CX completion and DF-controlled direction;
 - generic 8-bit IN/OUT callbacks preserved across program loading, with strict
   unknown-port stops and native immediate/DX port operands;
+- native MUL, XCHG, AAA, LOOPE/LOOPNE and RETF semantics, exercised together
+  by a compact generated COM program on both the host and Xtensa compiler;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. implement the remaining MUL/XCHG/AAA and rare control-flow forms;
-2. resolve the indirect target and dynamic DX ports from a reference trace;
+1. recover and validate the remaining indirect jump-table target;
+2. resolve dynamic DX ports from a reference trace;
 3. connect PIT/PPI/keyboard callbacks and observed BIOS services.

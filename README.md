@@ -34,8 +34,10 @@ ignored by Git.
 
 The setup script installs the pinned Capstone disassembler under the ignored
 `local_tools/` directory and verifies its official PyPI SHA-256. The normal
-test command builds a tiny synthetic COM through the complete translation
-pipeline and verifies its final registers and DOS exit code:
+test command builds a suite of tiny synthetic COM programs through the complete
+translation pipeline. The fixtures separately exercise arithmetic, memory,
+calls and stack, flags, shifts, strings, ports and rare control-flow forms,
+then verify their final guest state:
 
 ```powershell
 .\scripts\setup-analysis-tools.ps1

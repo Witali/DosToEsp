@@ -284,3 +284,38 @@ uint8_t d2e_x86_rcr8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
 uint16_t d2e_x86_rcr16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
     return (uint16_t)rotate_carry(cpu, value, count, 16U, 1);
 }
+
+static void replace_multiply_flags(d2e_x86_cpu *cpu, int high_half_nonzero) {
+    const uint16_t flags = high_half_nonzero
+                               ? D2E_X86_FLAG_CF | D2E_X86_FLAG_OF
+                               : 0U;
+    cpu->flags = (uint16_t)(
+        (cpu->flags & (uint16_t)~(D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) |
+        flags | D2E_X86_FLAG_FIXED);
+}
+
+uint16_t d2e_x86_mul8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right) {
+    const uint16_t result = (uint16_t)left * (uint16_t)right;
+    replace_multiply_flags(cpu, (result & UINT16_C(0xff00)) != 0U);
+    return result;
+}
+
+uint32_t d2e_x86_mul16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right) {
+    const uint32_t result = (uint32_t)left * (uint32_t)right;
+    replace_multiply_flags(cpu, (result & UINT32_C(0xffff0000)) != 0U);
+    return result;
+}
+
+uint16_t d2e_x86_aaa(d2e_x86_cpu *cpu, uint16_t ax) {
+    if ((ax & UINT16_C(0x000f)) > UINT16_C(9) ||
+        (cpu->flags & D2E_X86_FLAG_AF) != 0U) {
+        ax = (uint16_t)(ax + UINT16_C(0x0106));
+        cpu->flags = (uint16_t)(cpu->flags | D2E_X86_FLAG_AF |
+                                D2E_X86_FLAG_CF | D2E_X86_FLAG_FIXED);
+    } else {
+        cpu->flags = (uint16_t)(
+            cpu->flags & (uint16_t)~(D2E_X86_FLAG_AF | D2E_X86_FLAG_CF));
+        cpu->flags |= D2E_X86_FLAG_FIXED;
+    }
+    return ax & UINT16_C(0xff0f);
+}

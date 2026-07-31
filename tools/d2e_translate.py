@@ -180,7 +180,7 @@ def successors(instruction: Instruction) -> tuple[int, ...]:
     mnemonic = instruction.mnemonic
     if mnemonic == "jmp":
         return (direct_target(instruction),)
-    if mnemonic in CONDITIONS or mnemonic in ("loop", "jcxz"):
+    if mnemonic in CONDITIONS or mnemonic in ("loop", "loope", "loopne", "jcxz"):
         return (direct_target(instruction), instruction.next_address)
     if mnemonic in ("ret", "retf", "iret", "hlt"):
         return ()
@@ -193,7 +193,10 @@ def is_terminator(instruction: Instruction) -> bool:
     return (
         instruction.mnemonic in CONDITIONS
         or instruction.mnemonic
-        in ("jmp", "loop", "jcxz", "call", "ret", "retf", "iret", "int", "hlt")
+        in (
+            "jmp", "loop", "loope", "loopne", "jcxz", "call", "ret",
+            "retf", "iret", "int", "hlt"
+        )
     )
 
 
@@ -565,6 +568,37 @@ def translate_data_instruction(
             f"d2e_x86_{mnemonic}{width}(cpu, {value}, (uint8_t)({count}))",
             cached,
         )
+    if mnemonic == "xchg" and len(operands) == 2:
+        width = operand_width(operands[0], cached)
+        if operand_width(operands[1], cached) != width:
+            raise TranslationError("XCHG operand width mismatch")
+        left = value_expression(operands[0], width, cached)
+        right = value_expression(operands[1], width, cached)
+        lines = [f"exchange_value = (uint16_t)({left});"]
+        lines.extend(write_operand(operands[0], right, cached))
+        lines.extend(
+            write_operand(
+                operands[1], f"(uint{width}_t)exchange_value", cached
+            )
+        )
+        return lines
+    if mnemonic == "mul" and len(operands) == 1:
+        width = operand_width(operands[0], cached)
+        value = value_expression(operands[0], width, cached)
+        if width == 8:
+            return [
+                "r_ax = d2e_x86_mul8(cpu, (uint8_t)r_ax, "
+                f"(uint8_t)({value}));"
+            ]
+        if width == 16:
+            return [
+                f"multiply_value = d2e_x86_mul16(cpu, r_ax, {value});",
+                "r_ax = (uint16_t)multiply_value;",
+                "r_dx = (uint16_t)(multiply_value >> 16U);",
+            ]
+        raise TranslationError(f"unsupported MUL width {width}")
+    if mnemonic == "aaa" and not operands:
+        return ["r_ax = d2e_x86_aaa(cpu, r_ax);"]
     if mnemonic in ("clc", "cld", "cli") and not operands:
         flag = {
             "clc": "D2E_X86_FLAG_CF",
@@ -610,14 +644,20 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                     for name in (value.base, value.index):
                         if name is not None:
                             used.add(cached_base_register(name))
-            if instruction.mnemonic in ("loop", "jcxz"):
+            if instruction.mnemonic in ("loop", "loope", "loopne", "jcxz"):
                 used.add("cx")
-            if instruction.mnemonic in ("call", "ret", "push", "pop"):
+            if instruction.mnemonic in ("call", "ret", "retf", "push", "pop"):
                 used.add("sp")
             if instruction.mnemonic in ("lahf", "sahf"):
                 used.add("ax")
             if instruction.mnemonic.startswith("rep "):
                 used.add("cx")
+            if instruction.mnemonic in ("mul", "aaa"):
+                used.add("ax")
+            if instruction.mnemonic == "mul" and operand_width(
+                instruction.operands[0], True
+            ) == 16:
+                used.add("dx")
     return [name for name in REG16 if name in used]
 
 
@@ -677,6 +717,19 @@ def emit_region(
         for instruction in block
     ):
         lines.append("    uint16_t stack_value;")
+    if any(
+        instruction.mnemonic == "xchg"
+        for block in blocks.values()
+        for instruction in block
+    ):
+        lines.append("    uint16_t exchange_value;")
+    if any(
+        instruction.mnemonic == "mul"
+        and operand_width(instruction.operands[0], True) == 16
+        for block in blocks.values()
+        for instruction in block
+    ):
+        lines.append("    uint32_t multiply_value;")
     for name in registers:
         lines.append(f"    uint16_t r_{name};")
     lines.extend(emit_cached_load(registers))
@@ -786,6 +839,29 @@ def emit_region(
                     load_segment,
                 )
                 terminated = True
+            elif mnemonic in ("loope", "loopne"):
+                target = direct_target(instruction)
+                flag_condition = (
+                    "(cpu->flags & D2E_X86_FLAG_ZF) != 0U"
+                    if mnemonic == "loope"
+                    else "(cpu->flags & D2E_X86_FLAG_ZF) == 0U"
+                )
+                lines.append("    r_cx = (uint16_t)(r_cx - 1U);")
+                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    if (r_cx != 0U && {flag_condition}) {{")
+                emit_native_target(
+                    lines, target, blocks, "        ", image_format, load_segment
+                )
+                lines.append("    }")
+                emit_native_target(
+                    lines,
+                    instruction.next_address,
+                    blocks,
+                    "    ",
+                    image_format,
+                    load_segment,
+                )
+                terminated = True
             elif mnemonic == "jcxz":
                 target = direct_target(instruction)
                 lines.append(f"    retired += UINT64_C({len(block)});")
@@ -869,7 +945,25 @@ def emit_region(
                     ]
                 )
                 terminated = True
-            elif mnemonic in ("retf", "iret"):
+            elif mnemonic == "retf":
+                stack_adjustment = 4
+                if instruction.operands:
+                    if len(instruction.operands) != 1 or instruction.operands[0][0] != "imm":
+                        raise TranslationError(
+                            f"unsupported retf operands {instruction.address:04x}: {instruction.op_str}"
+                        )
+                    stack_adjustment += int(instruction.operands[0][1])
+                lines.extend(
+                    [
+                        "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
+                        "    cpu->segments[D2E_X86_CS] = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(2)));",
+                        f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
+                        f"    retired += UINT64_C({len(block)});",
+                        "    goto dispatch;",
+                    ]
+                )
+                terminated = True
+            elif mnemonic == "iret":
                 raise TranslationError(
                     f"unsupported control transfer {instruction.address:04x}: {mnemonic} {instruction.op_str}"
                 )

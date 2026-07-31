@@ -152,6 +152,25 @@ static void test_shift_flags(d2e_x86_cpu *cpu) {
           (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
 }
 
+static void test_multiply_and_adjust(d2e_x86_cpu *cpu) {
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_mul8(cpu, UINT8_C(3), UINT8_C(2)) == UINT16_C(6));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) == 0U);
+    CHECK(d2e_x86_mul8(cpu, UINT8_C(0xff), UINT8_C(2)) == UINT16_C(0x01fe));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+    CHECK(d2e_x86_mul16(cpu, UINT16_C(0xffff), UINT16_C(2)) ==
+          UINT32_C(0x0001fffe));
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_aaa(cpu, UINT16_C(0x090a)) == UINT16_C(0x0a00));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF));
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_aaa(cpu, UINT16_C(0x0203)) == UINT16_C(0x0203));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF)) == 0U);
+}
+
 static void test_sparse_video_mapping(void) {
     uint8_t conventional[UINT16_C(0x1000)];
     uint8_t cga_vram[UINT16_C(0x4000)];
@@ -189,6 +208,7 @@ int main(void) {
     test_stack(&cpu);
     test_alu_flags(&cpu);
     test_shift_flags(&cpu);
+    test_multiply_and_adjust(&cpu);
     test_sparse_video_mapping();
 
     free(generations);
