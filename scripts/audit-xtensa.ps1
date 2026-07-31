@@ -14,6 +14,8 @@ $memoryGenerated = Join-Path $outputDirectory "native_memory.c"
 $memoryAssembly = Join-Path $outputDirectory "native_memory.xtensa.s"
 $callGenerated = Join-Path $outputDirectory "native_call.c"
 $callAssembly = Join-Path $outputDirectory "native_call.xtensa.s"
+$logicGenerated = Join-Path $outputDirectory "native_logic.c"
+$logicAssembly = Join-Path $outputDirectory "native_logic.xtensa.s"
 
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
     throw "Xtensa ESP32 compiler was not found: $compiler"
@@ -55,6 +57,15 @@ if ($LASTEXITCODE -ne 0) { throw "Stack/call fixture translation failed" }
     -I (Join-Path $project "include") -S $callGenerated -o $callAssembly
 if ($LASTEXITCODE -ne 0) { throw "Stack/call Xtensa compilation failed" }
 
+& $python (Join-Path $project "tools\d2e_translate.py") `
+    --hex-input --name native_logic `
+    (Join-Path $project "tests\fixtures\native_logic.hex") $logicGenerated
+if ($LASTEXITCODE -ne 0) { throw "Boolean/flag fixture translation failed" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -S $logicGenerated -o $logicAssembly
+if ($LASTEXITCODE -ne 0) { throw "Boolean/flag Xtensa compilation failed" }
+
 $generatedText = Get-Content -LiteralPath $generated -Raw
 foreach ($pattern in @(
         "static uint32_t program_region",
@@ -94,4 +105,5 @@ if ($text -match "(?m)^block_[0-9a-f]+:") {
     throw "Guest blocks became ABI function boundaries in Xtensa assembly"
 }
 Write-Host `
-    "Xtensa native-code audit passed: $assembly, $memoryAssembly, $callAssembly"
+    "Xtensa native-code audit passed: $assembly, $memoryAssembly, " `
+    "$callAssembly, $logicAssembly"

@@ -144,11 +144,13 @@ Completed foundations:
   selection and explicit ES/CS/SS/DS overrides, compiled by the Xtensa audit;
 - cached-SP guest stack operations plus direct near calls/returns as native
   region edges, including nested-call host and Xtensa regression fixtures;
+- native boolean/test/not operations, status-control instructions and
+  LAHF/SAHF transfer semantics with generated flag regression tests;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 
 Immediate work queue:
 
-1. implement boolean, shift and test semantics now exposed by ModR/M support;
-2. implement the observed string operations and direction flag behaviour;
-3. capture the indirect target and dynamic port values in a reference trace.
+1. implement SHL/SHR and the observed rotate forms;
+2. implement the observed string operations and REP behaviour;
+3. add traced IN/OUT device boundaries and resolve the indirect target.

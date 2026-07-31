@@ -451,16 +451,20 @@ def translate_data_instruction(
         return write_operand(
             operands[0], value_expression(operands[1], width, cached), cached
         )
-    if mnemonic in ("add", "sub", "xor", "cmp") and len(operands) == 2:
+    if mnemonic in ("add", "sub", "xor", "and", "or", "cmp", "test") and len(operands) == 2:
         width = operand_width(operands[0], cached)
         left = value_expression(operands[0], width, cached)
         right = value_expression(operands[1], width, cached)
-        if mnemonic == "xor":
-            expression = f"d2e_x86_logic{width}(cpu, (uint{width}_t)({left} ^ {right}))"
+        if mnemonic in ("xor", "and", "or", "test"):
+            operator = {"xor": "^", "and": "&", "or": "|", "test": "&"}[mnemonic]
+            expression = (
+                f"d2e_x86_logic{width}(cpu, "
+                f"(uint{width}_t)({left} {operator} {right}))"
+            )
         else:
             operation = "sub" if mnemonic == "cmp" else mnemonic
             expression = f"d2e_x86_{operation}{width}(cpu, {left}, {right})"
-        if mnemonic == "cmp":
+        if mnemonic in ("cmp", "test"):
             return [f"(void){expression};"]
         return write_operand(operands[0], expression, cached)
     if mnemonic in ("inc", "dec") and len(operands) == 1:
@@ -471,6 +475,41 @@ def translate_data_instruction(
             f"d2e_x86_{mnemonic}{width}(cpu, {value})",
             cached,
         )
+    if mnemonic == "not" and len(operands) == 1:
+        width = operand_width(operands[0], cached)
+        value = value_expression(operands[0], width, cached)
+        return write_operand(
+            operands[0], f"(uint{width}_t)(~(uint{width}_t)({value}))", cached
+        )
+    if mnemonic in ("clc", "cld", "cli") and not operands:
+        flag = {
+            "clc": "D2E_X86_FLAG_CF",
+            "cld": "D2E_X86_FLAG_DF",
+            "cli": "D2E_X86_FLAG_IF",
+        }[mnemonic]
+        return [f"cpu->flags = (uint16_t)(cpu->flags & (uint16_t)~{flag});"]
+    if mnemonic in ("stc", "std", "sti") and not operands:
+        flag = {
+            "stc": "D2E_X86_FLAG_CF",
+            "std": "D2E_X86_FLAG_DF",
+            "sti": "D2E_X86_FLAG_IF",
+        }[mnemonic]
+        return [f"cpu->flags = (uint16_t)(cpu->flags | {flag});"]
+    if mnemonic == "lahf" and not operands:
+        return [
+            reg_write(
+                "ah",
+                "(uint8_t)(cpu->flags & UINT16_C(0x00d7))",
+                cached,
+            )
+        ]
+    if mnemonic == "sahf" and not operands:
+        return [
+            (
+                "cpu->flags = (uint16_t)((cpu->flags & UINT16_C(0xff28)) | "
+                "(r_ax >> 8U & UINT16_C(0x00d7)) | D2E_X86_FLAG_FIXED);"
+            )
+        ]
     raise TranslationError(f"unsupported instruction {location}")
 
 
@@ -491,6 +530,8 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 used.add("cx")
             if instruction.mnemonic in ("call", "ret", "push", "pop"):
                 used.add("sp")
+            if instruction.mnemonic in ("lahf", "sahf"):
+                used.add("ax")
     return [name for name in REG16 if name in used]
 
 

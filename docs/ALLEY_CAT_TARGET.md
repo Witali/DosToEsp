@@ -101,6 +101,12 @@ coverage again to 3773 of 4224 sites (89.32%). The remaining 451 sites comprise
 three control transfers (`loopne`, `loope`, `retf`) and one indirect jump.
 Boolean and shift semantics are now the largest dependency.
 
+Native `AND`, `OR`, `TEST`, `NOT`, flag-control and LAHF/SAHF semantics have
+raised coverage to 4008 of 4224 sites (94.89%). The 216 remaining sites are
+dominated by 107 shifts, 63 port I/O operations and 30 string operations; the
+rest are four multiply, four exchange, four control-flow and a few legacy
+instruction sites.
+
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
 `ES`, apply all nine relocations and address native regions through segmented

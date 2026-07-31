@@ -142,6 +142,33 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME d2e_native_call_tests COMMAND d2e_native_call_tests)
 
+        set(D2E_LOGIC_C "${D2E_GENERATED_DIR}/native_logic.c")
+        add_custom_command(
+            OUTPUT "${D2E_LOGIC_C}"
+            COMMAND "${D2E_PYTHON}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/d2e_translate.py"
+                    --hex-input --name native_logic
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/native_logic.hex"
+                    "${D2E_LOGIC_C}"
+            DEPENDS
+                tools/d2e_translate.py
+                tests/fixtures/native_logic.hex
+            VERBATIM
+        )
+        add_executable(d2e_native_logic_tests
+            tests/test_native_logic.c
+            "${D2E_LOGIC_C}"
+        )
+        target_link_libraries(d2e_native_logic_tests PRIVATE d2e_core)
+        if(MSVC)
+            target_compile_options(d2e_native_logic_tests PRIVATE /W4 /WX)
+        else()
+            target_compile_options(d2e_native_logic_tests PRIVATE
+                -Wall -Wextra -Wpedantic -Werror
+            )
+        endif()
+        add_test(NAME d2e_native_logic_tests COMMAND d2e_native_logic_tests)
+
         if(D2E_ALLEY_CAT_EXE AND EXISTS "${D2E_ALLEY_CAT_EXE}")
             set(D2E_ALLEY_CAT_C "${D2E_GENERATED_DIR}/alley_cat_image.c")
             add_custom_command(
