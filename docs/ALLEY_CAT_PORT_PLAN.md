@@ -128,6 +128,8 @@ Completed foundations:
 - CGA 320x200 2bpp peripheral semantics and row renderer;
 - deterministic COM/MZ fingerprint, reachable CFG and static hardware/API
   inventory reports with fixture regression tests;
+- fingerprint-checked JSONL reference trace contract and deterministic summary
+  for code locations, interrupts, ports and CGA writes;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 

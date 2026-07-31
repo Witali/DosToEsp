@@ -39,6 +39,8 @@ if (-not (Test-Path -LiteralPath $capstone -PathType Leaf)) {
 }
 & $python (Join-Path $project "tests\test_analysis.py")
 if ($LASTEXITCODE -ne 0) { throw "Static inventory tests failed" }
+& $python (Join-Path $project "tests\test_trace.py")
+if ($LASTEXITCODE -ne 0) { throw "Reference trace tests failed" }
 $compiler = $null
 $vswhere = Join-Path ${env:ProgramFiles(x86)} `
     "Microsoft Visual Studio\Installer\vswhere.exe"
