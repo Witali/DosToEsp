@@ -55,6 +55,11 @@ unresolved control flow or decode issues.
 
 ## Observable PC boundary
 
+The fixed compatibility profile is documented Intel 8086 instructions with a
+PC/AT-compatible real-mode BIOS and device boundary. The AT label applies to
+the machine services only: 80286 instructions and protected mode remain out of
+scope. CGA is retained as the selected ISA display adapter for this game.
+
 Statically reachable software interrupts:
 
 - `INT 10h`: 13 video BIOS call sites

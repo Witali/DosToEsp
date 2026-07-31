@@ -58,6 +58,28 @@ def main() -> int:
         assert len(partitions) == 2
         assert len(partitions[0]) == d2e_translate.MZ_REGION_BLOCK_LIMIT
         assert list(partitions[1]) == [256]
+
+        d2e_translate.require_8086_encoding(bytes.fromhex("f3 a4"), 0x0100)
+        for outside_8086 in (
+            "60",
+            "68 34 12",
+            "82 c0 01",
+            "c1 e0 02",
+            "c8 00 00 00",
+            "d6",
+            "0f 01 16 00 02",
+            "66 90",
+        ):
+            try:
+                d2e_translate.require_8086_encoding(
+                    bytes.fromhex(outside_8086), 0x1234
+                )
+            except d2e_translate.TranslationError as error:
+                assert "outside the Intel 8086 profile" in str(error)
+            else:
+                raise AssertionError(
+                    f"accepted non-profile encoding: {outside_8086}"
+                )
     print("unified source build tests passed")
     return 0
 

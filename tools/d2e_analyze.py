@@ -189,6 +189,13 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
             if instruction is None:
                 issues.add((address, "Capstone could not decode instruction"))
                 break
+            try:
+                d2e_translate.require_8086_encoding(
+                    bytes(instruction.bytes), address
+                )
+            except d2e_translate.TranslationError as error:
+                issues.add((address, str(error)))
+                break
             record = {
                 "address": address,
                 "size": int(instruction.size),

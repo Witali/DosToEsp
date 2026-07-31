@@ -4,6 +4,9 @@ DosToEsp is an experimental 8086-to-ESP32 ahead-of-time translator aimed at smal
 real-mode DOS games such as *Alley Cat*. It targets the two-USB
 ESP32-2432S028 (CYD2USB) used by the sibling HLV-codec project: classic
 ESP32-D0WD-V3, 320x240 ST7789 display, microSD, GPIO26 DAC and BOOT on GPIO0.
+The fixed guest profile is the Intel 8086 instruction set inside a narrow
+PC/AT-compatible real-mode BIOS/device environment; PC/AT compatibility does
+not enable 80286 instructions or protected mode.
 
 The project is deliberately split into a host-only translator, a portable C99
 runtime and a thin ESP-IDF platform layer. The generated blocks and runtime run

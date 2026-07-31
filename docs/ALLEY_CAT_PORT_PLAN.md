@@ -68,8 +68,8 @@ only and is not copied into DosToEsp.
   (no divide site is present in the current inventory).
 - [x] Add string operations and REP variants as observed.
 - [ ] Complete exact 8086 flags for every implemented operation.
-- [ ] Reject unobserved 80186/386 instructions unless the target requires a
-  documented profile extension.
+- [x] Reject 80186/80286/386 instructions and prefixes: the fixed CPU profile
+  is documented Intel 8086, with no profile extension for this port.
 
 Acceptance gate: the target's traced code translates without unsupported
 instruction diagnostics and passes differential semantic tests.

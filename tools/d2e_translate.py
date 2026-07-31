@@ -115,6 +115,29 @@ CONDITIONS = {
     "jnle": "((cpu->flags & D2E_X86_FLAG_ZF) == 0U) && ((((cpu->flags >> 7U) ^ (cpu->flags >> 11U)) & 1U) == 0U)",
 }
 
+INTEL_8086_PREFIXES = frozenset((0x26, 0x2E, 0x36, 0x3E, 0xF0, 0xF2, 0xF3))
+OUTSIDE_DOCUMENTED_8086_OPCODES = frozenset(
+    (*range(0x60, 0x70), 0x82, 0xC0, 0xC1, 0xC8, 0xC9, 0xD6, 0xF1)
+)
+
+
+def require_8086_encoding(encoded: bytes, address: int) -> None:
+    """Reject instruction encodings outside the documented Intel 8086 ISA."""
+    opcode_index = 0
+    while (
+        opcode_index < len(encoded)
+        and encoded[opcode_index] in INTEL_8086_PREFIXES
+    ):
+        opcode_index += 1
+    if opcode_index >= len(encoded):
+        raise TranslationError(f"{address:05x}: instruction contains only prefixes")
+
+    opcode = encoded[opcode_index]
+    if opcode == 0x0F or opcode in OUTSIDE_DOCUMENTED_8086_OPCODES:
+        raise TranslationError(
+            f"{address:05x}: opcode 0x{opcode:02x} is outside the Intel 8086 profile"
+        )
+
 
 def read_hex(path: pathlib.Path) -> bytes:
     chunks: list[str] = []
@@ -160,6 +183,7 @@ def decode_one(disassembler: Cs, image: bytes, base: int, address: int) -> Instr
     decoded = next(disassembler.disasm(image[index:], address, count=1), None)
     if decoded is None:
         raise TranslationError(f"cannot decode instruction at {address:04x}")
+    require_8086_encoding(bytes(decoded.bytes), address)
     return Instruction(
         address=address,
         size=decoded.size,

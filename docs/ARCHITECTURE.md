@@ -56,7 +56,22 @@ of presenting an image-only or partially translated build as runnable code.
   target really uses self-modifying code, the AOT pass must identify the finite
   variants and emit a guarded native version for each one.
 
-## Initial 8086 coverage
+## Fixed target profile
+
+The guest instruction-set boundary is the documented Intel 8086 ISA. The
+offline analyzer and translator reject 80186/80286 instructions, 32-bit
+operand/address prefixes and later x86 extensions even when the disassembler
+can decode them. There is no protected mode, descriptor-table state or 286 CPU
+fallback.
+
+The machine boundary is an IBM PC/AT-compatible real-mode environment with the
+specific ISA devices observed by Alley Cat: conventional memory, PC BIOS/DOS
+services, CGA, 8253/8254 PIT, 8255-compatible speaker control, keyboard and PC
+speaker. "PC/AT-compatible" describes the firmware/device contract only; it
+does not expand the translated CPU beyond the 8086 instruction set. Unobserved
+AT devices and APIs remain strict diagnostic boundaries.
+
+## Intel 8086 coverage
 
 Translation proceeds by semantic groups, each gated by generated-code tests:
 
@@ -68,7 +83,7 @@ Translation proceeds by semantic groups, each gated by generated-code tests:
 6. strings with REP/REPE/REPNE;
 7. multiply, divide, BCD helpers and interrupt control.
 
-80186+ instructions are rejected unless enabled by a later target profile.
+Post-8086 instructions are permanently outside this initial target profile.
 
 ## DOS, video, input and sound
 
@@ -97,6 +112,7 @@ so no full RGB framebuffer is required. Guest B800 memory remains only 16 KiB.
 ## Out of scope for the first playable build
 
 - protected mode, 32-bit x86 and x87;
+- 80186/80286 and later instruction-set extensions;
 - an exact PC chipset emulator;
 - unobserved DOS APIs and hardware devices;
 - distributing proprietary game files.
