@@ -108,7 +108,7 @@ expected register/memory digest.
 
 ### 7. Hardware environment
 
-- [ ] Connect the existing CGA modes 4/5 renderer to the CYD ST7789 using the
+- [x] Connect the existing CGA modes 4/5 renderer to the CYD ST7789 using the
   verified HLV-codec pinout and SPI DMA setup.
 - [ ] Add dirty-line/region updates and centre 320x200 inside 320x240.
 - [x] Map BOOT/UART/QEMU input to XT make/break scan codes, ports `60h`/`64h`
@@ -122,7 +122,7 @@ physical board without timing-dependent speed changes.
 
 ### 8. End-to-end validation and optimisation
 
-- [ ] Headless test with scripted input and CGA frame hashes.
+- [x] Headless test with scripted input and CGA frame hashes.
 - [x] Compile, link and boot the real generated Alley Cat firmware in ESP32
   QEMU, reaching the first strict environment boundary after native entry.
 - [ ] QEMU boot of the real generated firmware with matching state/frame
@@ -175,6 +175,9 @@ Completed foundations:
 - successful ESP32 QEMU boot of the real 624,944-byte Alley Cat firmware,
   executing five native-translated guest instructions before the first strict
   environment boundary, BIOS `INT 11h`;
+- successful native Windows QEMU run through HLV-codec's ST7789 and SDSPI
+  board models: the FAT card marker is read through SPI3 and changing CGA mode
+  4 frames are submitted to the 320x240 SPI2 display;
 - host tests, native Xtensa assembly audit, ESP32 QEMU smoke test and physical
   CYD2USB smoke test.
 

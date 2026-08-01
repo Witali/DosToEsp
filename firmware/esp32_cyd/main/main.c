@@ -20,6 +20,9 @@
 #include "d2e/text_video.h"
 #include "board_config.h"
 #include "cyd_display.h"
+#if D2E_QEMU_BOARD_DEVICES
+#include "cyd_sd.h"
+#endif
 #include "qemu_frame_dump.h"
 
 #define D2E_CONVENTIONAL_BYTES (UINT32_C(128) * 1024U)
@@ -32,7 +35,7 @@ static d2e_pc_at pc_at;
 
 #if D2E_ALLEY_CAT
 static d2e_pc_input pc_input;
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
 static uint8_t boot_button_down;
 #endif
 static uint64_t last_clock_day;
@@ -63,7 +66,7 @@ static void feed_scripted_input(uint64_t frame) {
 #endif
 
 static esp_err_t init_pc_input(void) {
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     gpio_config_t button = {0};
     button.pin_bit_mask = 1ULL << BOARD_BOOT_BUTTON;
     button.mode = GPIO_MODE_INPUT;
@@ -79,7 +82,7 @@ static esp_err_t init_pc_input(void) {
             return uart_result;
         }
     }
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     return gpio_config(&button);
 #else
     return ESP_OK;
@@ -89,7 +92,7 @@ static esp_err_t init_pc_input(void) {
 static void poll_pc_input_and_clock(void) {
     uint8_t bytes[32];
     size_t buffered = 0U;
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     const uint8_t button_down =
         gpio_get_level(BOARD_BOOT_BUTTON) == 0 ? 1U : 0U;
 #endif
@@ -99,7 +102,7 @@ static void poll_pc_input_and_clock(void) {
     const uint32_t ticks = (uint32_t)(
         day_micros * UINT64_C(182065) / UINT64_C(10000000000));
 
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     if (button_down != 0U && boot_button_down == 0U) {
         (void)d2e_pc_at_enqueue_key(&pc_at, UINT8_C(' '), UINT8_C(0x39));
     }
@@ -127,7 +130,7 @@ static void poll_pc_input_and_clock(void) {
 }
 #endif
 
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
 static cyd_display_t display;
 
 #if D2E_ALLEY_CAT
@@ -213,8 +216,11 @@ void app_main(void) {
                      sizeof(conventional_memory), NULL);
     d2e_pc_at_init(&pc_at, cga_vram, sizeof(cga_vram));
     d2e_pc_at_attach(&pc_at, &cpu);
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     ESP_ERROR_CHECK(cyd_display_init(&display));
+#endif
+#if D2E_QEMU_BOARD_DEVICES
+    ESP_ERROR_CHECK(cyd_sd_mount_and_probe());
 #endif
 #if D2E_ALLEY_CAT
     ESP_ERROR_CHECK(init_pc_input());
@@ -273,7 +279,7 @@ void app_main(void) {
         int report_frame;
         reason =
             d2e_native_run(&cpu, &d2e_generated_program, UINT32_C(100000));
-#if !D2E_QEMU_SMOKE
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
         ESP_ERROR_CHECK(render_pc_frame());
 #endif
         #if D2E_QEMU_SCRIPTED_INPUT

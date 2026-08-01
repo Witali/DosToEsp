@@ -34,6 +34,19 @@ missing BIOS, port or other environment boundary. It exercises the generated
 MZ native code and is not expected to reach gameplay until those devices are
 implemented.
 
+Run the game with the sibling HLV-codec project's native Windows QEMU models
+for the CYD ST7789 display and SDSPI card:
+
+```powershell
+.\qemu-alley-cat-board-windows.ps1 -ScriptedInput
+```
+
+The default run opens an SDL window, renders 240 frames through the same SPI2
+DMA driver used on the board, mounts the HLV-codec FAT image through SPI3 and
+stores UART telemetry in `out/qemu/alley-cat-board-windows.log`. Pass
+`-Headless`, `-FrameLimit N` or `-SdImage path.img` as needed. QEMU snapshot
+mode keeps both source images unchanged.
+
 Flash and verify the physical CYD2USB board (COM8 by default):
 
 ```powershell

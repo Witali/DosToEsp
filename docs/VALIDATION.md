@@ -210,3 +210,30 @@ The make and break interrupts returned through native `IRET` without hitting a
 strict boundary. A longer Space/Right/Space/Left run also completed, but its
 final framebuffer remained at hash `99881404`; therefore the correct
 title-screen start action and first playable scene are not yet claimed.
+
+## 2026-08-01: Windows QEMU ST7789 and SDSPI board run
+
+The Alley Cat firmware now has a bounded board-device QEMU configuration that
+keeps the production SPI2 ST7789 renderer enabled while preserving the QEMU
+restart/exit and frame-limit controls. It also initializes the CYD SPI3 pins,
+mounts a FAT card with ESP-IDF's SDSPI/VFS stack and reads the HLV QEMU marker.
+The native Windows QEMU from HLV-codec attaches both patched devices; snapshot
+mode prevents the source flash and SD images from being modified.
+
+A headless eight-frame smoke run and a visible 240-frame SDL run both passed.
+The visible run reported:
+
+```text
+D2E_SD_READY,sectors=262144,marker=HLV ESP32 SPI3 SD test
+D2E_FRAME,seq=1,mode=4,dirty=1,fnv1a=9337185a
+D2E_FRAME,seq=91,mode=4,dirty=1,fnv1a=ec9bb1da
+D2E_FRAME,seq=97,mode=4,dirty=1,fnv1a=99881404
+D2E_KEY,frame=120,ascii=20,scan=39
+D2E_IRQ,frame=120,vector=09,target=1723:14b3,pending=2
+D2E_QEMU_DONE,0
+```
+
+This validates the same ESP-IDF display and SD drivers used by the CYD board,
+not a host-side framebuffer substitute. The changing hashes prove that the
+guest renderer submitted multiple distinct CGA frames to the emulated panel;
+they do not yet establish entry into the first playable scene.

@@ -4,8 +4,15 @@ option(D2E_ALLEY_CAT "Build the generated Alley Cat MZ program" OFF)
 option(D2E_QEMU_INTERACTIVE "Run Alley Cat continuously in QEMU" OFF)
 option(D2E_QEMU_DUMP_FRAME "Dump final CGA VRAM through QEMU UART" OFF)
 option(D2E_QEMU_SCRIPTED_INPUT "Inject deterministic Alley Cat keys" OFF)
+option(D2E_QEMU_BOARD_DEVICES
+    "Use the patched QEMU ST7789 and SDSPI board devices" OFF)
 set(D2E_QEMU_INTERACTIVE_FRAME_LIMIT "0" CACHE STRING
     "Optional interactive QEMU frame limit; zero runs continuously")
+
+set(d2e_board_device_sources)
+if(D2E_QEMU_BOARD_DEVICES)
+    list(APPEND d2e_board_device_sources "cyd_sd.c")
+endif()
 
 if(D2E_ALLEY_CAT)
     set(d2e_generated_source "generated/alley-cat/game_native.c")
@@ -22,6 +29,7 @@ idf_component_register(
         "main.c"
         "cyd_display.c"
         "qemu_frame_dump.c"
+        ${d2e_board_device_sources}
         "${d2e_generated_source}"
         "${d2e_root}/src/core/native_runtime.c"
         "${d2e_root}/src/core/x86_alu.c"
@@ -37,18 +45,26 @@ idf_component_register(
         "${d2e_root}/include"
     REQUIRES
         esp_driver_gpio
+        esp_driver_sdspi
         esp_driver_spi
         esp_driver_uart
         esp_lcd
         esp_timer
         esp_system
         freertos
+        fatfs
         heap
+        sdmmc
+        vfs
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE -O3 -Wall -Wextra -Werror)
 if(D2E_QEMU_SMOKE)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE D2E_QEMU_SMOKE=1)
+endif()
+if(D2E_QEMU_BOARD_DEVICES)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        D2E_QEMU_BOARD_DEVICES=1)
 endif()
 if(D2E_QEMU_INTERACTIVE)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
