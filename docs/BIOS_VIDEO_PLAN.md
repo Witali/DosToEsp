@@ -85,7 +85,29 @@ the physical panel shows the Alley Cat title and first playable scene.
 Acceptance: deterministic text/EGA frame hashes and a readable Volkov Commander
 panel on the physical CYD display.
 
-## 6. DOS and auxiliary services for Volkov Commander
+## 6. Interactive Alley Cat in QEMU
+
+- [x] Keep a bounded, deterministic multi-slice probe for automated builds.
+- [ ] Add a separate continuous QEMU execution mode that does not stop at the
+  diagnostic slice limit.
+- [ ] Route QEMU UART/ANSI input through the same BIOS scan/ASCII mapper used
+  by the physical board.
+- [ ] Advance BIOS/PIT time from a frame scheduler instead of one synthetic
+  tick per diagnostic slice.
+- [ ] Export rendered RGB565 frames to a host-side window because ESP32 QEMU
+  does not model the external SPI ST7789 panel.
+- [ ] Record hashes for consecutive frames and distinguish unchanged, dirty
+  and animated frames in regression output.
+- [ ] Continue execution with scripted keys until the title screen, start of
+  gameplay and first input response are proven.
+- [ ] Record dynamic `CS:IP`, interrupt subfunctions and port accesses at every
+  new strict boundary, then implement only the observed missing behaviour.
+
+Acceptance: one command opens a host framebuffer, accepts keyboard input and
+runs Alley Cat continuously; an automated companion command verifies stable
+multi-frame hashes without requiring the physical display.
+
+## 7. DOS and auxiliary services for Volkov Commander
 
 - [ ] Trace and implement required `INT 21h` memory, drive, directory, file and
   process functions against a sandboxed filesystem provider.
@@ -96,12 +118,14 @@ panel on the physical CYD display.
 Acceptance: VC reaches its two-panel UI, lists a sandboxed directory and reacts
 to keyboard input without silently fabricating unimplemented DOS behaviour.
 
-## 7. Validation sequence
+## 8. Validation sequence
 
 1. Run the full host suite after every semantic milestone.
 2. Compile all generated fixtures with the Xtensa toolchain.
-3. Continue the real Alley Cat QEMU probe to each next strict boundary.
+3. Run both the bounded Alley Cat probe and the continuous interactive QEMU
+   mode; continue each to the next strict boundary.
 4. Generate Volkov Commander only after all static instruction sites and
    dynamic control targets are proven.
-5. Record framebuffer hashes, interrupt telemetry and heap usage in QEMU.
+5. Record consecutive framebuffer hashes, dirty-frame state, interrupt
+   telemetry and heap usage in QEMU.
 6. Flash the CYD2USB board and validate display, input and timing physically.
