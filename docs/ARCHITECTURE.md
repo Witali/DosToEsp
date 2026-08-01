@@ -49,6 +49,21 @@ manifest. Game functions are never rewritten manually. When coverage is
 incomplete, the command emits analysis reports and a `blocked` manifest instead
 of presenting an image-only or partially translated build as runnable code.
 
+## Generated source layout
+
+The unified COM/MZ frontend emits multiple independent translation units:
+
+- `game_native.c` contains only the program descriptor and region dispatcher;
+- `game_image.c` contains the original executable module and MZ relocations;
+- `game_region_NNN.c` contains one bounded group of translated basic blocks;
+- `game_native.h` is a private generated interface shared by those files.
+
+The manifest lists every generated source so a platform build can compile the
+set without assuming a particular region count. BIOS, DOS and video services
+are not generated into these files. They remain shared runtime components such
+as `pc_at.c`, `cga.c` and `text_video.c`; translated `INT` instructions contain
+only calls across that common platform boundary.
+
 ## Components
 
 - `translator`: host-only 8086 decoder, control-flow discovery and source

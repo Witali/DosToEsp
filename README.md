@@ -74,8 +74,9 @@ native regions addressed through preserved real-mode `CS:IP` state.
 Generated sources and reports are written under ignored `out/generated/`.
 For the fingerprinted Alley Cat target, the current frontend resolves the
 bounded jump table and installed IRQ1 handlers, covers all 8480 reachable
-instruction sites and emits a
-`complete` manifest plus `game_native.c`. The remaining work is the emulated
+instruction sites and emits a `complete` manifest plus a small descriptor,
+the original executable image and independently compiled native-region C
+files. The remaining work is the emulated
 DOS boundary for larger applications, complete input/timing, and any additional
 video operations exposed by execution traces, not an x86 CPU interpreter.
 

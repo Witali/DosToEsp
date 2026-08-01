@@ -301,3 +301,18 @@ firmware currently derives BIOS ticks from `esp_timer_get_time()`, so changing
 native execution speed changes the animation phase sampled at frame 900. The
 rendered scene was inspected visually; deterministic tick injection is the
 next prerequisite for pixel-exact regression comparisons.
+
+## 2026-08-01: bounded generated translation units
+
+The unified executable frontend no longer writes the whole translated program,
+image and descriptor into one C file. For Alley Cat, the former 3,152,465-byte
+`game_native.c` became a 3,198-byte dispatcher, an 837,064-byte image module
+and 13 native-region modules ranging from 113,256 to 198,646 bytes. BIOS and
+CGA implementations remain in their existing shared runtime files rather than
+being duplicated per executable.
+
+The full host suite passed after the format change. ESP-IDF independently
+compiled and linked all 15 C translation units into a `0xaf010` application
+image, leaving 32 percent of the application partition free. The binary-size
+difference from the monolithic build is only 16 bytes. An eight-frame ESP32
+QEMU smoke run executed the linked regions and ended with `D2E_QEMU_DONE,0`.
