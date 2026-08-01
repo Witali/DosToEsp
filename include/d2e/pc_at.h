@@ -2,6 +2,7 @@
 #define D2E_PC_AT_H
 
 #include "d2e/cga.h"
+#include "d2e/pc_speaker.h"
 #include "d2e/x86_cpu.h"
 
 #ifdef __cplusplus
@@ -16,6 +17,9 @@ typedef struct d2e_pc_at_key {
     uint8_t ascii;
     uint8_t scan;
 } d2e_pc_at_key;
+
+typedef void (*d2e_pc_at_speaker_callback)(
+    void *context, const d2e_pc_speaker_control *control);
 
 typedef struct d2e_pc_at {
     d2e_cga cga;
@@ -37,6 +41,7 @@ typedef struct d2e_pc_at {
     uint8_t cga_status;
     uint16_t pit_reload[3];
     uint16_t pit_counter[3];
+    uint16_t pit_write_latch[3];
     uint8_t pit_access[3];
     uint8_t pit_mode[3];
     uint8_t pit_write_high_next[3];
@@ -52,6 +57,9 @@ typedef struct d2e_pc_at {
     uint8_t scan_head;
     uint8_t scan_count;
     uint8_t keyboard_irq_active;
+    uint32_t speaker_generation;
+    d2e_pc_at_speaker_callback speaker_callback;
+    void *speaker_context;
     d2e_x86_cpu *attached_cpu;
     d2e_x86_cpu *waiting_keyboard_cpu;
 } d2e_pc_at;
@@ -68,6 +76,9 @@ int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,
 int d2e_pc_at_dispatch_keyboard_irq(d2e_pc_at *machine);
 void d2e_pc_at_set_timer_ticks(d2e_pc_at *machine, uint32_t ticks,
                                uint8_t midnight_rollover);
+void d2e_pc_at_set_speaker_callback(
+    d2e_pc_at *machine, void *context,
+    d2e_pc_at_speaker_callback callback);
 
 #ifdef __cplusplus
 }

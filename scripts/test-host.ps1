@@ -111,6 +111,9 @@ if ($LASTEXITCODE -ne 0) { throw "CGA tests failed" }
 & (Join-Path $build "d2e_text_video_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Text video tests failed" }
 
+& (Join-Path $build "d2e_pc_speaker_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "PC speaker synthesis tests failed" }
+
 & (Join-Path $build "d2e_pc_at_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "PC/AT BIOS tests failed" }
 

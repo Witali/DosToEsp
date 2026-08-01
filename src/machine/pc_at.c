@@ -41,6 +41,20 @@ static void set_flag(d2e_x86_cpu *cpu, uint16_t flag, int enabled) {
     cpu->flags = (uint16_t)(cpu->flags | D2E_X86_FLAG_FIXED);
 }
 
+static void notify_speaker(d2e_pc_at *machine) {
+    d2e_pc_speaker_control control;
+    if (machine->speaker_callback == NULL) {
+        return;
+    }
+    control.generation = ++machine->speaker_generation;
+    control.reload = machine->pit_reload[2];
+    control.mode = machine->pit_mode[2];
+    control.gate = machine->system_port_b & UINT8_C(0x01);
+    control.speaker_data =
+        (uint8_t)((machine->system_port_b >> 1U) & UINT8_C(0x01));
+    machine->speaker_callback(machine->speaker_context, &control);
+}
+
 static uint16_t text_page_size(const d2e_pc_at *machine) {
     return machine->columns == 40U ? UINT16_C(0x0800) : UINT16_C(0x1000);
 }
@@ -647,6 +661,14 @@ void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     update_video_bda(machine, cpu);
 }
 
+void d2e_pc_at_set_speaker_callback(
+    d2e_pc_at *machine, void *context,
+    d2e_pc_at_speaker_callback callback) {
+    machine->speaker_context = context;
+    machine->speaker_callback = callback;
+    notify_speaker(machine);
+}
+
 int d2e_pc_at_interrupt(void *context, d2e_x86_cpu *cpu,
                         uint8_t interrupt_number) {
     d2e_pc_at *const machine = (d2e_pc_at *)context;
@@ -775,29 +797,49 @@ int d2e_pc_at_port_out8(void *context, uint16_t port, uint8_t value) {
         machine->pit_mode[channel] = (uint8_t)((value >> 1U) & 7U);
         machine->pit_write_high_next[channel] = 0U;
         machine->pit_read_high_next[channel] = 0U;
+        if (channel == 2U) {
+            notify_speaker(machine);
+        }
         return 1;
     }
     if (port >= UINT16_C(0x0040) && port <= UINT16_C(0x0042)) {
         uint16_t reload;
+        int complete = 1;
         channel = (unsigned)(port - UINT16_C(0x0040));
         reload = machine->pit_reload[channel];
-        if (machine->pit_access[channel] == 2U ||
-            (machine->pit_access[channel] == 3U &&
-             machine->pit_write_high_next[channel] != 0U)) {
-            reload = (uint16_t)((reload & UINT16_C(0x00ff)) |
-                                ((uint16_t)value << 8U));
+        if (machine->pit_access[channel] == 3U &&
+            machine->pit_write_high_next[channel] == 0U) {
+            machine->pit_write_latch[channel] = value;
+            machine->pit_write_high_next[channel] = 1U;
+            complete = 0;
+        } else if (machine->pit_access[channel] == 2U ||
+                   machine->pit_access[channel] == 3U) {
+            if (machine->pit_access[channel] == 3U) {
+                reload = (uint16_t)(machine->pit_write_latch[channel] |
+                                    ((uint16_t)value << 8U));
+                machine->pit_write_high_next[channel] = 0U;
+            } else {
+                reload = (uint16_t)((reload & UINT16_C(0x00ff)) |
+                                    ((uint16_t)value << 8U));
+            }
         } else {
             reload = (uint16_t)((reload & UINT16_C(0xff00)) | value);
         }
-        machine->pit_reload[channel] = reload;
-        machine->pit_counter[channel] = reload;
-        if (machine->pit_access[channel] == 3U) {
-            machine->pit_write_high_next[channel] ^= 1U;
+        if (complete) {
+            machine->pit_reload[channel] = reload;
+            machine->pit_counter[channel] = reload;
+            if (channel == 2U) {
+                notify_speaker(machine);
+            }
         }
         return 1;
     }
     if (port == UINT16_C(0x0061)) {
+        const uint8_t previous = machine->system_port_b;
         machine->system_port_b = value;
+        if (((previous ^ value) & UINT8_C(0x03)) != 0U) {
+            notify_speaker(machine);
+        }
         return 1;
     }
     return 0;

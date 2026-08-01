@@ -8,6 +8,11 @@
 
 static unsigned failures;
 
+typedef struct speaker_capture {
+    d2e_pc_speaker_control control;
+    unsigned calls;
+} speaker_capture;
+
 #define CHECK(expression)                                                       \
     do {                                                                        \
         if (!(expression)) {                                                    \
@@ -21,6 +26,13 @@ static void interrupt(d2e_x86_cpu *cpu, uint8_t number, uint16_t ax) {
     cpu->regs[D2E_X86_AX] = ax;
     cpu->stop_reason = D2E_X86_RUNNING;
     d2e_native_interrupt(cpu, number);
+}
+
+static void capture_speaker(void *context,
+                            const d2e_pc_speaker_control *control) {
+    speaker_capture *const capture = (speaker_capture *)context;
+    capture->control = *control;
+    ++capture->calls;
 }
 
 static void test_identity_and_clock(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
@@ -159,11 +171,25 @@ static void test_keyboard(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
 }
 
 static void test_pit_and_speaker(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
+    speaker_capture capture;
+    unsigned calls;
     uint8_t first;
     uint8_t second;
+    memset(&capture, 0, sizeof(capture));
+    d2e_pc_at_set_speaker_callback(machine, &capture, capture_speaker);
+    CHECK(capture.calls == 1U);
+    CHECK(capture.control.gate == 0U);
+    CHECK(capture.control.speaker_data == 0U);
+
     d2e_x86_port_out8(cpu, UINT16_C(0x0043), UINT8_C(0xb6));
+    CHECK(capture.calls == 2U);
+    CHECK(capture.control.mode == 3U);
+    calls = capture.calls;
     d2e_x86_port_out8(cpu, UINT16_C(0x0042), UINT8_C(0x34));
+    CHECK(capture.calls == calls);
     d2e_x86_port_out8(cpu, UINT16_C(0x0042), UINT8_C(0x12));
+    CHECK(capture.calls == calls + 1U);
+    CHECK(capture.control.reload == UINT16_C(0x1234));
     CHECK(machine->pit_access[2] == 3U);
     CHECK(machine->pit_mode[2] == 3U);
     CHECK(machine->pit_reload[2] == UINT16_C(0x1234));
@@ -174,6 +200,8 @@ static void test_pit_and_speaker(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     CHECK(second == UINT8_C(0xfe));
 
     d2e_x86_port_out8(cpu, UINT16_C(0x0061), UINT8_C(0x03));
+    CHECK(capture.control.gate == 1U);
+    CHECK(capture.control.speaker_data == 1U);
     first = d2e_x86_port_in8(cpu, UINT16_C(0x0061));
     second = d2e_x86_port_in8(cpu, UINT16_C(0x0061));
     CHECK(first == UINT8_C(0x13));
