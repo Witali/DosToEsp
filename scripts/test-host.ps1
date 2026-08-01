@@ -135,6 +135,9 @@ if ($LASTEXITCODE -ne 0) { throw "Native shift/rotate tests failed" }
 & (Join-Path $build "d2e_native_string_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native string/REP tests failed" }
 
+& (Join-Path $build "d2e_native_irq_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "Native IRQ/IRET tests failed" }
+
 & (Join-Path $build "d2e_native_port_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native port-boundary tests failed" }
 

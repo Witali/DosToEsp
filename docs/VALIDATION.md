@@ -173,3 +173,18 @@ rendered CGA mode 4: out\qemu\alley-cat-frame.bmp (16384 VRAM bytes)
 The BMP is 230,454 bytes and has SHA-256
 `BD78FEE5BFB5CF1F9170BC5CFB2E87D5328993B5DF0BAF2E0C9A995229A79720`.
 It was decoded and visually inspected as a non-empty red/green CGA frame.
+
+## 2026-08-01: hardware interrupt AOT roots
+
+The static frontend now recognises the 8086 compiler pattern that writes a
+near offset followed by `CS` into the real-mode interrupt vector table. For
+Alley Cat it recovers IRQ1 vector 9 targets `CS:14B3` and `CS:14FB`, adding
+both handlers as native AOT roots. The expanded inventory has 8,480
+instructions, 3,232 blocks, 4,891 edges, no unresolved flow and 100% current
+translation coverage.
+
+A generated COM regression installs vector 9, executes its handler through a
+real `IRET` frame and verifies the external `JMP F000:E05B` remains a strict
+untranslated-target boundary. The string regression also executes
+`REPNE SCASB` through a successful match. The real `CAT.EXE` source build is
+again `complete` and emits `game_native.c`.

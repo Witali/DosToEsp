@@ -28,22 +28,31 @@ int main(void) {
     memory[source + 1U] = UINT8_C(0x12);
     memory[source + 2U] = UINT8_C(0x13);
     memory[source + 3U] = UINT8_C(0x44);
+    memory[d2e_x86_linear(UINT16_C(0x1100), UINT16_C(0x0400))] =
+        UINT8_C(0x10);
+    memory[d2e_x86_linear(UINT16_C(0x1100), UINT16_C(0x0401))] =
+        UINT8_C(0x20);
+    memory[d2e_x86_linear(UINT16_C(0x1100), UINT16_C(0x0402))] =
+        UINT8_C(0x33);
+    memory[d2e_x86_linear(UINT16_C(0x1100), UINT16_C(0x0403))] =
+        UINT8_C(0x40);
 
     if (d2e_native_run(&cpu, &d2e_generated_program, 100U) !=
         D2E_X86_EXITED) {
         fprintf(stderr, "string fixture failed to run\n");
         failed = 1;
     } else if (cpu.regs[D2E_X86_SI] != UINT16_C(0x0204) ||
-               cpu.regs[D2E_X86_DI] != UINT16_C(0x02ff) ||
-               cpu.regs[D2E_X86_CX] != 0U ||
-               cpu.regs[D2E_X86_AX] != UINT16_C(0xbe44) ||
+               cpu.regs[D2E_X86_DI] != UINT16_C(0x0403) ||
+               cpu.regs[D2E_X86_CX] != UINT16_C(1) ||
+               cpu.regs[D2E_X86_AX] != UINT16_C(0xbe33) ||
                (cpu.flags & D2E_X86_FLAG_DF) != 0U ||
+               (cpu.flags & D2E_X86_FLAG_ZF) == 0U ||
                memory[destination] != UINT8_C(0x11) ||
                memory[destination + 1U] != UINT8_C(0xef) ||
                memory[destination + 2U] != UINT8_C(0xbe) ||
                memory[destination + 3U] != UINT8_C(0xef) ||
                memory[destination + 4U] != UINT8_C(0xbe) ||
-               cpu.instructions_retired != UINT64_C(12)) {
+               cpu.instructions_retired != UINT64_C(16)) {
         fprintf(stderr,
                 "unexpected string state: ax=%04x cx=%04x si=%04x di=%04x "
                 "flags=%04x bytes=%02x,%02x,%02x,%02x,%02x instructions=%llu\n",

@@ -2,5 +2,5 @@
 be 00 02 bf 00 03 b9 03 00 fc f3 a4
 # Write two words backwards from the current DI
 fd b9 02 00 b8 ef be f3 ab
-# Return to forward direction and load the next source byte
-fc ac f4
+# Return to forward direction, load the next source byte and search ES:0400
+fc ac bf 00 04 b9 04 00 b0 33 f2 ae f4

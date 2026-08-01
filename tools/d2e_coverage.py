@@ -17,9 +17,10 @@ import d2e_translate
 
 
 SUPPORTED_CONTROL = set(d2e_translate.CONDITIONS) | {
-    "call", "ret", "retf", "jmp", "loop", "loope", "loopne", "jcxz", "int", "hlt"
+    "call", "ret", "retf", "iret", "ljmp", "jmp", "loop", "loope",
+    "loopne", "jcxz", "int", "hlt"
 }
-UNSUPPORTED_CONTROL = {"lcall", "iret"}
+UNSUPPORTED_CONTROL = {"lcall"}
 
 
 def translator_instruction(record: dict[str, Any]) -> d2e_translate.Instruction:
@@ -59,6 +60,14 @@ def classify(record: dict[str, Any]) -> tuple[bool, str]:
     if mnemonic in UNSUPPORTED_CONTROL:
         return False, "control_transfer"
     if mnemonic in SUPPORTED_CONTROL:
+        if mnemonic == "iret":
+            return (not operands, "supported" if not operands else "control_transfer")
+        if mnemonic == "ljmp":
+            if len(operands) == 2 and all(
+                operand["type"] == "imm" for operand in operands
+            ):
+                return True, "supported"
+            return False, "control_transfer"
         if mnemonic in ("ret", "retf"):
             if not operands or (
                 len(operands) == 1 and operands[0]["type"] == "imm"

@@ -138,6 +138,8 @@ def direct_target(record: dict[str, Any]) -> int | None:
 
 
 def flow_kind(mnemonic: str) -> str:
+    if mnemonic == "ljmp":
+        return "external_jump"
     if mnemonic == "jmp":
         return "jump"
     if mnemonic.startswith("j") or mnemonic.startswith("loop"):
@@ -281,6 +283,8 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
                         unresolved.add((address, kind, record["op_str"]))
                 else:
                     enqueue(address, target, kind)
+                break
+            if kind == "external_jump":
                 break
             if kind == "conditional":
                 if target is None:

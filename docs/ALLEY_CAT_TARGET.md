@@ -144,6 +144,13 @@ five new semantic sites: two `PUSHF`, two `POPF` and one byte `ADC`. A second
 small COM fixture covers those flag-stack and carry semantics. The resulting
 coverage is 8368 of 8368 sites (100.00%).
 
+Recovering the two handlers installed into IRQ1 vector 9 adds 112 instructions
+that are not reachable by ordinary calls or jumps. The added roots expose
+`REPNE SCASB`, `IRET` and the handler's external far jump to the original BIOS
+service. Those forms are now translated and tested, bringing the complete
+inventory to 8480 of 8480 supported sites with no unresolved flow or analysis
+issues.
+
 The runtime MZ loader and common native emitter now pack the complete
 54555-byte module, construct its PSP, establish `CS:IP`, `SS:SP`, `DS` and
 `ES`, apply all nine relocations and address native regions through segmented

@@ -327,6 +327,8 @@ def recover_interrupt_vector_targets(
 
 def successors(instruction: Instruction) -> tuple[int, ...]:
     mnemonic = instruction.mnemonic
+    if mnemonic == "ljmp":
+        return ()
     if mnemonic == "jmp":
         if instruction.indirect_targets:
             return instruction.indirect_targets
@@ -346,7 +348,7 @@ def is_terminator(instruction: Instruction) -> bool:
         or instruction.mnemonic
         in (
             "jmp", "loop", "loope", "loopne", "jcxz", "call", "ret",
-            "retf", "iret", "int", "hlt"
+            "retf", "iret", "ljmp", "int", "hlt"
         )
     )
 
@@ -630,9 +632,18 @@ def string_statements(
     operands: tuple[tuple[str, OperandValue], ...],
     cached: bool,
 ) -> list[str]:
-    repeated = mnemonic.startswith("rep ")
-    operation = mnemonic.removeprefix("rep ")
-    if operation not in ("movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw"):
+    repeat_mode = ""
+    operation = mnemonic
+    for prefix in ("repne ", "repe ", "rep "):
+        if mnemonic.startswith(prefix):
+            repeat_mode = prefix.strip()
+            operation = mnemonic.removeprefix(prefix)
+            break
+    repeated = bool(repeat_mode)
+    if operation not in (
+        "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw",
+        "scasb", "scasw",
+    ):
         raise TranslationError(f"unsupported string instruction {mnemonic}")
     width = 1 if operation.endswith("b") else 2
     if len(operands) != 2:
@@ -642,21 +653,37 @@ def string_statements(
         lines.append("while (r_cx != 0U) {")
     indent = "    " if repeated else ""
     destination, source = operands
-    statements = write_operand(
-        destination, value_expression(source, width * 8, cached), cached
-    )
-    lines.extend(f"{indent}{statement}" for statement in statements)
+    if operation.startswith("scas"):
+        accumulator = value_expression(destination, width * 8, cached)
+        memory_value = value_expression(source, width * 8, cached)
+        lines.append(
+            f"{indent}(void)d2e_x86_sub{width * 8}(cpu, "
+            f"{accumulator}, {memory_value});"
+        )
+        lines.append(
+            f"{indent}if (cpu->stop_reason != D2E_X86_RUNNING) "
+            "{ goto finish; }"
+        )
+    else:
+        statements = write_operand(
+            destination, value_expression(source, width * 8, cached), cached
+        )
+        lines.extend(f"{indent}{statement}" for statement in statements)
     if operation.startswith(("movs", "lods")):
         lines.append(indent + string_index_update("si", width))
-    if operation.startswith(("movs", "stos")):
+    if operation.startswith(("movs", "stos", "scas")):
         lines.append(indent + string_index_update("di", width))
     if repeated:
-        lines.extend(
-            [
-                "    r_cx = (uint16_t)(r_cx - UINT16_C(1));",
-                "}",
-            ]
-        )
+        lines.append("    r_cx = (uint16_t)(r_cx - UINT16_C(1));")
+        if repeat_mode == "repne":
+            lines.append(
+                "    if ((cpu->flags & D2E_X86_FLAG_ZF) != 0U) { break; }"
+            )
+        elif repeat_mode == "repe":
+            lines.append(
+                "    if ((cpu->flags & D2E_X86_FLAG_ZF) == 0U) { break; }"
+            )
+        lines.append("}")
     return lines
 
 
@@ -699,8 +726,12 @@ def translate_data_instruction(
             "cpu->flags = (uint16_t)((stack_value & UINT16_C(0x0fd5)) | "
             "D2E_X86_FLAG_FIXED);",
         ]
-    if mnemonic.removeprefix("rep ") in (
-        "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw"
+    operation = mnemonic.removeprefix("rep ").removeprefix(
+        "repne "
+    ).removeprefix("repe ")
+    if operation in (
+        "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw",
+        "scasb", "scasw",
     ):
         return string_statements(mnemonic, operands, cached)
     if mnemonic == "in" and len(operands) == 2:
@@ -851,7 +882,8 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
             if instruction.mnemonic in ("loop", "loope", "loopne", "jcxz"):
                 used.add("cx")
             if instruction.mnemonic in (
-                "call", "ret", "retf", "push", "pop", "pushf", "popf"
+                "call", "ret", "retf", "iret", "push", "pop", "pushf",
+                "popf"
             ):
                 used.add("sp")
             if instruction.mnemonic in ("lahf", "sahf"):
@@ -860,7 +892,7 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 used.add("ax")
             if instruction.mnemonic == "cwd":
                 used.update(("ax", "dx"))
-            if instruction.mnemonic.startswith("rep "):
+            if instruction.mnemonic.startswith(("rep ", "repne ", "repe ")):
                 used.add("cx")
             if instruction.mnemonic in ("mul", "aaa"):
                 used.add("ax")
@@ -1187,9 +1219,40 @@ def emit_region(
                 )
                 terminated = True
             elif mnemonic == "iret":
-                raise TranslationError(
-                    f"unsupported control transfer {instruction.address:04x}: {mnemonic} {instruction.op_str}"
+                lines.extend(
+                    [
+                        "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
+                        "    cpu->segments[D2E_X86_CS] = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(2)));",
+                        "    cpu->flags = (uint16_t)((d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(4))) & UINT16_C(0x0fd5)) | D2E_X86_FLAG_FIXED);",
+                        "    r_sp = (uint16_t)(r_sp + UINT16_C(6));",
+                        f"    retired += UINT64_C({len(block)});",
+                        "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+                        "    goto dispatch;",
+                    ]
                 )
+                terminated = True
+            elif mnemonic == "ljmp":
+                if (
+                    len(instruction.operands) != 2
+                    or any(operand[0] != "imm" for operand in instruction.operands)
+                ):
+                    raise TranslationError(
+                        f"unsupported far jump {instruction.address:04x}: {instruction.op_str}"
+                    )
+                segment = int(instruction.operands[0][1]) & 0xFFFF
+                offset = int(instruction.operands[1][1]) & 0xFFFF
+                lines.extend(
+                    [
+                        f"    cpu->segments[D2E_X86_CS] = UINT16_C(0x{segment:04x});",
+                        f"    cpu->ip = UINT16_C(0x{offset:04x});",
+                        "    cpu->fault_cs = cpu->segments[D2E_X86_CS];",
+                        "    cpu->fault_ip = cpu->ip;",
+                        "    cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
+                        f"    retired += UINT64_C({len(block)});",
+                        "    goto finish;",
+                    ]
+                )
+                terminated = True
             else:
                 for statement in translate_data_instruction(instruction, cached=True):
                     lines.append(f"    {statement}")

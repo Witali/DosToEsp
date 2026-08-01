@@ -70,6 +70,8 @@ only and is not copied into DosToEsp.
 - [x] Add boolean, shifts, rotates and multiply forms observed in the target
   (no divide site is present in the current inventory).
 - [x] Add string operations and REP variants as observed.
+- [x] Add the IRQ1-only `REPNE SCASB` and `IRET` forms, and translate an
+  external far jump to a strict untranslated-target boundary.
 - [ ] Complete exact 8086 flags for every implemented operation.
 - [x] Reject 80186/80286/386 instructions and prefixes: the fixed CPU profile
   is documented Intel 8086, with no profile extension for this port.
@@ -177,9 +179,7 @@ Completed foundations:
 
 Immediate work queue:
 
-1. complete the newly exposed IRQ1 instruction forms (`REPNE SCASB`, `IRET`
-   and the external BIOS-chain far jump);
-2. inject keyboard IRQ1 with port `60h` scan codes and port `20h` PIC EOI;
-3. run scripted Space/arrow input through the first playable scene and capture
+1. inject keyboard IRQ1 with port `60h` scan codes and port `20h` PIC EOI;
+2. run scripted Space/arrow input through the first playable scene and capture
    its frame hashes;
-4. capture an independent reference trace and compare the input path.
+3. capture an independent reference trace and compare the input path.
