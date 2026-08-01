@@ -136,9 +136,15 @@ def main() -> int:
     assert mz_report["file"]["module_size"] == 1
     assert mz_report["relocations"] == [{"offset": 0, "segment": 0}]
     assert mz_report["instruction_frequency"] == {"hlt": 1}
-    packed = __import__("d2e_pack_mz").emit(mz_image, "tiny", 0x1000)
+    mz_packer = __import__("d2e_pack_mz")
+    packed = mz_packer.emit(mz_image, "tiny", 0x1000)
     assert ".format = D2E_NATIVE_IMAGE_MZ" in packed
-    assert "{UINT16_C(0x0000), UINT16_C(0x0000)}" in packed
+    assert '#include "game_image.inc"' in packed
+    assert '#include "game_relocations.inc"' in packed
+    assert "UINT8_C(0xf4)" in mz_packer.emit_byte_data(mz_image.module_bytes)
+    assert "{UINT16_C(0x0000), UINT16_C(0x0000)}" in (
+        mz_packer.emit_relocation_data(mz_image.relocations)
+    )
     print("static inventory tests passed")
     return 0
 

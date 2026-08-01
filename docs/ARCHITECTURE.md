@@ -54,7 +54,10 @@ of presenting an image-only or partially translated build as runnable code.
 The unified COM/MZ frontend emits multiple independent translation units:
 
 - `game_native.c` contains only the program descriptor and region dispatcher;
-- `game_image.c` contains the original executable module and MZ relocations;
+- `game_image.c` contains only typed declarations for the executable module
+  and MZ relocations;
+- `game_image.inc` and optional `game_relocations.inc` contain the generated
+  byte/relocation dumps included by that small declaration unit;
 - `game_region_NNN.c` contains one bounded group of translated basic blocks;
 - `game_native.h` is a private generated interface shared by those files.
 

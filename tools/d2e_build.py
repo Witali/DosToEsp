@@ -30,11 +30,12 @@ def remove_previous_generated_files(output: pathlib.Path) -> None:
             previous = json.loads(manifest_path.read_text(encoding="utf-8"))
             names.extend(previous.get("generated_sources", []))
             names.extend(previous.get("generated_headers", []))
+            names.extend(previous.get("generated_data", []))
         except (OSError, ValueError, TypeError):
             pass
     for name in names:
         candidate = pathlib.Path(name)
-        if candidate.name != name or candidate.suffix not in (".c", ".h"):
+        if candidate.name != name or candidate.suffix not in (".c", ".h", ".inc"):
             continue
         try:
             (output / candidate).unlink()
@@ -55,6 +56,7 @@ def build_sources(
     coverage = d2e_coverage.coverage(inventory)
     generated: list[str] = []
     generated_headers: list[str] = []
+    generated_data: list[str] = []
     blockers: list[dict[str, Any]] = []
 
     write_text(
@@ -74,11 +76,22 @@ def build_sources(
         if image.format == "mz":
             import d2e_pack_mz
 
-            write_text(
-                output / "game_image.c",
-                d2e_pack_mz.emit(image, name, load_segment),
-            )
+            packed_files = {
+                "game_image.c": d2e_pack_mz.emit(image, name, load_segment),
+                "game_image.inc": d2e_pack_mz.emit_byte_data(
+                    image.module_bytes
+                ),
+            }
+            if image.relocations:
+                packed_files["game_relocations.inc"] = (
+                    d2e_pack_mz.emit_relocation_data(image.relocations)
+                )
+            for filename, content in packed_files.items():
+                write_text(output / filename, content)
             generated.append("game_image.c")
+            generated_data.extend(
+                filename for filename in packed_files if filename.endswith(".inc")
+            )
         blockers.append(
             {
                 "kind": "translator_coverage",
@@ -130,8 +143,10 @@ def build_sources(
             write_text(output / filename, source)
             if filename.endswith(".c"):
                 generated.append(filename)
-            else:
+            elif filename.endswith(".h"):
                 generated_headers.append(filename)
+            else:
+                generated_data.append(filename)
 
     manifest = {
         "schema": "d2e-esp32-source-build-v1",
@@ -146,6 +161,7 @@ def build_sources(
         "status": "complete" if not blockers else "blocked",
         "generated_sources": generated,
         "generated_headers": generated_headers,
+        "generated_data": generated_data,
         "reports": ["inventory.json", "inventory.md", "coverage.json", "coverage.md"],
         "blockers": blockers,
     }

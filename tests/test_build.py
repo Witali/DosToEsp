@@ -30,6 +30,13 @@ def main() -> int:
             "game_region_000.c",
         ]
         assert manifest["generated_headers"] == ["game_native.h"]
+        assert manifest["generated_data"] == ["game_image.inc"]
+        image_source = (output / "game_image.c").read_text(encoding="utf-8")
+        assert '#include "game_image.inc"' in image_source
+        assert "UINT8_C(0x" not in image_source
+        assert (output / "game_image.inc").read_text(encoding="utf-8").startswith(
+            "    UINT8_C(0x"
+        )
         native = (output / "game_native.c").read_text(encoding="utf-8")
         assert "program_region" in native
         assert "D2E_NATIVE_IMAGE_COM" in native
@@ -58,6 +65,7 @@ def main() -> int:
             "game_region_000.c",
         ]
         assert manifest["blockers"] == []
+        assert manifest["generated_data"] == ["game_image.inc"]
         native = (output / "game_native.c").read_text(encoding="utf-8")
         assert "D2E_NATIVE_IMAGE_MZ" in native
         region = (output / "game_region_000.c").read_text(encoding="utf-8")
@@ -106,9 +114,19 @@ def main() -> int:
         assert manifest["status"] == "complete"
         region = (output / "game_region_000.c").read_text(encoding="utf-8")
         image_source = (output / "game_image.c").read_text(encoding="utf-8")
+        image_data = (output / "game_image.inc").read_text(encoding="utf-8")
+        relocation_data = (output / "game_relocations.inc").read_text(
+            encoding="utf-8"
+        )
         assert "r_ax = (uint16_t)(UINT16_C(0x1010));" in region
-        assert "UINT8_C(0x10), UINT8_C(0x00)" in image_source
-        assert "{UINT16_C(0x0001), UINT16_C(0x0000)}" in image_source
+        assert '#include "game_image.inc"' in image_source
+        assert '#include "game_relocations.inc"' in image_source
+        assert "UINT8_C(0x10), UINT8_C(0x00)" in image_data
+        assert "{UINT16_C(0x0001), UINT16_C(0x0000)}" in relocation_data
+        assert manifest["generated_data"] == [
+            "game_image.inc",
+            "game_relocations.inc",
+        ]
 
         partitions = d2e_translate.partition_blocks(
             {address: [] for address in range(257)}
