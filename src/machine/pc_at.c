@@ -276,7 +276,7 @@ static void write_graphics_character(d2e_pc_at *machine, uint8_t row,
         for (glyph_x = 0; glyph_x < D2E_CP437_HEIGHT; ++glyph_x) {
             const uint16_t x = (uint16_t)(left + glyph_x);
             const uint16_t y = (uint16_t)(top + glyph_y);
-            const int set = (bits & (UINT8_C(0x80) >> glyph_x)) != 0U;
+            const int set = (bits & (UINT8_C(1) << glyph_x)) != 0U;
             uint8_t pixel = set ? foreground : 0U;
             if (xor_character) {
                 if (!set) {

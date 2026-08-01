@@ -98,8 +98,8 @@ static void test_cga_pixels(d2e_pc_at *machine, d2e_x86_cpu *cpu,
     interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0e41));
     CHECK(machine->cursor_column[0] == 1U);
     CHECK(d2e_cp437_font[UINT16_C('A') * 8U + 1U] == UINT8_C(0x1e));
-    CHECK(vram[d2e_cga_row_offset(1U)] == UINT8_C(0x03));
-    CHECK(vram[d2e_cga_row_offset(1U) + 1U] == UINT8_C(0xfc));
+    CHECK(vram[d2e_cga_row_offset(1U)] == UINT8_C(0x3f));
+    CHECK(vram[d2e_cga_row_offset(1U) + 1U] == UINT8_C(0xc0));
 
     interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0006));
     CHECK(machine->columns == 80U);

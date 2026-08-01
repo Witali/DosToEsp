@@ -4,7 +4,7 @@ static uint8_t glyph_pixel(uint8_t character, unsigned glyph_y,
                            unsigned glyph_x) {
     const uint8_t bits =
         d2e_cp437_font[(size_t)character * D2E_CP437_HEIGHT + glyph_y];
-    return (uint8_t)((bits >> (7U - glyph_x)) & 1U);
+    return (uint8_t)((bits >> glyph_x) & 1U);
 }
 
 void d2e_text_render_320_row(const d2e_cga *cga, const uint8_t *vram,

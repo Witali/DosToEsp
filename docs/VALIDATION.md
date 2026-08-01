@@ -387,3 +387,16 @@ Using the same FFmpeg silence detector on the old and new 53-second captures,
 the shortest detected silent interval fell from 47.936 ms to 3.946 ms. This
 confirms that transitions shorter than the former 16 ms render block survive
 the ESP32-to-QEMU audio path.
+
+## 2026-08-01: CP437 glyph orientation
+
+The imported `font8x8` table stores the leftmost pixel of each scanline in bit
+0. Both the direct text renderer and the BIOS graphics-character path had
+treated bit 7 as the left edge, horizontally mirroring every glyph while
+leaving character order intact. Both consumers now use the table's native
+least-significant-bit-first convention.
+
+Host regressions verify the asymmetric `C` glyph and the exact mode-4 CGA
+bytes generated for an `A`. The full host suite passed. An eight-frame ESP32
+QEMU run also completed with `D2E_QEMU_DONE,0`; its rendered Alley Cat title
+frame showed correctly oriented `IBM PRESENTS`, logo and copyright text.

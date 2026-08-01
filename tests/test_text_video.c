@@ -39,8 +39,15 @@ static void test_cp437_and_attributes(void) {
     vram[1] = UINT8_C(0x1e);
     d2e_text_render_320_row(&cga, vram, sizeof(vram), &config, 0U, row);
     CHECK(row[0] == cga.palette_rgb565[1]);
-    CHECK(row[4] == cga.palette_rgb565[14]);
-    CHECK(row[5] == cga.palette_rgb565[14]);
+    CHECK(row[2] == cga.palette_rgb565[14]);
+    CHECK(row[3] == cga.palette_rgb565[14]);
+
+    vram[0] = UINT8_C('C');
+    d2e_text_render_320_row(&cga, vram, sizeof(vram), &config, 2U, row);
+    CHECK(row[0] == cga.palette_rgb565[14]);
+    CHECK(row[1] == cga.palette_rgb565[14]);
+    CHECK(row[6] == cga.palette_rgb565[1]);
+    CHECK(row[7] == cga.palette_rgb565[1]);
     CHECK(d2e_cp437_font[UINT16_C(0xc4) * 8U + 3U] == UINT8_C(0xff));
 }
 
@@ -55,7 +62,7 @@ static void test_80_column_downsample_and_cursor(void) {
     vram[0] = UINT8_C('A');
     vram[1] = UINT8_C(0x1e);
     d2e_text_render_320_row(&cga, vram, sizeof(vram), &config, 0U, row);
-    CHECK(row[2] == cga.palette_rgb565[14]);
+    CHECK(row[1] == cga.palette_rgb565[14]);
 
     config.cursor_visible = 1U;
     config.cursor_row = 0U;
@@ -64,7 +71,7 @@ static void test_80_column_downsample_and_cursor(void) {
     config.cursor_end = 0U;
     d2e_text_render_320_row(&cga, vram, sizeof(vram), &config, 0U, row);
     CHECK(row[0] == cga.palette_rgb565[14]);
-    CHECK(row[2] == cga.palette_rgb565[1]);
+    CHECK(row[1] == cga.palette_rgb565[1]);
 }
 
 static void test_blink_and_43_rows(void) {
@@ -80,7 +87,7 @@ static void test_blink_and_43_rows(void) {
     vram[1] = UINT8_C(0x9e);
     config.blink_on = 0U;
     d2e_text_render_320_row(&cga, vram, sizeof(vram), &config, 0U, row);
-    CHECK(row[2] == cga.palette_rgb565[1]);
+    CHECK(row[1] == cga.palette_rgb565[1]);
 
     config.rows = 43U;
     config.output_height = 240U;
