@@ -41,26 +41,68 @@ static uint8_t boot_button_down;
 static uint64_t last_clock_day;
 
 #if D2E_QEMU_SCRIPTED_INPUT
-static void feed_scripted_input(uint64_t frame) {
+static void feed_scripted_input(d2e_x86_cpu *cpu, uint64_t frame) {
     static const struct {
-        uint64_t frame;
+        uint32_t wait_target;
         uint8_t ascii;
         uint8_t scan;
-    } events[] = {
-        {UINT64_C(120), UINT8_C(' '), UINT8_C(0x39)},
-        {UINT64_C(180), 0U, UINT8_C(0x4d)},
-        {UINT64_C(210), UINT8_C(' '), UINT8_C(0x39)},
-        {UINT64_C(240), 0U, UINT8_C(0x4b)},
+    } setup_events[] = {
+        {UINT32_C(0x0d127), UINT8_C('n'), UINT8_C(0x31)},
+        {UINT32_C(0x0d159), UINT8_C('k'), UINT8_C(0x25)},
+        {UINT32_C(0x0d1da), UINT8_C(' '), UINT8_C(0x39)},
     };
-    size_t index;
-    for (index = 0U; index < sizeof(events) / sizeof(events[0]); ++index) {
-        if (events[index].frame == frame &&
-            d2e_pc_at_enqueue_key(&pc_at, events[index].ascii,
-                                  events[index].scan)) {
-            esp_rom_printf(
-                "D2E_KEY,frame=%" PRIu64 ",ascii=%02x,scan=%02x\n", frame,
-                (unsigned)events[index].ascii, (unsigned)events[index].scan);
+    static const struct {
+        uint64_t delay;
+        uint8_t ascii;
+        uint8_t scan;
+    } gameplay_events[] = {
+        {UINT64_C(150), 0U, UINT8_C(0x4d)},
+        {UINT64_C(220), 0U, UINT8_C(0x4b)},
+        {UINT64_C(280), UINT8_C(' '), UINT8_C(0x39)},
+    };
+    static size_t setup_index;
+    static size_t gameplay_index;
+    static uint64_t gameplay_start_frame;
+    const size_t setup_count = sizeof(setup_events) / sizeof(setup_events[0]);
+    const size_t gameplay_count =
+        sizeof(gameplay_events) / sizeof(gameplay_events[0]);
+
+    if (setup_index < setup_count) {
+        uint32_t module_target;
+        if (cpu->segments[D2E_X86_CS] < d2e_generated_program.load_segment) {
+            return;
         }
+        module_target =
+            ((uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] -
+                                  d2e_generated_program.load_segment)
+             << 4U) +
+            cpu->ip;
+        if (module_target != setup_events[setup_index].wait_target) {
+            return;
+        }
+        if (d2e_pc_at_enqueue_key(&pc_at, setup_events[setup_index].ascii,
+                                  setup_events[setup_index].scan)) {
+            esp_rom_printf(
+                "D2E_KEY,frame=%" PRIu64 ",ascii=%02x,scan=%02x,wait=%05x\n",
+                frame, (unsigned)setup_events[setup_index].ascii,
+                (unsigned)setup_events[setup_index].scan,
+                (unsigned)module_target);
+            ++setup_index;
+            if (setup_index == setup_count) {
+                gameplay_start_frame = frame;
+            }
+        }
+        return;
+    }
+    if (gameplay_index < gameplay_count &&
+        frame >= gameplay_start_frame + gameplay_events[gameplay_index].delay &&
+        d2e_pc_at_enqueue_key(&pc_at, gameplay_events[gameplay_index].ascii,
+                              gameplay_events[gameplay_index].scan)) {
+        esp_rom_printf(
+            "D2E_KEY,frame=%" PRIu64 ",ascii=%02x,scan=%02x\n", frame,
+            (unsigned)gameplay_events[gameplay_index].ascii,
+            (unsigned)gameplay_events[gameplay_index].scan);
+        ++gameplay_index;
     }
 }
 #endif
@@ -277,21 +319,42 @@ void app_main(void) {
         uint32_t hash = UINT32_C(2166136261);
         size_t index;
         int report_frame;
+#if D2E_QEMU_SCRIPTED_INPUT
+        const int irq_was_active = pc_at.keyboard_irq_active != 0U;
+        const uint64_t instructions_before = cpu.instructions_retired;
+#endif
         reason =
             d2e_native_run(&cpu, &d2e_generated_program, UINT32_C(100000));
+#if D2E_QEMU_SCRIPTED_INPUT
+        if (irq_was_active) {
+            esp_rom_printf(
+                "D2E_IRQ_RETURN,frame=%" PRIu64 ",reason=%u,csip=%04x:%04x,"
+                "ds=%04x,es=%04x,ax=%04x,flags=%04x,retired=%" PRIu64
+                ",active=%u,pending=%u\n",
+                frame + UINT64_C(1), (unsigned)reason,
+                (unsigned)cpu.segments[D2E_X86_CS], (unsigned)cpu.ip,
+                (unsigned)cpu.segments[D2E_X86_DS],
+                (unsigned)cpu.segments[D2E_X86_ES],
+                (unsigned)cpu.regs[D2E_X86_AX], (unsigned)cpu.flags,
+                cpu.instructions_retired - instructions_before,
+                (unsigned)pc_at.keyboard_irq_active,
+                (unsigned)pc_at.scan_count);
+        }
+#endif
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
         ESP_ERROR_CHECK(render_pc_frame());
 #endif
         #if D2E_QEMU_SCRIPTED_INPUT
-        feed_scripted_input(frame + UINT64_C(1));
+        feed_scripted_input(&cpu, frame + UINT64_C(1));
         #endif
         poll_pc_input_and_clock();
         if (d2e_pc_at_dispatch_keyboard_irq(&pc_at)) {
             esp_rom_printf(
                 "D2E_IRQ,frame=%" PRIu64 ",vector=09,target=%04x:%04x,"
-                "pending=%u\n",
+                "ax=%04x,pending=%u\n",
                 frame + UINT64_C(1), (unsigned)cpu.segments[D2E_X86_CS],
-                (unsigned)cpu.ip, (unsigned)pc_at.scan_count);
+                (unsigned)cpu.ip, (unsigned)cpu.regs[D2E_X86_AX],
+                (unsigned)pc_at.scan_count);
         }
         for (index = 0U; index < sizeof(cga_vram); ++index) {
             hash = (hash ^ cga_vram[index]) * UINT32_C(16777619);
