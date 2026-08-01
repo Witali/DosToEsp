@@ -142,3 +142,13 @@ This proves that initialization reaches a non-empty CGA mode 4 frame with a
 deterministic VRAM hash. Physical serial-port enumeration found no connected
 COM device during this run, so the new Alley Cat image has not yet been flashed
 for visual inspection on the panel.
+
+## 2026-08-01: interactive Alley Cat QEMU loop
+
+The board execution loop is now also available in QEMU without the bounded
+64-slice diagnostic limit. It uses `esp_timer` for BIOS time, polls UART0
+through the common ANSI-to-PC-key mapper, and records whether each sampled CGA
+frame changed. A bounded eight-frame invocation of the continuous path reached
+2,722,831 translated instructions without a strict boundary. The first frame
+had mode 4 hash `9337185a`; the final sample is emitted even when unchanged so
+the regression distinguishes a stable frame from missing telemetry.

@@ -88,15 +88,15 @@ panel on the physical CYD display.
 ## 6. Interactive Alley Cat in QEMU
 
 - [x] Keep a bounded, deterministic multi-slice probe for automated builds.
-- [ ] Add a separate continuous QEMU execution mode that does not stop at the
+- [x] Add a separate continuous QEMU execution mode that does not stop at the
   diagnostic slice limit.
-- [ ] Route QEMU UART/ANSI input through the same BIOS scan/ASCII mapper used
+- [x] Route QEMU UART/ANSI input through the same BIOS scan/ASCII mapper used
   by the physical board.
-- [ ] Advance BIOS/PIT time from a frame scheduler instead of one synthetic
+- [x] Advance BIOS time from a real-time frame scheduler instead of one synthetic
   tick per diagnostic slice.
 - [ ] Export rendered RGB565 frames to a host-side window because ESP32 QEMU
   does not model the external SPI ST7789 panel.
-- [ ] Record hashes for consecutive frames and distinguish unchanged, dirty
+- [x] Record hashes for consecutive frames and distinguish unchanged, dirty
   and animated frames in regression output.
 - [ ] Continue execution with scripted keys until the title screen, start of
   gameplay and first input response are proven.
