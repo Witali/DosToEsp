@@ -111,9 +111,14 @@ and validates both `D2E_SD_READY` and rendered `D2E_FRAME` telemetry. Use
 `-Headless` for automation, `-SdImage path.img` for another FAT image and
 `-FrameLimit N` to bound the run. All drives use QEMU snapshot mode.
 Pass `-ScriptedInput` to the frame or interactive command to inject a
-deterministic Space/Right/Space/Left sequence through the game's native IRQ1
-handler; `D2E_KEY` and `D2E_IRQ` records distinguish queued keys from delivered
-hardware interrupts.
+deterministic setup sequence through the game's native IRQ1 handler. The
+integration harness waits for the actual Y/N, keyboard-layout and final setup
+wait blocks before sending N, K and Space, so it is independent of QEMU speed;
+later movement keys use bounded delays. `D2E_KEY`, `D2E_IRQ` and
+`D2E_IRQ_RETURN` records distinguish queued keys, delivered hardware
+interrupts and successful native `IRET` returns. This state-aware script is
+target-specific test data only; the translator and PC/AT runtime remain common
+to every input executable.
 
 There is no x86 opcode interpreter in the firmware. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the execution model and

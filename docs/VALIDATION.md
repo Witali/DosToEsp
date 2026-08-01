@@ -237,3 +237,39 @@ This validates the same ESP-IDF display and SD drivers used by the CYD board,
 not a host-side framebuffer substitute. The changing hashes prove that the
 guest renderer submitted multiple distinct CGA frames to the emulated panel;
 they do not yet establish entry into the first playable scene.
+
+## 2026-08-01: translated Alley Cat reaches the playable scene
+
+The earlier red/green eight-frame capture was reclassified as an intermediate
+CGA buffer, not an Alley Cat screen. Two general compatibility defects were
+then fixed without adding game code to the translator:
+
+- BIOS `INT 10h/AH=0Eh` and character-write services now rasterise CP437 glyphs
+  in CGA graphics modes 4/5/6, with the correct 40-column modes 4/5 and
+  640-pixel mode 6 boundary;
+- MZ relocations are applied to the byte view used for disassembly, so a
+  segment immediate such as `0010h` becomes `1010h` in native C when the load
+  segment is `1000h`. The packed original image and relocation table remain
+  unchanged for the runtime loader.
+
+A synthetic one-relocation MZ regression proves the second rule independently
+of Alley Cat. The real generated IRQ1 code now loads data segment `1010h`, and
+the setup harness waits for the three guest wait blocks before sending N, K
+and Space. The 900-frame Windows QEMU run entered the active game loop and
+produced a visually inspected scene containing the fence, windows, bins and
+cat:
+
+```text
+D2E_KEY,frame=782,ascii=6e,scan=31,wait=0d127
+D2E_KEY,frame=783,ascii=6b,scan=25,wait=0d159
+D2E_KEY,frame=785,ascii=20,scan=39,wait=0d1da
+D2E_FRAME,seq=900,mode=4,dirty=1,fnv1a=8a6ce86f
+D2E_ALLEY_STOP,reason=8,csip=1723:237f,instructions=198561264,...
+D2E_QEMU_DONE,0
+```
+
+The rendered 230,454-byte BMP has SHA-256
+`DD427CC81CF75DFD779F7C77AAE28986F5C2C451DE2FBCC2834D017015251618`.
+The full host suite also passed, including the source frontend, all 18 C test
+executables and the generated 54,555-byte Alley Cat MZ image with nine runtime
+relocations.

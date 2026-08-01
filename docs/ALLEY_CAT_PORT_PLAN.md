@@ -97,6 +97,9 @@ fewer guest-state loads/stores and no x86 interpreter dispatch.
 
 - [x] Pack the fingerprinted MZ load module and implement PSP, relocation and
   initial register loading with all nine target relocations verified.
+- [x] Apply those relocations to the translation view as well as the runtime
+  image, so relocated segment immediates are native constants at the selected
+  load segment.
 - [x] Generate segmented native target keys and connect the MZ image to its
   translated regions.
 - [ ] Add only the DOS/BIOS calls observed in the inventory.
@@ -125,8 +128,8 @@ physical board without timing-dependent speed changes.
 - [x] Headless test with scripted input and CGA frame hashes.
 - [x] Compile, link and boot the real generated Alley Cat firmware in ESP32
   QEMU, reaching the first strict environment boundary after native entry.
-- [ ] QEMU boot of the real generated firmware with matching state/frame
-  digests.
+- [x] QEMU boot of the real generated firmware through its setup prompts and
+  into a visually verified first playable scene, with state/frame digests.
 - [ ] Physical CYD run with UART telemetry for frame times, heap, block counts
   and unknown targets.
 - [ ] Profile and optimise superblocks, flags, segment addressing, CGA dirty
@@ -149,7 +152,8 @@ Completed foundations:
 - unified executable-to-source frontend with deterministic reports, generated
   image/native files and a strict machine-readable completion/blocker manifest;
 - common segmented MZ native-region generation with preserved `CS:IP`, packed
-  relocation metadata and no target-specific code;
+  relocation metadata, translation-time relocated immediates and no
+  target-specific code;
 - common 8086 ModR/M addressing for 8/16-bit operands, including DS/SS default
   selection and explicit ES/CS/SS/DS overrides, compiled by the Xtensa audit;
 - cached-SP guest stack operations plus direct near calls/returns as native
@@ -183,8 +187,9 @@ Completed foundations:
 
 Immediate work queue:
 
-1. determine the title-screen start action from the independent trace or the
-   recovered key-state table;
-2. run scripted input through the first playable scene and capture
-   its frame hashes;
-3. capture an independent reference trace and compare the input path.
+1. capture an independent reference trace and compare the input/video path;
+2. flash the same generated firmware to the physical CYD and verify the first
+   playable scene on the ST7789 panel;
+3. generalise the next DOS/BIOS or hardware boundary exposed by another DOS
+   program, keeping Alley Cat as an integration test rather than a special
+   translation path.
