@@ -1,5 +1,6 @@
 #include "d2e/native_runtime.h"
 #include "d2e/pc_at.h"
+#include "d2e/text_video.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,6 +79,24 @@ static void test_cga_pixels(d2e_pc_at *machine, d2e_x86_cpu *cpu,
     interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0d00));
     CHECK(d2e_x86_get_reg8(cpu, 0U) == 3U);
     CHECK(machine->cga.mode == 4U);
+    CHECK(machine->columns == 40U);
+
+    memset(vram, 0, D2E_CGA_VRAM_SIZE);
+    cpu->regs[D2E_X86_BX] = UINT16_C(0x0003);
+    interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0e41));
+    CHECK(machine->cursor_column[0] == 1U);
+    CHECK(d2e_cp437_font[UINT16_C('A') * 8U + 1U] == UINT8_C(0x1e));
+    CHECK(vram[d2e_cga_row_offset(1U)] == UINT8_C(0x03));
+    CHECK(vram[d2e_cga_row_offset(1U) + 1U] == UINT8_C(0xfc));
+
+    interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0006));
+    CHECK(machine->columns == 80U);
+    cpu->regs[D2E_X86_CX] = 639U;
+    cpu->regs[D2E_X86_DX] = 199U;
+    interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0c01));
+    CHECK((vram[d2e_cga_row_offset(199U) + 79U] & 1U) != 0U);
+    interrupt(cpu, UINT8_C(0x10), UINT16_C(0x0d00));
+    CHECK(d2e_x86_get_reg8(cpu, 0U) == 1U);
 
     d2e_x86_port_out8(cpu, UINT16_C(0x03d9), UINT8_C(0x20));
     CHECK(cpu->stop_reason == D2E_X86_RUNNING);

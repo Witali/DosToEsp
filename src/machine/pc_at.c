@@ -1,4 +1,5 @@
 #include "d2e/pc_at.h"
+#include "d2e/text_video.h"
 
 #include <string.h>
 
@@ -111,7 +112,8 @@ static void set_video_mode(d2e_pc_at *machine, d2e_x86_cpu *cpu,
     unsigned page;
 
     machine->video_mode = mode;
-    machine->columns = mode <= 1U ? 40U : 80U;
+    machine->columns =
+        mode <= 1U || mode == 4U || mode == 5U ? 40U : 80U;
     machine->rows = 25U;
     machine->character_height = mode >= UINT8_C(0x0d) ? 14U : 8U;
     machine->active_page = 0U;
@@ -233,6 +235,57 @@ static void scroll_window(d2e_pc_at *machine, uint8_t lines,
     }
 }
 
+static void cga_write_pixel(d2e_pc_at *machine, uint16_t x, uint16_t y,
+                            uint8_t color);
+static uint8_t cga_read_pixel(const d2e_pc_at *machine, uint16_t x,
+                              uint16_t y);
+
+static int is_cga_graphics_mode(const d2e_pc_at *machine) {
+    return machine->video_mode >= 4U && machine->video_mode <= 6U;
+}
+
+static void write_graphics_character(d2e_pc_at *machine, uint8_t row,
+                                     uint8_t column, uint8_t character,
+                                     uint8_t color) {
+    const uint16_t left = (uint16_t)column * D2E_CP437_HEIGHT;
+    const uint16_t top = (uint16_t)row * D2E_CP437_HEIGHT;
+    const uint8_t foreground = machine->video_mode == 6U
+                                   ? (uint8_t)(color & 1U)
+                                   : (uint8_t)(color & 3U);
+    const int xor_character = (color & UINT8_C(0x80)) != 0U;
+    unsigned glyph_y;
+
+    for (glyph_y = 0; glyph_y < D2E_CP437_HEIGHT; ++glyph_y) {
+        const uint8_t bits =
+            d2e_cp437_font[(size_t)character * D2E_CP437_HEIGHT + glyph_y];
+        unsigned glyph_x;
+        for (glyph_x = 0; glyph_x < D2E_CP437_HEIGHT; ++glyph_x) {
+            const uint16_t x = (uint16_t)(left + glyph_x);
+            const uint16_t y = (uint16_t)(top + glyph_y);
+            const int set = (bits & (UINT8_C(0x80) >> glyph_x)) != 0U;
+            uint8_t pixel = set ? foreground : 0U;
+            if (xor_character) {
+                if (!set) {
+                    continue;
+                }
+                pixel = (uint8_t)(cga_read_pixel(machine, x, y) ^ foreground);
+            }
+            cga_write_pixel(machine, x, y, pixel);
+        }
+    }
+}
+
+static void write_character(d2e_pc_at *machine, uint8_t page, uint8_t row,
+                            uint8_t column, uint8_t character,
+                            uint8_t attribute, int write_attribute) {
+    if (is_cga_graphics_mode(machine)) {
+        write_graphics_character(machine, row, column, character, attribute);
+    } else {
+        write_text_cell(machine, page, row, column, character, attribute,
+                        write_attribute);
+    }
+}
+
 static void teletype(d2e_pc_at *machine, d2e_x86_cpu *cpu,
                      uint8_t character, uint8_t attribute) {
     const uint8_t page = machine->active_page;
@@ -248,7 +301,7 @@ static void teletype(d2e_pc_at *machine, d2e_x86_cpu *cpu,
     } else if (character == UINT8_C(0x0a)) {
         ++row;
     } else if (character != UINT8_C(0x07)) {
-        write_text_cell(machine, page, row, column, character, attribute, 1);
+        write_character(machine, page, row, column, character, attribute, 1);
         ++column;
         if (column >= machine->columns) {
             column = 0U;
@@ -269,7 +322,8 @@ static void cga_write_pixel(d2e_pc_at *machine, uint16_t x, uint16_t y,
     size_t offset;
     uint8_t mask;
     uint8_t value;
-    if (machine->cga_vram == NULL || x >= 320U || y >= 200U) {
+    const uint16_t width = machine->video_mode == 6U ? 640U : 320U;
+    if (machine->cga_vram == NULL || x >= width || y >= 200U) {
         return;
     }
     offset = d2e_cga_row_offset(y);
@@ -299,7 +353,8 @@ static void cga_write_pixel(d2e_pc_at *machine, uint16_t x, uint16_t y,
 static uint8_t cga_read_pixel(const d2e_pc_at *machine, uint16_t x,
                               uint16_t y) {
     size_t offset;
-    if (machine->cga_vram == NULL || x >= 320U || y >= 200U) {
+    const uint16_t width = machine->video_mode == 6U ? 640U : 320U;
+    if (machine->cga_vram == NULL || x >= width || y >= 200U) {
         return 0U;
     }
     offset = d2e_cga_row_offset(y);
@@ -370,7 +425,7 @@ static int video_interrupt(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
             row = machine->cursor_row[bh];
             column = machine->cursor_column[bh];
             for (count = 0; count < cpu->regs[D2E_X86_CX]; ++count) {
-                write_text_cell(machine, bh, row, column, al, bl,
+                write_character(machine, bh, row, column, al, bl,
                                 function == 0x09);
                 ++column;
                 if (column >= machine->columns) {
