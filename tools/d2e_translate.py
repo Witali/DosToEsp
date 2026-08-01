@@ -167,6 +167,26 @@ def read_hex(path: pathlib.Path) -> bytes:
         raise TranslationError(f"invalid hexadecimal fixture {path}: {error}") from error
 
 
+def relocate_mz_module(
+    image: bytes,
+    relocations: tuple[tuple[int, int], ...],
+    load_segment: int,
+) -> bytes:
+    """Return the load module bytes as DOS presents them to the program."""
+    relocated = bytearray(image)
+    for offset, segment in relocations:
+        index = segment * 16 + offset
+        if index < 0 or index + 2 > len(relocated):
+            raise TranslationError(
+                f"MZ relocation {segment:04x}:{offset:04x} leaves the load module"
+            )
+        value = relocated[index] | (relocated[index + 1] << 8)
+        value = (value + load_segment) & 0xFFFF
+        relocated[index] = value & 0xFF
+        relocated[index + 1] = value >> 8
+    return bytes(relocated)
+
+
 def operand_tuple(instruction, operand) -> tuple[str, OperandValue]:
     if operand.type == X86_OP_REG:
         return ("reg", instruction.reg_name(operand.reg))

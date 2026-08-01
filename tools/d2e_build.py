@@ -65,8 +65,13 @@ def build_sources(
             }
         )
     else:
+        translation_image = image.module_bytes
+        if image.format == "mz":
+            translation_image = d2e_translate.relocate_mz_module(
+                image.module_bytes, image.relocations, load_segment
+            )
         decoded = d2e_translate.discover(
-            image.module_bytes,
+            translation_image,
             image.base,
             image.entry,
             (

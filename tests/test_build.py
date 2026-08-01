@@ -52,6 +52,31 @@ def main() -> int:
         assert ".entry_ip = UINT16_C(0x0000)" in native
         assert "cpu->segments[D2E_X86_CS] - UINT16_C(0x1000)" in native
 
+        relocated_module = bytes.fromhex("b8 10 00 8e d8 b8 00 4c cd 21")
+        relocated_mz = bytearray(32 + len(relocated_module))
+        relocated_mz[:2] = b"MZ"
+        struct.pack_into("<H", relocated_mz, 0x02, len(relocated_mz))
+        struct.pack_into("<H", relocated_mz, 0x04, 1)
+        struct.pack_into("<H", relocated_mz, 0x06, 1)
+        struct.pack_into("<H", relocated_mz, 0x08, 2)
+        struct.pack_into("<H", relocated_mz, 0x18, 0x1C)
+        struct.pack_into("<HH", relocated_mz, 0x1C, 1, 0)
+        relocated_mz[32:] = relocated_module
+        output = pathlib.Path(temporary) / "relocated-mz"
+        manifest = d2e_build.build_sources(
+            bytes(relocated_mz),
+            "relocated.exe",
+            "auto",
+            "relocated",
+            0x1000,
+            output,
+        )
+        assert manifest["status"] == "complete"
+        native = (output / "game_native.c").read_text(encoding="utf-8")
+        assert "r_ax = (uint16_t)(UINT16_C(0x1010));" in native
+        assert "UINT8_C(0x10), UINT8_C(0x00)" in native
+        assert "{UINT16_C(0x0001), UINT16_C(0x0000)}" in native
+
         partitions = d2e_translate.partition_blocks(
             {address: [] for address in range(257)}
         )
