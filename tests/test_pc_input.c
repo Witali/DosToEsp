@@ -42,8 +42,18 @@ int main(void) {
     CHECK(!d2e_pc_input_feed_byte(&input, &machine, UINT8_C('[')));
     CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C('D')));
     CHECK(take_key(&machine) == UINT16_C(0x4b00));
-    CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C('`')));
+    CHECK(!d2e_pc_input_feed_byte(&input, &machine, UINT8_C(0x1b)));
+    CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C(0x1b)));
     CHECK(take_key(&machine) == UINT16_C(0x011b));
+
+    CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C('!')));
+    CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C(']')));
+    CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C('`')));
+    CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C(0x03)));
+    CHECK(take_key(&machine) == UINT16_C(0x0221));
+    CHECK(take_key(&machine) == UINT16_C(0x1b5d));
+    CHECK(take_key(&machine) == UINT16_C(0x2960));
+    CHECK(take_key(&machine) == UINT16_C(0x2e03));
 
     if (failures != 0U) {
         fprintf(stderr, "%u PC input test(s) failed\n", failures);
