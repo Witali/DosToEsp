@@ -120,7 +120,9 @@ expected register/memory digest.
 - [ ] Provide deterministic BIOS/PIT time and real-time ESP32 scheduling.
 - [x] Confirm that the DOS target uses PIT channel 2 and port 61h for title
   music and in-game PC Speaker music/effects.
-- [ ] Convert observed PC speaker/PIT programming to the board audio output.
+- [x] Convert observed PC speaker/PIT programming to a portable PCM
+  synthesizer and the board's GPIO26 continuous-DAC output; verify the same
+  signal through QEMU DirectSound/WAV.
 
 Acceptance gate: title screen, input, first playable scene and sound on the
 physical board without timing-dependent speed changes.
@@ -195,7 +197,7 @@ Immediate work queue:
    animation-frame hash as a golden result;
 3. capture an independent reference trace and compare the input/video path;
 4. flash the same generated firmware to the physical CYD and verify the first
-   playable scene on the ST7789 panel;
+   playable scene on the ST7789 panel plus PC-speaker output on GPIO26;
 5. generalise the next DOS/BIOS or hardware boundary exposed by another DOS
    program, keeping Alley Cat as an integration test rather than a special
    translation path.

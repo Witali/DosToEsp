@@ -128,6 +128,15 @@ The compatibility layer will be driven by a trace from that binary. Likely
 first targets are DOS `INT 21h` process/file calls, BIOS keyboard `INT 16h`,
 timer ticks, PC speaker and CGA modes 4/5 or direct B800 memory access.
 
+PC-speaker I/O remains part of the common machine layer, not generated game
+code. Writes to PIT channel 2 (`42h`/`43h`) and the gate/data bits at port
+`61h` update a portable 8253 control model. A C99 synthesizer converts the
+programmed divisor and timer mode into unsigned PCM. The ESP32 platform streams
+that PCM through continuous DAC channel 1 on GPIO26; the Windows board QEMU
+routes the same DAC transactions to DirectSound or a WAV file. This emulates
+the PC peripheral boundary while every guest instruction that programs it is
+still ahead-of-time compiled to Xtensa.
+
 CGA's 320x200 image maps cleanly to the physical 320x240 panel with 20 black
 rows above and below it. Rendering expands 2-bit CGA pixels into RGB565 strips,
 so no full RGB framebuffer is required. Guest B800 memory remains only 16 KiB.

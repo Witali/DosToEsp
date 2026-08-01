@@ -330,9 +330,35 @@ new visible process was then launched and its Windows command line contained
 `-display sdl` without `-no-reboot`, preserving reset inside the same QEMU
 process.
 
-The original DOS game is expected to produce title music and in-game music or
-effects through the PC Speaker. The current PC/AT runtime models PIT channel 2
-and system port 61h register state, but no waveform is sent to GPIO26 yet.
-HLV-codec's patched Windows QEMU already routes the ESP32 continuous DAC to
-DirectSound, so connecting a PC Speaker square-wave producer to that existing
-backend remains a separate required sound milestone.
+At this reset milestone the PC/AT runtime modeled PIT channel 2 and system port
+61h register state, but did not yet send a waveform to GPIO26. The following
+sound milestone closes that gap.
+
+## 2026-08-01: PC-speaker synthesis and ESP32 DAC output
+
+The common PC/AT layer now publishes completed PIT channel 2 programming and
+port `61h` gate/data changes to a portable C99 synthesizer. It handles the six
+8253 timer modes (including the mode 6/7 aliases), the special zero divisor of
+65536 and separate timer-gate and speaker-data controls. Host tests cover
+square-wave, rate-generator, one-shot, mute and low/high-byte reload behavior.
+The full host suite passed.
+
+The CYD firmware runs the synthesizer in a dedicated FreeRTOS task at 16 kHz
+and streams unsigned PCM through continuous DAC channel 1 on GPIO26. A
+240-frame scripted Windows QEMU run attached that DAC to the WAV backend and
+reported the first actual tone programmed by the translated game:
+
+```text
+D2E_AUDIO_READY,rate=16000,gpio=26
+D2E_ALLEY_START,csip=1723:0000,sssp=1000:0100,heap=106756
+D2E_FRAME,seq=1,mode=4,dirty=1,fnv1a=606bfff1
+D2E_AUDIO_ACTIVE,mode=3,divisor=4603,hz=259
+D2E_QEMU_DONE,0
+```
+
+The captured 13.535-second PCM file was non-silent: FFmpeg measured peaks from
+-17072 to 17431, RMS level -11.52 dB and 4195 zero crossings. Normal visible
+runs use DirectSound, while `-AudioCapture path.wav` selects deterministic WAV
+recording. Physical-board listening remains part of the hardware acceptance
+gate; the QEMU result verifies the translated port writes, PIT synthesis,
+ESP-IDF DAC driver and patched QEMU audio path end to end.

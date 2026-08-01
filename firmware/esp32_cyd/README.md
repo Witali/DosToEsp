@@ -43,12 +43,16 @@ for the CYD ST7789 display and SDSPI card:
 
 The default run opens an SDL window, renders through the same SPI2 DMA driver
 used on the board, mounts the HLV-codec FAT image through SPI3 and stores UART
-telemetry in `out/qemu/alley-cat-board-windows.log`. Visible runs use a large
+telemetry in `out/qemu/alley-cat-board-windows.log`. PIT channel 2 and port
+`61h` PC-speaker output is synthesized at 16 kHz and sent through the ESP32
+continuous DAC on GPIO26; patched QEMU routes it to DirectSound. Visible runs use a large
 default frame limit and permit emulated hardware reboot, so the SDL Reset
 action restarts the ESP32 and game without closing QEMU. Headless runs default
 to a bounded 240-frame smoke and use `-no-reboot` to turn the deliberate final
-firmware restart into process exit. Pass `-FrameLimit N` or `-SdImage path.img`
-as needed. QEMU snapshot mode keeps both source images unchanged.
+firmware restart into process exit. Pass `-FrameLimit N`, `-SdImage path.img`
+or `-Volume 0..100` as needed. `-AudioCapture path.wav` records the DAC stream
+with QEMU's WAV backend instead of playing it. QEMU snapshot mode keeps both
+source images unchanged.
 
 Flash and verify the physical CYD2USB board (COM8 by default):
 

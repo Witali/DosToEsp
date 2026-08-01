@@ -108,9 +108,12 @@ automation.
 On Windows, `qemu-alley-cat-board-windows.ps1` instead uses HLV-codec's
 patched QEMU models for the real SPI2 ST7789 and SPI3 SD-card interfaces. It
 opens an SDL display by default, mounts the sibling project's FAT demo card,
-and validates both `D2E_SD_READY` and rendered `D2E_FRAME` telemetry. Use
+routes the ESP32 GPIO26 continuous DAC to DirectSound, and validates SD,
+rendered-frame and active PC-speaker telemetry. Use
 `-Headless` for automation, `-SdImage path.img` for another FAT image and
-`-FrameLimit N` to bound the run. All drives use QEMU snapshot mode.
+`-FrameLimit N` to bound the run. `-Volume 0..100` controls host playback;
+`-AudioCapture out\speaker.wav` selects the WAV backend instead of DirectSound
+for reproducible signal inspection. All drives use QEMU snapshot mode.
 Pass `-ScriptedInput` to the frame or interactive command to inject a
 deterministic setup sequence through the game's native IRQ1 handler. The
 integration harness waits for the actual Y/N, keyboard-layout and final setup
