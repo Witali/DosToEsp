@@ -18,6 +18,7 @@ if ($FrameLimit -lt 0) {
     "-D", "D2E_ALLEY_CAT=ON",
     "-D", "D2E_QEMU_INTERACTIVE=ON",
     "-D", "D2E_QEMU_INTERACTIVE_FRAME_LIMIT=$FrameLimit",
+    "-D", "D2E_QEMU_DUMP_FRAME=OFF",
     "qemu",
     "--qemu-extra-args=-no-reboot"
 )

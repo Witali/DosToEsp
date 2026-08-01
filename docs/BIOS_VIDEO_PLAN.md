@@ -94,8 +94,8 @@ panel on the physical CYD display.
   by the physical board.
 - [x] Advance BIOS time from a real-time frame scheduler instead of one synthetic
   tick per diagnostic slice.
-- [ ] Export rendered RGB565 frames to a host-side window because ESP32 QEMU
-  does not model the external SPI ST7789 panel.
+- [x] Export CGA VRAM and render it in a host-side BMP viewer because ESP32
+  QEMU does not model the external SPI ST7789 panel.
 - [x] Record hashes for consecutive frames and distinguish unchanged, dirty
   and animated frames in regression output.
 - [ ] Continue execution with scripted keys until the title screen, start of

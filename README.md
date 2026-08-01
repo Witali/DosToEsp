@@ -84,6 +84,7 @@ The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
 .\firmware\esp32_cyd\qemu-smoke.ps1
 .\firmware\esp32_cyd\qemu-alley-cat.ps1
 .\firmware\esp32_cyd\qemu-alley-cat-interactive.ps1
+.\firmware\esp32_cyd\qemu-alley-cat-frame.ps1
 .\firmware\esp32_cyd\build-alley-cat.ps1
 .\firmware\esp32_cyd\flash-alley-cat.ps1 -Port COM8
 .\firmware\esp32_cyd\flash.ps1
@@ -95,6 +96,11 @@ BOOT button sends Space. A serial terminal on UART0 can send letters, digits,
 Enter, Backspace and ANSI arrow-key sequences; the backtick key sends Escape.
 The interactive QEMU command uses the same UART/ANSI mapping and runs until
 QEMU is closed; pass `-FrameLimit 8` for a bounded regression run.
+Because Espressif QEMU does not emulate the CYD's external SPI panel, the
+`qemu-alley-cat-frame.ps1` companion command exports CGA VRAM after eight
+frames, converts it to `out/qemu/alley-cat-frame.bmp`, and opens the image in
+the host viewer. Pass `-FrameLimit N` to select a later frame or `-NoOpen` for
+automation.
 
 There is no x86 opcode interpreter in the firmware. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the execution model and

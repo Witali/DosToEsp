@@ -152,3 +152,24 @@ frame changed. A bounded eight-frame invocation of the continuous path reached
 2,722,831 translated instructions without a strict boundary. The first frame
 had mode 4 hash `9337185a`; the final sample is emitted even when unchanged so
 the regression distinguishes a stable frame from missing telemetry.
+
+## 2026-08-01: host-visible QEMU CGA frame
+
+The bounded interactive firmware can now emit a complete, delimited 16 KiB
+CGA VRAM snapshot. The host converter validates that every byte is present,
+renders modes 4/5/6 with the same palette and 320x240 geometry as the board,
+and writes a dependency-free 24-bit BMP. The one-command eight-frame capture
+completed without a strict boundary and produced:
+
+```text
+D2E_FRAME,seq=1,mode=4,dirty=1,fnv1a=9337185a
+D2E_FRAME,seq=8,mode=4,dirty=0,fnv1a=9337185a
+D2E_VRAM_BEGIN,mode=4,mode_control=0a,color_control=00,size=16384
+D2E_VRAM_END
+D2E_ALLEY_STOP,reason=8,csip=1723:2b62,instructions=2722831,...
+rendered CGA mode 4: out\qemu\alley-cat-frame.bmp (16384 VRAM bytes)
+```
+
+The BMP is 230,454 bytes and has SHA-256
+`BD78FEE5BFB5CF1F9170BC5CFB2E87D5328993B5DF0BAF2E0C9A995229A79720`.
+It was decoded and visually inspected as a non-empty red/green CGA frame.

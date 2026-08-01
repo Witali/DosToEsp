@@ -2,6 +2,7 @@ set(d2e_root "${CMAKE_CURRENT_LIST_DIR}/../../..")
 option(D2E_QEMU_SMOKE "Restart after the native smoke test" OFF)
 option(D2E_ALLEY_CAT "Build the generated Alley Cat MZ program" OFF)
 option(D2E_QEMU_INTERACTIVE "Run Alley Cat continuously in QEMU" OFF)
+option(D2E_QEMU_DUMP_FRAME "Dump final CGA VRAM through QEMU UART" OFF)
 set(D2E_QEMU_INTERACTIVE_FRAME_LIMIT "0" CACHE STRING
     "Optional interactive QEMU frame limit; zero runs continuously")
 
@@ -19,6 +20,7 @@ idf_component_register(
     SRCS
         "main.c"
         "cyd_display.c"
+        "qemu_frame_dump.c"
         "${d2e_generated_source}"
         "${d2e_root}/src/core/native_runtime.c"
         "${d2e_root}/src/core/x86_alu.c"
@@ -52,6 +54,9 @@ if(D2E_QEMU_INTERACTIVE)
         D2E_QEMU_INTERACTIVE=1
         D2E_QEMU_INTERACTIVE_FRAME_LIMIT=${D2E_QEMU_INTERACTIVE_FRAME_LIMIT}
     )
+endif()
+if(D2E_QEMU_DUMP_FRAME)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE D2E_QEMU_DUMP_FRAME=1)
 endif()
 if(D2E_ALLEY_CAT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE D2E_ALLEY_CAT=1)

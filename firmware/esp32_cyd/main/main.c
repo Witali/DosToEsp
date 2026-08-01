@@ -20,6 +20,7 @@
 #include "d2e/text_video.h"
 #include "board_config.h"
 #include "cyd_display.h"
+#include "qemu_frame_dump.h"
 
 #define D2E_CONVENTIONAL_BYTES (UINT32_C(128) * 1024U)
 
@@ -271,6 +272,9 @@ void app_main(void) {
         }
 #if D2E_QEMU_INTERACTIVE && D2E_QEMU_INTERACTIVE_FRAME_LIMIT > 0
         if (frame >= D2E_QEMU_INTERACTIVE_FRAME_LIMIT) {
+#if D2E_QEMU_DUMP_FRAME
+            d2e_qemu_dump_cga(&pc_at, cga_vram, sizeof(cga_vram));
+#endif
             break;
         }
 #endif
