@@ -158,6 +158,15 @@ foreach ($pattern in @(
     }
 }
 
+$stringText = Get-Content -LiteralPath $stringGenerated -Raw
+foreach ($pattern in @(
+        "d2e_pattern_copy8",
+        "d2e_pattern_fill16")) {
+    if ($stringText -notmatch [regex]::Escape($pattern)) {
+        throw "Expected ESP32 memory pattern call was not emitted: $pattern"
+    }
+}
+
 $text = Get-Content -LiteralPath $assembly -Raw
 foreach ($mnemonic in @("entry", "l32i", "s16i", "call8")) {
     if ($text -notmatch "(?m)^\s*$mnemonic(?:\.n)?\s") {

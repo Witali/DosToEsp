@@ -52,6 +52,24 @@ def main() -> int:
         assert ".entry_ip = UINT16_C(0x0000)" in native
         assert "cpu->segments[D2E_X86_CS] - UINT16_C(0x1000)" in native
 
+        pattern_fixture = d2e_analyze.read_hex(
+            ROOT / "tests" / "fixtures" / "native_string.hex"
+        )
+        output = pathlib.Path(temporary) / "patterns"
+        manifest = d2e_build.build_sources(
+            pattern_fixture,
+            "patterns.com",
+            "com",
+            "patterns",
+            0x1000,
+            output,
+        )
+        assert manifest["status"] == "complete"
+        native = (output / "game_native.c").read_text(encoding="utf-8")
+        assert "d2e_pattern_copy8(" in native
+        assert "d2e_pattern_fill16(" in native
+        assert "d2e/native_patterns.h" in native
+
         relocated_module = bytes.fromhex("b8 10 00 8e d8 b8 00 4c cd 21")
         relocated_mz = bytearray(32 + len(relocated_module))
         relocated_mz[:2] = b"MZ"
