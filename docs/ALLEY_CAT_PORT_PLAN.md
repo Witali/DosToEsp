@@ -187,9 +187,13 @@ Completed foundations:
 
 Immediate work queue:
 
-1. capture an independent reference trace and compare the input/video path;
-2. flash the same generated firmware to the physical CYD and verify the first
+1. generalise native pattern recognition from explicit REP MOVS/STOS to
+   compiler-generated copy/fill loops and guarded unrolled forms;
+2. make the QEMU BIOS tick source deterministic before treating a particular
+   animation-frame hash as a golden result;
+3. capture an independent reference trace and compare the input/video path;
+4. flash the same generated firmware to the physical CYD and verify the first
    playable scene on the ST7789 panel;
-3. generalise the next DOS/BIOS or hardware boundary exposed by another DOS
+5. generalise the next DOS/BIOS or hardware boundary exposed by another DOS
    program, keeping Alley Cat as an integration test rather than a special
    translation path.

@@ -23,6 +23,26 @@ Performance-critical operations may use explicit Xtensa assembly templates;
 ordinary emitted C is still native translation because the Xtensa compiler
 lowers each source block before the firmware is built.
 
+## Native pattern lowering
+
+The translator may replace a proven sequence of 8086 operations with a call to
+a shared ESP32-native helper. This is an ahead-of-time optimisation, not a CPU
+emulation fallback: the helper is compiled by ESP-IDF into Xtensa LX6 code and
+contains no opcode fetch or decode loop.
+
+The first pattern family recognises repeated `MOVSB/MOVSW` and `STOSB/STOSW`
+and emits `d2e_pattern_copy8/16` or `d2e_pattern_fill8/16`. These helpers retain
+the exact visible 8086 contract: `DF` direction, 16-bit `SI`/`DI` wrapping,
+`CX` completion, segment selection, sequential overlapping-copy behaviour and
+early memory-fault state. The rule is generic and is applied to every COM/MZ
+input; it has no executable fingerprint or game-specific address checks.
+
+Later recognisers may cover equivalent compiler loops and unrolled sequences,
+but only after control-flow and data-flow checks prove that replacing the
+whole region preserves all registers, flags, memory-access order and possible
+fault boundaries. If a proof fails, the ordinary translated basic blocks stay
+in place.
+
 The user-facing product boundary is one deterministic build command accepting
 a DOS COM/MZ executable and producing ESP32 C sources plus a fingerprinted
 manifest. Game functions are never rewritten manually. When coverage is

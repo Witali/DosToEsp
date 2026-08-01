@@ -273,3 +273,31 @@ The rendered 230,454-byte BMP has SHA-256
 The full host suite also passed, including the source frontend, all 18 C test
 executables and the generated 54,555-byte Alley Cat MZ image with nine runtime
 relocations.
+
+## 2026-08-01: ESP32-native memory patterns
+
+The generic source translator now recognises explicit repeated 8086 memory
+operations and lowers them to four shared helpers compiled as Xtensa code:
+byte/word copy and byte/word fill. Direct helper tests cover direction-flag
+updates, 16-bit offset wrapping and sequential overlapping-copy behaviour. A
+generated COM fixture confirms that REP MOVS/STOS calls the helpers and keeps
+the expected final guest state. The full host suite and Xtensa assembly audit
+both pass.
+
+The unchanged automatic `CAT.EXE` frontend found 35 such sites in Alley Cat.
+The resulting 3,152,465-byte generated C source built as an ESP32-IDF image;
+the physical-board configuration produced a `0xaf020` application image with
+32 percent of its one-megabyte partition free. A 900-frame QEMU run again
+reached the playable CGA scene and exited through the bounded harness:
+
+```text
+D2E_FRAME,seq=900,mode=4,dirty=1,fnv1a=8e361077
+D2E_ALLEY_STOP,reason=8,csip=1723:1e7a,instructions=198280743,...
+D2E_QEMU_DONE,0
+```
+
+This frame is not a replacement golden hash for the earlier capture. The
+firmware currently derives BIOS ticks from `esp_timer_get_time()`, so changing
+native execution speed changes the animation phase sampled at frame 900. The
+rendered scene was inspected visually; deterministic tick injection is the
+next prerequisite for pixel-exact regression comparisons.
