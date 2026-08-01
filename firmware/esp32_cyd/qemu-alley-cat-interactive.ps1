@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([int]$FrameLimit = 0)
+param(
+    [int]$FrameLimit = 0,
+    [switch]$ScriptedInput
+)
 
 $ErrorActionPreference = "Stop"
 $project = $PSScriptRoot
@@ -19,6 +22,7 @@ if ($FrameLimit -lt 0) {
     "-D", "D2E_QEMU_INTERACTIVE=ON",
     "-D", "D2E_QEMU_INTERACTIVE_FRAME_LIMIT=$FrameLimit",
     "-D", "D2E_QEMU_DUMP_FRAME=OFF",
+    "-D", "D2E_QEMU_SCRIPTED_INPUT=$(if ($ScriptedInput) { 'ON' } else { 'OFF' })",
     "qemu",
     "--qemu-extra-args=-no-reboot"
 )

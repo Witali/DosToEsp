@@ -3,6 +3,7 @@ option(D2E_QEMU_SMOKE "Restart after the native smoke test" OFF)
 option(D2E_ALLEY_CAT "Build the generated Alley Cat MZ program" OFF)
 option(D2E_QEMU_INTERACTIVE "Run Alley Cat continuously in QEMU" OFF)
 option(D2E_QEMU_DUMP_FRAME "Dump final CGA VRAM through QEMU UART" OFF)
+option(D2E_QEMU_SCRIPTED_INPUT "Inject deterministic Alley Cat keys" OFF)
 set(D2E_QEMU_INTERACTIVE_FRAME_LIMIT "0" CACHE STRING
     "Optional interactive QEMU frame limit; zero runs continuously")
 
@@ -57,6 +58,11 @@ if(D2E_QEMU_INTERACTIVE)
 endif()
 if(D2E_QEMU_DUMP_FRAME)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE D2E_QEMU_DUMP_FRAME=1)
+endif()
+if(D2E_QEMU_SCRIPTED_INPUT)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        D2E_QEMU_SCRIPTED_INPUT=1
+    )
 endif()
 if(D2E_ALLEY_CAT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE D2E_ALLEY_CAT=1)

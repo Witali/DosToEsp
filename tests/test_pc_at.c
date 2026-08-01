@@ -107,6 +107,36 @@ static void test_keyboard(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     interrupt(cpu, UINT8_C(0x16), UINT16_C(0x0000));
     CHECK(cpu->regs[D2E_X86_AX] == UINT16_C(0x2d78));
     CHECK(machine->key_count == 0U);
+
+    machine->scan_head = 0U;
+    machine->scan_count = 0U;
+    cpu->segments[D2E_X86_CS] = UINT16_C(0x1723);
+    cpu->ip = UINT16_C(0x4567);
+    cpu->regs[D2E_X86_SP] = UINT16_C(0x0200);
+    cpu->flags = D2E_X86_FLAG_IF | D2E_X86_FLAG_CF | D2E_X86_FLAG_FIXED;
+    d2e_x86_write16(cpu, UINT32_C(9) * 4U, UINT16_C(0x14b3));
+    d2e_x86_write16(cpu, UINT32_C(9) * 4U + 2U, UINT16_C(0x1723));
+    CHECK(d2e_pc_at_enqueue_key(machine, UINT8_C(' '), UINT8_C(0x39)));
+    CHECK(d2e_x86_port_in8(cpu, UINT16_C(0x0064)) == UINT8_C(1));
+    CHECK(d2e_pc_at_dispatch_keyboard_irq(machine));
+    CHECK(cpu->segments[D2E_X86_CS] == UINT16_C(0x1723));
+    CHECK(cpu->ip == UINT16_C(0x14b3));
+    CHECK(cpu->regs[D2E_X86_SP] == UINT16_C(0x01fa));
+    CHECK((cpu->flags & D2E_X86_FLAG_IF) == 0U);
+    CHECK(d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS],
+                             UINT16_C(0x01fa)) == UINT16_C(0x4567));
+    CHECK(d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS],
+                             UINT16_C(0x01fc)) == UINT16_C(0x1723));
+    CHECK(d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS],
+                             UINT16_C(0x01fe)) ==
+          (D2E_X86_FLAG_IF | D2E_X86_FLAG_CF | D2E_X86_FLAG_FIXED));
+    CHECK(d2e_x86_port_in8(cpu, UINT16_C(0x0060)) == UINT8_C(0x39));
+    d2e_x86_port_out8(cpu, UINT16_C(0x0020), UINT8_C(0x20));
+    cpu->flags |= D2E_X86_FLAG_IF;
+    cpu->regs[D2E_X86_SP] = UINT16_C(0x0200);
+    CHECK(d2e_pc_at_dispatch_keyboard_irq(machine));
+    CHECK(d2e_x86_port_in8(cpu, UINT16_C(0x0060)) == UINT8_C(0xb9));
+    CHECK(d2e_x86_port_in8(cpu, UINT16_C(0x0064)) == 0U);
 }
 
 static void test_pit_and_speaker(d2e_pc_at *machine, d2e_x86_cpu *cpu) {

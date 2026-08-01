@@ -583,6 +583,7 @@ void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
 }
 
 void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
+    machine->attached_cpu = cpu;
     machine->waiting_keyboard_cpu = NULL;
     d2e_x86_map_cga_vram(cpu, machine->cga_vram);
     d2e_x86_configure_interrupts(cpu, machine, d2e_pc_at_interrupt);
@@ -622,6 +623,21 @@ int d2e_pc_at_port_in8(void *context, uint16_t port, uint8_t *value) {
     unsigned channel;
     if (machine == NULL || value == NULL) {
         return 0;
+    }
+    if (port == UINT16_C(0x0060)) {
+        if (machine->scan_count == 0U) {
+            *value = 0U;
+        } else {
+            *value = machine->scan_queue[machine->scan_head];
+            machine->scan_head = (uint8_t)(
+                (machine->scan_head + 1U) % D2E_PC_AT_SCAN_QUEUE_CAPACITY);
+            --machine->scan_count;
+        }
+        return 1;
+    }
+    if (port == UINT16_C(0x0064)) {
+        *value = machine->scan_count != 0U ? UINT8_C(0x01) : 0U;
+        return 1;
     }
     if (port == UINT16_C(0x03d4)) {
         *value = machine->cga_crtc_index;
@@ -670,6 +686,12 @@ int d2e_pc_at_port_out8(void *context, uint16_t port, uint8_t value) {
     unsigned channel;
     if (machine == NULL) {
         return 0;
+    }
+    if (port == UINT16_C(0x0020)) {
+        if ((value & UINT8_C(0x20)) != 0U) {
+            machine->keyboard_irq_active = 0U;
+        }
+        return 1;
     }
     if (port == UINT16_C(0x03d4)) {
         machine->cga_crtc_index = value & UINT8_C(0x1f);
@@ -729,6 +751,21 @@ int d2e_pc_at_port_out8(void *context, uint16_t port, uint8_t value) {
 int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,
                           uint8_t scan) {
     uint8_t tail;
+    uint8_t scan_tail;
+    int delivered = 0;
+    if (machine == NULL || scan == 0U) {
+        return 0;
+    }
+    if (machine->scan_count <= D2E_PC_AT_SCAN_QUEUE_CAPACITY - 2U) {
+        scan_tail = (uint8_t)((machine->scan_head + machine->scan_count) %
+                              D2E_PC_AT_SCAN_QUEUE_CAPACITY);
+        machine->scan_queue[scan_tail] = scan;
+        scan_tail =
+            (uint8_t)((scan_tail + 1U) % D2E_PC_AT_SCAN_QUEUE_CAPACITY);
+        machine->scan_queue[scan_tail] = (uint8_t)(scan | UINT8_C(0x80));
+        machine->scan_count = (uint8_t)(machine->scan_count + 2U);
+        delivered = 1;
+    }
     if (machine->waiting_keyboard_cpu != NULL) {
         machine->waiting_keyboard_cpu->regs[D2E_X86_AX] =
             (uint16_t)(((uint16_t)scan << 8U) | ascii);
@@ -736,13 +773,43 @@ int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,
         return 1;
     }
     if (machine->key_count >= D2E_PC_AT_KEY_QUEUE_CAPACITY) {
-        return 0;
+        return delivered;
     }
     tail = (uint8_t)((machine->key_head + machine->key_count) %
                      D2E_PC_AT_KEY_QUEUE_CAPACITY);
     machine->key_queue[tail].ascii = ascii;
     machine->key_queue[tail].scan = scan;
     ++machine->key_count;
+    return 1;
+}
+
+int d2e_pc_at_dispatch_keyboard_irq(d2e_pc_at *machine) {
+    d2e_x86_cpu *cpu;
+    uint16_t handler_ip;
+    uint16_t handler_cs;
+    if (machine == NULL) {
+        return 0;
+    }
+    cpu = machine->attached_cpu;
+    if (cpu == NULL || machine->scan_count == 0U ||
+        machine->keyboard_irq_active != 0U ||
+        (cpu->flags & D2E_X86_FLAG_IF) == 0U) {
+        return 0;
+    }
+    handler_ip = d2e_x86_read16(cpu, UINT32_C(9) * 4U);
+    handler_cs = d2e_x86_read16(cpu, UINT32_C(9) * 4U + 2U);
+    if (handler_ip == 0U && handler_cs == 0U) {
+        return 0;
+    }
+    d2e_x86_push16(cpu, cpu->flags);
+    d2e_x86_push16(cpu, cpu->segments[D2E_X86_CS]);
+    d2e_x86_push16(cpu, cpu->ip);
+    cpu->flags = (uint16_t)((cpu->flags &
+        (uint16_t)~(D2E_X86_FLAG_IF | D2E_X86_FLAG_TF)) |
+        D2E_X86_FLAG_FIXED);
+    cpu->segments[D2E_X86_CS] = handler_cs;
+    cpu->ip = handler_ip;
+    machine->keyboard_irq_active = 1U;
     return 1;
 }
 

@@ -188,3 +188,25 @@ real `IRET` frame and verifies the external `JMP F000:E05B` remains a strict
 untranslated-target boundary. The string regression also executes
 `REPNE SCASB` through a successful match. The real `CAT.EXE` source build is
 again `complete` and emits `game_native.c`.
+
+## 2026-08-01: native keyboard IRQ1 delivery
+
+The PC/AT boundary now keeps an XT make/break scan-code queue, exposes keyboard
+data/status ports `60h`/`64h`, accepts PIC EOI on port `20h`, and pushes a real
+`FLAGS`, `CS`, `IP` interrupt frame before routing vector 9 to translated code.
+Host tests verify the `39h/B9h` Space pair and the exact six-byte stack frame.
+
+The 150-frame scripted QEMU run then proved that both events execute the IRQ1
+handler recovered from `CAT.EXE`:
+
+```text
+D2E_KEY,frame=120,ascii=20,scan=39
+D2E_IRQ,frame=120,vector=09,target=1723:14b3,pending=2
+D2E_IRQ,frame=121,vector=09,target=1723:14b3,pending=1
+D2E_ALLEY_STOP,reason=8,...,instructions=42724413,...
+```
+
+The make and break interrupts returned through native `IRET` without hitting a
+strict boundary. A longer Space/Right/Space/Left run also completed, but its
+final framebuffer remained at hash `99881404`; therefore the correct
+title-screen start action and first playable scene are not yet claimed.

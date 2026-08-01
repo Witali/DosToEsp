@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [int]$FrameLimit = 8,
+    [switch]$ScriptedInput,
     [switch]$NoOpen
 )
 
@@ -29,6 +30,7 @@ $qemuOutput = & (Join-Path $project "idf.ps1") -IdfArguments @(
     "-D", "D2E_QEMU_INTERACTIVE=ON",
     "-D", "D2E_QEMU_INTERACTIVE_FRAME_LIMIT=$FrameLimit",
     "-D", "D2E_QEMU_DUMP_FRAME=ON",
+    "-D", "D2E_QEMU_SCRIPTED_INPUT=$(if ($ScriptedInput) { 'ON' } else { 'OFF' })",
     "qemu",
     "--qemu-extra-args=-no-reboot"
 ) 2>&1

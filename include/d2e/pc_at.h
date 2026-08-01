@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 #define D2E_PC_AT_KEY_QUEUE_CAPACITY 16U
+#define D2E_PC_AT_SCAN_QUEUE_CAPACITY 32U
 #define D2E_PC_AT_TEXT_PAGES 8U
 
 typedef struct d2e_pc_at_key {
@@ -45,8 +46,13 @@ typedef struct d2e_pc_at {
     uint8_t cursor_column[D2E_PC_AT_TEXT_PAGES];
     uint8_t keyboard_shift_flags;
     d2e_pc_at_key key_queue[D2E_PC_AT_KEY_QUEUE_CAPACITY];
+    uint8_t scan_queue[D2E_PC_AT_SCAN_QUEUE_CAPACITY];
     uint8_t key_head;
     uint8_t key_count;
+    uint8_t scan_head;
+    uint8_t scan_count;
+    uint8_t keyboard_irq_active;
+    d2e_x86_cpu *attached_cpu;
     d2e_x86_cpu *waiting_keyboard_cpu;
 } d2e_pc_at;
 
@@ -59,6 +65,7 @@ int d2e_pc_at_port_in8(void *context, uint16_t port, uint8_t *value);
 int d2e_pc_at_port_out8(void *context, uint16_t port, uint8_t value);
 int d2e_pc_at_enqueue_key(d2e_pc_at *machine, uint8_t ascii,
                           uint8_t scan);
+int d2e_pc_at_dispatch_keyboard_irq(d2e_pc_at *machine);
 void d2e_pc_at_set_timer_ticks(d2e_pc_at *machine, uint32_t ticks,
                                uint8_t midnight_rollover);
 

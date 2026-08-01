@@ -31,6 +31,9 @@ int main(void) {
     CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C('A')));
     CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C('0')));
     CHECK(d2e_pc_input_feed_byte(&input, &machine, UINT8_C(' ')));
+    CHECK(machine.scan_count == 6U);
+    CHECK(machine.scan_queue[0] == UINT8_C(0x1e));
+    CHECK(machine.scan_queue[1] == UINT8_C(0x9e));
     CHECK(take_key(&machine) == UINT16_C(0x1e41));
     CHECK(take_key(&machine) == UINT16_C(0x0b30));
     CHECK(take_key(&machine) == UINT16_C(0x3920));

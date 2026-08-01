@@ -15,6 +15,7 @@ $toolProject = [IO.Path]::GetFullPath((Join-Path $project `
     "-D", "D2E_QEMU_INTERACTIVE=OFF",
     "-D", "D2E_QEMU_INTERACTIVE_FRAME_LIMIT=0",
     "-D", "D2E_QEMU_DUMP_FRAME=OFF",
+    "-D", "D2E_QEMU_SCRIPTED_INPUT=OFF",
     "qemu",
     "--qemu-extra-args=-no-reboot"
 )

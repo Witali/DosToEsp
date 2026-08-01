@@ -37,6 +37,31 @@ static uint8_t boot_button_down;
 #endif
 static uint64_t last_clock_day;
 
+#if D2E_QEMU_SCRIPTED_INPUT
+static void feed_scripted_input(uint64_t frame) {
+    static const struct {
+        uint64_t frame;
+        uint8_t ascii;
+        uint8_t scan;
+    } events[] = {
+        {UINT64_C(120), UINT8_C(' '), UINT8_C(0x39)},
+        {UINT64_C(180), 0U, UINT8_C(0x4d)},
+        {UINT64_C(210), UINT8_C(' '), UINT8_C(0x39)},
+        {UINT64_C(240), 0U, UINT8_C(0x4b)},
+    };
+    size_t index;
+    for (index = 0U; index < sizeof(events) / sizeof(events[0]); ++index) {
+        if (events[index].frame == frame &&
+            d2e_pc_at_enqueue_key(&pc_at, events[index].ascii,
+                                  events[index].scan)) {
+            esp_rom_printf(
+                "D2E_KEY,frame=%" PRIu64 ",ascii=%02x,scan=%02x\n", frame,
+                (unsigned)events[index].ascii, (unsigned)events[index].scan);
+        }
+    }
+}
+#endif
+
 static esp_err_t init_pc_input(void) {
 #if !D2E_QEMU_SMOKE
     gpio_config_t button = {0};
@@ -251,7 +276,17 @@ void app_main(void) {
 #if !D2E_QEMU_SMOKE
         ESP_ERROR_CHECK(render_pc_frame());
 #endif
+        #if D2E_QEMU_SCRIPTED_INPUT
+        feed_scripted_input(frame + UINT64_C(1));
+        #endif
         poll_pc_input_and_clock();
+        if (d2e_pc_at_dispatch_keyboard_irq(&pc_at)) {
+            esp_rom_printf(
+                "D2E_IRQ,frame=%" PRIu64 ",vector=09,target=%04x:%04x,"
+                "pending=%u\n",
+                frame + UINT64_C(1), (unsigned)cpu.segments[D2E_X86_CS],
+                (unsigned)cpu.ip, (unsigned)pc_at.scan_count);
+        }
         for (index = 0U; index < sizeof(cga_vram); ++index) {
             hash = (hash ^ cga_vram[index]) * UINT32_C(16777619);
         }

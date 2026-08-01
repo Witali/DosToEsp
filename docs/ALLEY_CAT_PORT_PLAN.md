@@ -111,7 +111,8 @@ expected register/memory digest.
 - [ ] Connect the existing CGA modes 4/5 renderer to the CYD ST7789 using the
   verified HLV-codec pinout and SPI DMA setup.
 - [ ] Add dirty-line/region updates and centre 320x200 inside 320x240.
-- [ ] Map the selected physical input to the keyboard interface observed by
+- [x] Map BOOT/UART/QEMU input to XT make/break scan codes, ports `60h`/`64h`
+  and IRQ1 as observed by
   the game.
 - [ ] Provide deterministic BIOS/PIT time and real-time ESP32 scheduling.
 - [ ] Convert observed PC speaker/PIT programming to the board audio output.
@@ -179,7 +180,8 @@ Completed foundations:
 
 Immediate work queue:
 
-1. inject keyboard IRQ1 with port `60h` scan codes and port `20h` PIC EOI;
-2. run scripted Space/arrow input through the first playable scene and capture
+1. determine the title-screen start action from the independent trace or the
+   recovered key-state table;
+2. run scripted input through the first playable scene and capture
    its frame hashes;
 3. capture an independent reference trace and compare the input path.

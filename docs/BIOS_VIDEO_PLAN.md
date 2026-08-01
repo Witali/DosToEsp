@@ -100,6 +100,8 @@ panel on the physical CYD display.
   and animated frames in regression output.
 - [ ] Continue execution with scripted keys until the title screen, start of
   gameplay and first input response are proven.
+- [x] Deliver scripted and UART keys as XT make/break scan codes through ports
+  `60h`/`64h`, PIC EOI port `20h` and the game's native IRQ1 handler.
 - [ ] Record dynamic `CS:IP`, interrupt subfunctions and port accesses at every
   new strict boundary, then implement only the observed missing behaviour.
 

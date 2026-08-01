@@ -102,6 +102,10 @@ Because Espressif QEMU does not emulate the CYD's external SPI panel, the
 frames, converts it to `out/qemu/alley-cat-frame.bmp`, and opens the image in
 the host viewer. Pass `-FrameLimit N` to select a later frame or `-NoOpen` for
 automation.
+Pass `-ScriptedInput` to the frame or interactive command to inject a
+deterministic Space/Right/Space/Left sequence through the game's native IRQ1
+handler; `D2E_KEY` and `D2E_IRQ` records distinguish queued keys from delivered
+hardware interrupts.
 
 There is no x86 opcode interpreter in the firmware. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the execution model and
