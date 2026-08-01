@@ -362,3 +362,28 @@ runs use DirectSound, while `-AudioCapture path.wav` selects deterministic WAV
 recording. Physical-board listening remains part of the hardware acceptance
 gate; the QEMU result verifies the translated port writes, PIT synthesis,
 ESP-IDF DAC driver and patched QEMU audio path end to end.
+
+## 2026-08-01: timestamped PC-speaker event delivery
+
+The first DAC implementation retained only the latest speaker-control value
+and sampled it once per 256-sample block. At 16 kHz this created a 16 ms
+blind window in which a later port write could overwrite a short tone before
+the audio task rendered it. The firmware now queues every PIT/port-61h change
+with an ESP timer timestamp, renders 64-sample (4 ms) blocks, and applies
+events at their corresponding sample positions after a fixed 32 ms queueing
+latency. Partial DAC writes are retried instead of discarding the remainder
+of a block.
+
+A 900-frame scripted Alley Cat run completed with `D2E_QEMU_DONE,0`. At every
+five-second telemetry checkpoint, all events old enough to render had been
+applied. The last checkpoint reported:
+
+```text
+D2E_AUDIO_STATS,received=1031,applied=1031,queued=0,high_water=4,overruns=0,late=0,dac_errors=0
+```
+
+The 256-entry queue therefore used at most four slots and lost no events.
+Using the same FFmpeg silence detector on the old and new 53-second captures,
+the shortest detected silent interval fell from 47.936 ms to 3.946 ms. This
+confirms that transitions shorter than the former 16 ms render block survive
+the ESP32-to-QEMU audio path.
