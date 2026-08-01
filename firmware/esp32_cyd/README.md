@@ -41,11 +41,14 @@ for the CYD ST7789 display and SDSPI card:
 .\qemu-alley-cat-board-windows.ps1 -ScriptedInput
 ```
 
-The default run opens an SDL window, renders 240 frames through the same SPI2
-DMA driver used on the board, mounts the HLV-codec FAT image through SPI3 and
-stores UART telemetry in `out/qemu/alley-cat-board-windows.log`. Pass
-`-Headless`, `-FrameLimit N` or `-SdImage path.img` as needed. QEMU snapshot
-mode keeps both source images unchanged.
+The default run opens an SDL window, renders through the same SPI2 DMA driver
+used on the board, mounts the HLV-codec FAT image through SPI3 and stores UART
+telemetry in `out/qemu/alley-cat-board-windows.log`. Visible runs use a large
+default frame limit and permit emulated hardware reboot, so the SDL Reset
+action restarts the ESP32 and game without closing QEMU. Headless runs default
+to a bounded 240-frame smoke and use `-no-reboot` to turn the deliberate final
+firmware restart into process exit. Pass `-FrameLimit N` or `-SdImage path.img`
+as needed. QEMU snapshot mode keeps both source images unchanged.
 
 Flash and verify the physical CYD2USB board (COM8 by default):
 

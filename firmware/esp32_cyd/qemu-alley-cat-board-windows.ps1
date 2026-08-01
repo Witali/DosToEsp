@@ -1,13 +1,16 @@
 [CmdletBinding()]
 param(
-    [ValidateRange(1, 1000000)]
-    [int]$FrameLimit = 240,
+    [ValidateRange(0, 1000000)]
+    [int]$FrameLimit = 0,
     [string]$SdImage,
     [switch]$Headless,
     [switch]$ScriptedInput
 )
 
 $ErrorActionPreference = "Stop"
+if ($FrameLimit -eq 0) {
+    $FrameLimit = if ($Headless) { 240 } else { 1000000 }
+}
 $project = $PSScriptRoot
 $root = [IO.Path]::GetFullPath((Join-Path $project "..\.."))
 $hlvProject = [IO.Path]::GetFullPath((Join-Path $project `
@@ -63,18 +66,24 @@ foreach ($required in @($qemu, $SdImage)) {
 New-Item -ItemType Directory -Force -Path (Split-Path $log -Parent) |
     Out-Null
 $display = if ($Headless) { "none" } else { "sdl" }
-& $qemu @(
+$qemuArguments = @(
     "-L", $qemuData,
     "-accel", "tcg,thread=multi",
     "-machine", "esp32,sdspi=on,st7789=on",
     "-display", $display,
     "-monitor", "none",
     "-serial", "stdio",
-    "-no-reboot",
     "-snapshot",
     "-drive", "file=$flash,if=mtd,format=raw",
     "-drive", "file=$SdImage,if=sd,format=raw"
-) 2>&1 | Tee-Object -FilePath $log
+)
+if ($Headless) {
+    # A bounded smoke run deliberately calls esp_restart() at its frame limit.
+    # Turning that reboot into process exit keeps automation finite. Visible
+    # runs omit this flag so the SDL Reset action resets the emulated ESP32.
+    $qemuArguments += "-no-reboot"
+}
+& $qemu @qemuArguments 2>&1 | Tee-Object -FilePath $log
 if ($LASTEXITCODE -ne 0) {
     throw "QEMU exited with code $LASTEXITCODE. See $log"
 }
