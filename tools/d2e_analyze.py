@@ -159,10 +159,16 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
     image_end = image.base + len(image.module_bytes)
     queue: deque[int] = deque([image.entry])
     decoded: dict[int, dict[str, Any]] = {}
+    translated_decoded: dict[int, d2e_translate.Instruction] = {}
     occupied: dict[int, int] = {}
     edges: set[tuple[int, int, str]] = set()
     unresolved: set[tuple[int, str, str]] = set()
     issues: set[tuple[int, str]] = set()
+    cs_base = (
+        image.base + image.metadata["initial_cs"] * 16
+        if image.format == "mz"
+        else image.base - (0x100 if image.format == "com" else 0)
+    )
 
     def enqueue(source: int, target: int, kind: str) -> None:
         edges.add((source, target, kind))
@@ -234,6 +240,34 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
                     )
                 occupied[byte_address] = address
             decoded[address] = record
+            translated_decoded[address] = translated_instruction
+
+            vector_candidates = [translated_instruction]
+            vector_candidates.extend(
+                translated_decoded[candidate]
+                for candidate in range(address + 1, address + 33)
+                if candidate in translated_decoded
+            )
+            for vector_instruction in vector_candidates:
+                interrupt_vector = d2e_translate.recover_interrupt_vector_targets(
+                    image.module_bytes,
+                    image.base,
+                    cs_base,
+                    vector_instruction,
+                    translated_decoded,
+                )
+                if interrupt_vector is None:
+                    continue
+                vector, interrupt_targets = interrupt_vector
+                vector_record = decoded[vector_instruction.address]
+                vector_record["interrupt_vector"] = vector
+                vector_record["interrupt_targets"] = list(interrupt_targets)
+                for interrupt_target in interrupt_targets:
+                    enqueue(
+                        vector_instruction.address,
+                        interrupt_target,
+                        f"interrupt_vector_{vector:02x}",
+                    )
 
             next_address = address + instruction.size
             kind = flow_kind(record["mnemonic"])
@@ -398,6 +432,15 @@ def analyze(image: Image, source_name: str) -> dict[str, Any]:
             for record in ordered_instructions
             if record.get("indirect_targets")
         ],
+        "recovered_interrupt_vectors": [
+            {
+                "address": record["address"],
+                "vector": record["interrupt_vector"],
+                "targets": record["interrupt_targets"],
+            }
+            for record in ordered_instructions
+            if record.get("interrupt_targets")
+        ],
         "issues": [
             {"address": address, "message": message}
             for address, message in sorted(issues)
@@ -502,6 +545,18 @@ def render_markdown(report: dict[str, Any]) -> str:
             )
             lines.append(
                 f"- `{hex_address(item['address'])}`: `{item['operand']}` -> {targets}"
+            )
+    else:
+        lines.append("None.")
+    lines.extend(["", "### Recovered hardware interrupt vectors", ""])
+    if report["recovered_interrupt_vectors"]:
+        for item in report["recovered_interrupt_vectors"]:
+            targets = ", ".join(
+                f"`{hex_address(target)}`" for target in item["targets"]
+            )
+            lines.append(
+                f"- `{hex_address(item['address'])}`: IRQ/INT vector "
+                f"`0x{item['vector']:02x}` -> {targets}"
             )
     else:
         lines.append("None.")

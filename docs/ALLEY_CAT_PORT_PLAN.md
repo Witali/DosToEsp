@@ -64,6 +64,9 @@ only and is not copied into DosToEsp.
 - [x] Add stack, direct near calls and near returns.
 - [x] Recover the bounded CS-relative jump table and add direct far return,
   both with generated regression programs.
+- [x] Recover handlers installed into the real-mode interrupt vector table as
+  additional AOT control-flow roots; Alley Cat installs IRQ1 vector 9 with
+  handler variants at `CS:14B3` and `CS:14FB`.
 - [x] Add boolean, shifts, rotates and multiply forms observed in the target
   (no divide site is present in the current inventory).
 - [x] Add string operations and REP variants as observed.
@@ -174,7 +177,9 @@ Completed foundations:
 
 Immediate work queue:
 
-1. implement the observed BIOS `INT 11h` equipment-list service and continue
-   QEMU execution to the next strict environment boundary;
-2. capture a reference trace and resolve dynamic DX ports;
-3. connect PIT/PPI/keyboard callbacks and the remaining observed BIOS services.
+1. complete the newly exposed IRQ1 instruction forms (`REPNE SCASB`, `IRET`
+   and the external BIOS-chain far jump);
+2. inject keyboard IRQ1 with port `60h` scan codes and port `20h` PIC EOI;
+3. run scripted Space/arrow input through the first playable scene and capture
+   its frame hashes;
+4. capture an independent reference trace and compare the input path.

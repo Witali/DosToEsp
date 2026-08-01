@@ -100,6 +100,27 @@ def main() -> int:
         for edge in block["successors"]
     )
 
+    irq_image = bytearray(bytes.fromhex(
+        "b800008ec0bb2001fa26891e2400268c0e2600f4"
+    ))
+    irq_image.extend(b"\x00" * (0x20 - len(irq_image)))
+    irq_image.extend(bytes.fromhex("e460cf"))
+    irq_report = d2e_analyze.analyze(
+        d2e_analyze.identify(bytes(irq_image), "com", None, None),
+        "irq.com",
+    )
+    assert irq_report["recovered_interrupt_vectors"] == [
+        {"address": 0x109, "vector": 9, "targets": [0x120]}
+    ]
+    assert irq_report["ports"] == [
+        {"address": 0x120, "operation": "in", "port": 0x60}
+    ]
+    decoded_irq = __import__("d2e_translate").discover(
+        bytes(irq_image), 0x100, 0x100
+    )
+    assert 0x120 in decoded_irq
+    assert 0x120 in __import__("d2e_translate").make_blocks(decoded_irq, 0x100)
+
     mz = bytearray(33)
     mz[:2] = b"MZ"
     struct.pack_into("<H", mz, 0x02, len(mz))

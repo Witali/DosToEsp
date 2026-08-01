@@ -66,7 +66,14 @@ def build_sources(
         )
     else:
         decoded = d2e_translate.discover(
-            image.module_bytes, image.base, image.entry
+            image.module_bytes,
+            image.base,
+            image.entry,
+            (
+                image.base + image.metadata["initial_cs"] * 16
+                if image.format == "mz"
+                else None
+            ),
         )
         blocks = d2e_translate.make_blocks(decoded, image.entry)
         if image.format == "mz":

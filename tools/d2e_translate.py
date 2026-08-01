@@ -270,6 +270,61 @@ def recover_cs_bx_jump_table(
     return tuple(dict.fromkeys(targets))
 
 
+def recover_interrupt_vector_targets(
+    image: bytes,
+    base: int,
+    cs_base: int,
+    instruction: Instruction,
+    decoded: dict[int, Instruction],
+) -> tuple[int, tuple[int, ...]] | None:
+    """Recover handlers installed with MOV ES:[vector],BX / MOV ES:[vector+2],CS."""
+    if (
+        instruction.mnemonic != "mov"
+        or len(instruction.operands) != 2
+        or instruction.operands[0][0] != "mem"
+        or not isinstance(instruction.operands[0][1], MemoryOperand)
+        or instruction.operands[1] != ("reg", "bx")
+    ):
+        return None
+    memory = instruction.operands[0][1]
+    vector_offset = memory.displacement & 0xFFFF
+    if (
+        memory.width != 16
+        or memory.segment != "es"
+        or memory.base is not None
+        or memory.index is not None
+        or vector_offset > 0x03FC
+        or vector_offset % 4 != 0
+    ):
+        return None
+
+    following = instruction.next_address - base
+    segment_offset = vector_offset + 2
+    expected = bytes(
+        (0x26, 0x8C, 0x0E, segment_offset & 0xFF, segment_offset >> 8)
+    )
+    if image[following : following + len(expected)] != expected:
+        return None
+
+    candidates: list[int] = []
+    for previous in decoded.values():
+        if not instruction.address - 32 <= previous.address < instruction.address:
+            continue
+        if (
+            previous.mnemonic == "mov"
+            and len(previous.operands) == 2
+            and previous.operands[0] == ("reg", "bx")
+            and previous.operands[1][0] == "imm"
+        ):
+            target = cs_base + int(previous.operands[1][1])
+            if base <= target < base + len(image):
+                candidates.append(target)
+    targets = tuple(dict.fromkeys(candidates))
+    if not targets:
+        return None
+    return vector_offset // 4, targets
+
+
 def successors(instruction: Instruction) -> tuple[int, ...]:
     mnemonic = instruction.mnemonic
     if mnemonic == "jmp":
@@ -296,13 +351,17 @@ def is_terminator(instruction: Instruction) -> bool:
     )
 
 
-def discover(image: bytes, base: int, entry: int) -> dict[int, Instruction]:
+def discover(
+    image: bytes, base: int, entry: int, cs_base: int | None = None
+) -> dict[int, Instruction]:
     disassembler = Cs(CS_ARCH_X86, CS_MODE_16)
     disassembler.detail = True
     queue = deque([entry])
     decoded: dict[int, Instruction] = {}
     occupied: dict[int, int] = {}
     image_end = base + len(image)
+    if cs_base is None:
+        cs_base = base - 0x100
 
     while queue:
         address = queue.popleft()
@@ -329,6 +388,19 @@ def discover(image: bytes, base: int, entry: int) -> dict[int, Instruction]:
                 )
             occupied[byte_address] = address
         decoded[address] = instruction
+        vector_candidates = [instruction]
+        vector_candidates.extend(
+            decoded[candidate]
+            for candidate in range(address + 1, address + 33)
+            if candidate in decoded
+        )
+        for vector_instruction in vector_candidates:
+            interrupt_vector = recover_interrupt_vector_targets(
+                image, base, cs_base, vector_instruction, decoded
+            )
+            if interrupt_vector is not None:
+                _, targets = interrupt_vector
+                queue.extend(targets)
         for target in successors(instruction):
             wrapped_target = target & 0xFFFF
             if wrapped_target != image_end:
@@ -340,11 +412,17 @@ def make_blocks(
     decoded: dict[int, Instruction], entry: int
 ) -> dict[int, list[Instruction]]:
     leaders = {entry}
+    incoming: set[int] = set()
     for instruction in decoded.values():
         if is_terminator(instruction):
             for target in successors(instruction):
                 if target in decoded:
                     leaders.add(target)
+                    incoming.add(target)
+        else:
+            if instruction.next_address in decoded:
+                incoming.add(instruction.next_address)
+    leaders.update(set(decoded) - incoming)
 
     blocks: dict[int, list[Instruction]] = {}
     for leader in sorted(leaders):
