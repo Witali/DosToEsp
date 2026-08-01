@@ -22,6 +22,26 @@ def write_text(path: pathlib.Path, value: str) -> None:
     path.write_text(value, encoding="utf-8", newline="\n")
 
 
+def remove_previous_generated_files(output: pathlib.Path) -> None:
+    manifest_path = output / "manifest.json"
+    names: list[str] = ["game_native.h"]
+    if manifest_path.is_file():
+        try:
+            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            names.extend(previous.get("generated_sources", []))
+            names.extend(previous.get("generated_headers", []))
+        except (OSError, ValueError, TypeError):
+            pass
+    for name in names:
+        candidate = pathlib.Path(name)
+        if candidate.name != name or candidate.suffix not in (".c", ".h"):
+            continue
+        try:
+            (output / candidate).unlink()
+        except FileNotFoundError:
+            pass
+
+
 def build_sources(
     data: bytes,
     source_name: str,
@@ -34,6 +54,7 @@ def build_sources(
     inventory = d2e_analyze.analyze(image, source_name)
     coverage = d2e_coverage.coverage(inventory)
     generated: list[str] = []
+    generated_headers: list[str] = []
     blockers: list[dict[str, Any]] = []
 
     write_text(
@@ -48,6 +69,7 @@ def build_sources(
     write_text(output / "coverage.md", d2e_coverage.render_markdown(coverage))
 
     unsupported = coverage["summary"]["unsupported_instruction_count"]
+    remove_previous_generated_files(output)
     if unsupported:
         if image.format == "mz":
             import d2e_pack_mz
@@ -81,25 +103,35 @@ def build_sources(
             ),
         )
         blocks = d2e_translate.make_blocks(decoded, image.entry)
+        metadata = image.metadata
         if image.format == "mz":
-            metadata = image.metadata
-            native = d2e_translate.emit_mz_program(
-                image.module_bytes,
-                image.relocations,
-                blocks,
-                name,
-                load_segment,
-                metadata["initial_cs"],
-                metadata["initial_ip"],
-                metadata["initial_ss"],
-                metadata["initial_sp"],
-            )
+            entry_cs = metadata["initial_cs"]
+            entry_ip = metadata["initial_ip"]
+            initial_ss = metadata["initial_ss"]
+            initial_sp = metadata["initial_sp"]
         else:
-            native = d2e_translate.emit_program(
-                image.module_bytes, blocks, name, load_segment, image.entry
-            )
-        write_text(output / "game_native.c", native)
-        generated.append("game_native.c")
+            entry_cs = 0
+            entry_ip = image.entry
+            initial_ss = 0
+            initial_sp = 0xFFFE
+        files = d2e_translate.emit_source_files(
+            image.module_bytes,
+            image.relocations if image.format == "mz" else (),
+            blocks,
+            name,
+            image.format,
+            load_segment,
+            entry_cs,
+            entry_ip,
+            initial_ss,
+            initial_sp,
+        )
+        for filename, source in files.items():
+            write_text(output / filename, source)
+            if filename.endswith(".c"):
+                generated.append(filename)
+            else:
+                generated_headers.append(filename)
 
     manifest = {
         "schema": "d2e-esp32-source-build-v1",
@@ -113,6 +145,7 @@ def build_sources(
         "load_segment": load_segment,
         "status": "complete" if not blockers else "blocked",
         "generated_sources": generated,
+        "generated_headers": generated_headers,
         "reports": ["inventory.json", "inventory.md", "coverage.json", "coverage.md"],
         "blockers": blockers,
     }

@@ -24,10 +24,19 @@ def main() -> int:
             fixture, "native_smoke.com", "com", "native_smoke", 0x1000, output
         )
         assert manifest["status"] == "complete"
-        assert manifest["generated_sources"] == ["game_native.c"]
+        assert manifest["generated_sources"] == [
+            "game_image.c",
+            "game_native.c",
+            "game_region_000.c",
+        ]
+        assert manifest["generated_headers"] == ["game_native.h"]
         native = (output / "game_native.c").read_text(encoding="utf-8")
         assert "program_region" in native
         assert "D2E_NATIVE_IMAGE_COM" in native
+        assert "block_0100:" not in native
+        assert "block_0100:" in (output / "game_region_000.c").read_text(
+            encoding="utf-8"
+        )
 
         mz_module = d2e_analyze.read_hex(
             ROOT / "tests" / "fixtures" / "native_call.hex"
@@ -43,14 +52,19 @@ def main() -> int:
             bytes(mz), "tiny.exe", "auto", "tiny", 0x1000, output
         )
         assert manifest["status"] == "complete"
-        assert manifest["generated_sources"] == ["game_native.c"]
+        assert manifest["generated_sources"] == [
+            "game_image.c",
+            "game_native.c",
+            "game_region_000.c",
+        ]
         assert manifest["blockers"] == []
         native = (output / "game_native.c").read_text(encoding="utf-8")
         assert "D2E_NATIVE_IMAGE_MZ" in native
-        assert "switch (module_target)" in native
+        region = (output / "game_region_000.c").read_text(encoding="utf-8")
+        assert "switch (module_target)" in region
         assert ".entry_cs = UINT16_C(0x0000)" in native
         assert ".entry_ip = UINT16_C(0x0000)" in native
-        assert "cpu->segments[D2E_X86_CS] - UINT16_C(0x1000)" in native
+        assert "cpu->segments[D2E_X86_CS] - UINT16_C(0x1000)" in region
 
         pattern_fixture = d2e_analyze.read_hex(
             ROOT / "tests" / "fixtures" / "native_string.hex"
@@ -65,10 +79,10 @@ def main() -> int:
             output,
         )
         assert manifest["status"] == "complete"
-        native = (output / "game_native.c").read_text(encoding="utf-8")
-        assert "d2e_pattern_copy8(" in native
-        assert "d2e_pattern_fill16(" in native
-        assert "d2e/native_patterns.h" in native
+        region = (output / "game_region_000.c").read_text(encoding="utf-8")
+        assert "d2e_pattern_copy8(" in region
+        assert "d2e_pattern_fill16(" in region
+        assert "d2e/native_patterns.h" in region
 
         relocated_module = bytes.fromhex("b8 10 00 8e d8 b8 00 4c cd 21")
         relocated_mz = bytearray(32 + len(relocated_module))
@@ -90,10 +104,11 @@ def main() -> int:
             output,
         )
         assert manifest["status"] == "complete"
-        native = (output / "game_native.c").read_text(encoding="utf-8")
-        assert "r_ax = (uint16_t)(UINT16_C(0x1010));" in native
-        assert "UINT8_C(0x10), UINT8_C(0x00)" in native
-        assert "{UINT16_C(0x0001), UINT16_C(0x0000)}" in native
+        region = (output / "game_region_000.c").read_text(encoding="utf-8")
+        image_source = (output / "game_image.c").read_text(encoding="utf-8")
+        assert "r_ax = (uint16_t)(UINT16_C(0x1010));" in region
+        assert "UINT8_C(0x10), UINT8_C(0x00)" in image_source
+        assert "{UINT16_C(0x0001), UINT16_C(0x0000)}" in image_source
 
         partitions = d2e_translate.partition_blocks(
             {address: [] for address in range(257)}

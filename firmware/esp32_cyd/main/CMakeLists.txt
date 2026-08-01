@@ -15,13 +15,17 @@ if(D2E_QEMU_BOARD_DEVICES)
 endif()
 
 if(D2E_ALLEY_CAT)
-    set(d2e_generated_source "generated/alley-cat/game_native.c")
+    file(GLOB d2e_generated_sources CONFIGURE_DEPENDS
+        "generated/alley-cat/*.c")
+    if(NOT d2e_generated_sources)
+        message(FATAL_ERROR "Generate Alley Cat sources before configuring")
+    endif()
     set_source_files_properties(
-        "${d2e_generated_source}"
+        ${d2e_generated_sources}
         PROPERTIES COMPILE_OPTIONS "-O2;-mtext-section-literals"
     )
 else()
-    set(d2e_generated_source "generated/native_smoke.c")
+    set(d2e_generated_sources "generated/native_smoke.c")
 endif()
 
 idf_component_register(
@@ -30,7 +34,7 @@ idf_component_register(
         "cyd_display.c"
         "qemu_frame_dump.c"
         ${d2e_board_device_sources}
-        "${d2e_generated_source}"
+        ${d2e_generated_sources}
         "${d2e_root}/src/core/native_runtime.c"
         "${d2e_root}/src/core/native_patterns.c"
         "${d2e_root}/src/core/x86_alu.c"
