@@ -12,6 +12,7 @@ add_library(d2e_core
     src/machine/pc_at.c
     src/machine/pc_input.c
     src/core/native_runtime.c
+    src/core/native_patterns.c
     src/core/x86_alu.c
     src/core/x86_cpu.c
     src/core/x86_memory.c
@@ -38,6 +39,17 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME d2e_core_tests COMMAND d2e_core_tests)
+
+    add_executable(d2e_native_patterns_tests tests/test_native_patterns.c)
+    target_link_libraries(d2e_native_patterns_tests PRIVATE d2e_core)
+    if(MSVC)
+        target_compile_options(d2e_native_patterns_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(d2e_native_patterns_tests PRIVATE
+            -Wall -Wextra -Wpedantic -Werror
+        )
+    endif()
+    add_test(NAME d2e_native_patterns_tests COMMAND d2e_native_patterns_tests)
 
     add_executable(d2e_cga_tests tests/test_cga.c)
     target_link_libraries(d2e_cga_tests PRIVATE d2e_core)

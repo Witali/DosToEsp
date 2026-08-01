@@ -32,6 +32,7 @@ idf_component_register(
         ${d2e_board_device_sources}
         "${d2e_generated_source}"
         "${d2e_root}/src/core/native_runtime.c"
+        "${d2e_root}/src/core/native_patterns.c"
         "${d2e_root}/src/core/x86_alu.c"
         "${d2e_root}/src/core/x86_cpu.c"
         "${d2e_root}/src/core/x86_memory.c"
