@@ -105,6 +105,9 @@ if ($LASTEXITCODE -ne 0) { throw "Host tests failed" }
 & (Join-Path $build "d2e_supervisor_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "D2E package supervisor tests failed" }
 
+& (Join-Path $build "d2e_shell_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "D2E shell command tests failed" }
+
 & (Join-Path $build "d2e_native_patterns_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native memory pattern tests failed" }
 

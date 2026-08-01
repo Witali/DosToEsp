@@ -651,6 +651,24 @@ void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
     }
 }
 
+void d2e_pc_at_reset(d2e_pc_at *machine) {
+    uint8_t *const cga_vram = machine->cga_vram;
+    const size_t cga_vram_size = machine->cga_vram_size;
+    d2e_pc_at_speaker_callback const speaker_callback =
+        machine->speaker_callback;
+    void *const speaker_context = machine->speaker_context;
+    d2e_x86_cpu *const attached_cpu = machine->attached_cpu;
+
+    d2e_pc_at_init(machine, cga_vram, cga_vram_size);
+    if (attached_cpu != NULL) {
+        d2e_pc_at_attach(machine, attached_cpu);
+    }
+    if (speaker_callback != NULL) {
+        d2e_pc_at_set_speaker_callback(machine, speaker_context,
+                                       speaker_callback);
+    }
+}
+
 void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     machine->attached_cpu = cpu;
     machine->waiting_keyboard_cpu = NULL;

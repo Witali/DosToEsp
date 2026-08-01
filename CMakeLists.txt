@@ -19,6 +19,7 @@ add_library(d2e_core
     src/core/x86_alu.c
     src/core/x86_cpu.c
     src/core/x86_memory.c
+    src/shell/shell.c
 )
 target_include_directories(d2e_core PUBLIC include)
 
@@ -53,6 +54,17 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME d2e_supervisor_tests COMMAND d2e_supervisor_tests)
+
+    add_executable(d2e_shell_tests tests/test_shell.c)
+    target_link_libraries(d2e_shell_tests PRIVATE d2e_core)
+    if(MSVC)
+        target_compile_options(d2e_shell_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(d2e_shell_tests PRIVATE
+            -Wall -Wextra -Wpedantic -Werror
+        )
+    endif()
+    add_test(NAME d2e_shell_tests COMMAND d2e_shell_tests)
 
     add_executable(d2e_native_patterns_tests tests/test_native_patterns.c)
     target_link_libraries(d2e_native_patterns_tests PRIVATE d2e_core)

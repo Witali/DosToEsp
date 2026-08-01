@@ -400,3 +400,28 @@ Host regressions verify the asymmetric `C` glyph and the exact mode-4 CGA
 bytes generated for an `A`. The full host suite passed. An eight-frame ESP32
 QEMU run also completed with `D2E_QEMU_DONE,0`; its rendered Alley Cat title
 frame showed correctly oriented `IBM PRESENTS`, logo and copyright text.
+
+## 2026-08-01: resident D2E Shell lifecycle
+
+The firmware can now keep a native shell resident while translated programs
+use isolated guest sessions. Package ABI version 1 catalogs programs compiled
+into internal ESP32 flash. `DIR`, `HELP`, `RUN ALLEY` and direct `ALLEY`
+commands are covered by host tests; supervisor tests cover memory clearing,
+DOS exit-code capture and relaunch after returning to the prompt. The full
+host suite passed.
+
+An eight-frame ESP32 QEMU run exercised the complete lifecycle rather than
+calling the generated program directly:
+
+```text
+D2E_SHELL_READY,packages=1,message=Type HELP for commands
+D2E_SHELL_RUN,command=ALLEY,csip=1723:0000,heap=155308
+D2E_SHELL_RETURN,command=ALLEY,source=harness,state=1,reason=8,exit=0,instructions=1665051
+D2E_SHELL_READY,packages=1,message=ALLEY returned (harness)
+D2E_QEMU_DONE,0
+```
+
+The generated game frame was dumped before cleanup and remained valid. The
+linked image occupied `0xa4dd0` bytes, leaving 36 percent of the one-megabyte
+application partition free. Normal DOS termination uses the same return path;
+`Ctrl+]` provides an explicit abort-to-shell path for interactive programs.

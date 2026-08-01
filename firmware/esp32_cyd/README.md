@@ -23,16 +23,16 @@ Success is reported as `D2E_NATIVE_OK,...` followed by `D2E_QEMU_DONE,0`.
 The `-no-reboot` QEMU option turns the deliberate final ESP restart into a
 clean emulator exit.
 
-Generate, compile and probe the user-supplied Alley Cat executable in QEMU:
+Generate Alley Cat and exercise it through the resident D2E Shell in QEMU:
 
 ```powershell
 .\qemu-alley-cat.ps1
 ```
 
-This mode reports `D2E_ALLEY_START` followed by `D2E_ALLEY_STOP` at the first
-missing BIOS, port or other environment boundary. It exercises the generated
-MZ native code and is not expected to reach gameplay until those devices are
-implemented.
+This bounded mode automatically selects the internal-flash `ALLEY` package.
+It reports `D2E_SHELL_READY`, `D2E_SHELL_RUN`, `D2E_SHELL_RETURN` and finally
+`D2E_QEMU_DONE,0`. The supervisor clears conventional memory before launch
+and again when it returns to the shell.
 
 Run the game with the sibling HLV-codec project's native Windows QEMU models
 for the CYD ST7789 display and SDSPI card:
@@ -41,14 +41,16 @@ for the CYD ST7789 display and SDSPI card:
 .\qemu-alley-cat-board-windows.ps1 -ScriptedInput
 ```
 
-The default run opens an SDL window, renders through the same SPI2 DMA driver
+The default visible run opens an SDL window at the `D2E DOS 0.1` prompt.
+Enter `DIR`, `HELP`, `RUN ALLEY`, or simply `ALLEY`; `Ctrl+]` returns from a
+running program to the prompt. The firmware renders through the same SPI2 DMA driver
 used on the board, mounts the HLV-codec FAT image through SPI3 and stores UART
 telemetry in `out/qemu/alley-cat-board-windows.log`. PIT channel 2 and port
 `61h` PC-speaker output is synthesized at 16 kHz and sent through the ESP32
 continuous DAC on GPIO26; patched QEMU routes it to DirectSound. Visible runs use a large
 default frame limit and permit emulated hardware reboot, so the SDL Reset
 action restarts the ESP32 and game without closing QEMU. Headless runs default
-to a bounded 240-frame smoke and use `-no-reboot` to turn the deliberate final
+to a bounded 240-frame automatic launch and use `-no-reboot` to turn the deliberate final
 firmware restart into process exit. Pass `-FrameLimit N`, `-SdImage path.img`
 or `-Volume 0..100` as needed. `-AudioCapture path.wav` records the DAC stream
 with QEMU's WAV backend instead of playing it. QEMU snapshot mode keeps both

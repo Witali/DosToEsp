@@ -1,0 +1,424 @@
+#include <inttypes.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "driver/gpio.h"
+#include "driver/uart.h"
+#include "esp_err.h"
+#include "esp_heap_caps.h"
+#include "esp_rom_sys.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "board_config.h"
+#include "cyd_display.h"
+#include "d2e/cga.h"
+#include "d2e/native_runtime.h"
+#include "d2e/package.h"
+#include "d2e/pc_at.h"
+#include "d2e/pc_input.h"
+#include "d2e/shell.h"
+#include "d2e/supervisor.h"
+#include "d2e/text_video.h"
+#if D2E_QEMU_BOARD_DEVICES
+#include "cyd_sd.h"
+#endif
+#include "pc_speaker_audio.h"
+#include "qemu_frame_dump.h"
+
+#define D2E_CONVENTIONAL_BYTES (UINT32_C(128) * 1024U)
+#define D2E_RUN_BUDGET UINT32_C(100000)
+
+extern const d2e_native_program d2e_generated_program;
+
+static const d2e_package packages[] = {
+    {D2E_PACKAGE_ABI_VERSION, "ALLEY", "Alley Cat",
+     D2E_PACKAGE_BUILTIN_FLASH, &d2e_generated_program},
+};
+
+static uint8_t conventional_memory[D2E_CONVENTIONAL_BYTES];
+static uint8_t cga_vram[D2E_CGA_VRAM_SIZE];
+static d2e_x86_cpu cpu;
+static d2e_pc_at pc_at;
+static d2e_pc_input pc_input;
+static d2e_supervisor supervisor;
+static d2e_shell shell;
+static uint64_t last_clock_day;
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+static uint8_t boot_button_down;
+#endif
+
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+static cyd_display_t display;
+#endif
+
+#if D2E_QEMU_EXIT_AFTER_RETURN
+static __attribute__((noreturn)) void finish(int code) {
+    fflush(stdout);
+    esp_rom_printf("D2E_QEMU_DONE,%d\n", code);
+    fflush(stdout);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    esp_restart();
+    __builtin_unreachable();
+}
+#endif
+
+static esp_err_t init_input(void) {
+    gpio_config_t button = {0};
+    d2e_pc_input_init(&pc_input);
+    if (!uart_is_driver_installed(UART_NUM_0)) {
+        const esp_err_t result =
+            uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0);
+        if (result != ESP_OK) {
+            return result;
+        }
+    }
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+    button.pin_bit_mask = 1ULL << BOARD_BOOT_BUTTON;
+    button.mode = GPIO_MODE_INPUT;
+    button.pull_up_en = GPIO_PULLUP_ENABLE;
+    button.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    button.intr_type = GPIO_INTR_DISABLE;
+    return gpio_config(&button);
+#else
+    (void)button;
+    return ESP_OK;
+#endif
+}
+
+static int read_uart(uint8_t *bytes, size_t capacity) {
+    size_t buffered = 0U;
+    if (uart_get_buffered_data_len(UART_NUM_0, &buffered) != ESP_OK ||
+        buffered == 0U) {
+        return 0;
+    }
+    if (buffered > capacity) {
+        buffered = capacity;
+    }
+    return uart_read_bytes(UART_NUM_0, bytes, buffered, 0U);
+}
+
+static void update_clock(void) {
+    const uint64_t micros = (uint64_t)esp_timer_get_time();
+    const uint64_t day = micros / UINT64_C(86400000000);
+    const uint64_t day_micros = micros % UINT64_C(86400000000);
+    const uint32_t ticks = (uint32_t)(
+        day_micros * UINT64_C(182065) / UINT64_C(10000000000));
+    d2e_pc_at_set_timer_ticks(
+        &pc_at, ticks, (uint8_t)(day > last_clock_day ? day - last_clock_day
+                                                       : 0U));
+    last_clock_day = day;
+}
+
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+static esp_err_t render_pc_frame(void) {
+    const int rows_per_transfer = cyd_display_rows_per_transfer(&display);
+    d2e_text_render_config text_config = {0};
+    int panel_y;
+
+    text_config.columns = pc_at.columns;
+    text_config.rows = pc_at.rows;
+    text_config.character_height = pc_at.character_height;
+    text_config.page_offset = (uint16_t)(
+        pc_at.active_page * (pc_at.columns == 40U ? 0x0800U : 0x1000U));
+    text_config.cursor_row = pc_at.cursor_row[pc_at.active_page];
+    text_config.cursor_column = pc_at.cursor_column[pc_at.active_page];
+    text_config.cursor_start = pc_at.cursor_start;
+    text_config.cursor_end = pc_at.cursor_end;
+    text_config.cursor_visible = 1U;
+    text_config.blink_on = 1U;
+    text_config.output_height = D2E_CGA_HEIGHT;
+
+    for (panel_y = 0; panel_y < CYD_DISPLAY_HEIGHT;
+         panel_y += rows_per_transfer) {
+        int rows = rows_per_transfer;
+        int local_y;
+        uint16_t *const pixels = cyd_display_acquire_buffer(&display);
+        if (pixels == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+        if (rows > CYD_DISPLAY_HEIGHT - panel_y) {
+            rows = CYD_DISPLAY_HEIGHT - panel_y;
+        }
+        for (local_y = 0; local_y < rows; ++local_y) {
+            const int y = panel_y + local_y;
+            uint16_t *const row =
+                pixels + (size_t)local_y * CYD_DISPLAY_WIDTH;
+            if (y < 20 || y >= 20 + (int)D2E_CGA_HEIGHT) {
+                memset(row, 0, CYD_DISPLAY_WIDTH * sizeof(*row));
+            } else if (pc_at.video_mode <= 3U || pc_at.video_mode == 7U) {
+                d2e_text_render_320_row(
+                    &pc_at.cga, cga_vram, sizeof(cga_vram), &text_config,
+                    (unsigned)(y - 20), row);
+            } else {
+                d2e_cga_render_320x200_row(
+                    &pc_at.cga, cga_vram, (unsigned)(y - 20), row);
+            }
+        }
+        ESP_ERROR_CHECK(cyd_display_draw_bitmap(
+            &display, 0, panel_y, CYD_DISPLAY_WIDTH, rows, pixels));
+    }
+    return cyd_display_flush(&display);
+}
+#endif
+
+static void render_shell(void) {
+    d2e_shell_render(&shell, cga_vram, sizeof(cga_vram));
+    pc_at.cursor_row[0] = 22U;
+    pc_at.cursor_column[0] =
+        (uint8_t)(4U + shell.input_length < D2E_SHELL_COLUMNS
+                      ? 4U + shell.input_length
+                      : D2E_SHELL_COLUMNS - 1U);
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+    ESP_ERROR_CHECK(render_pc_frame());
+#endif
+}
+
+static void enter_shell(const char *message) {
+    d2e_supervisor_return_to_shell(&supervisor);
+    d2e_pc_at_reset(&pc_at);
+    cpu.regs[D2E_X86_AX] = UINT16_C(0x0001);
+    cpu.stop_reason = D2E_X86_RUNNING;
+    d2e_native_interrupt(&cpu, UINT8_C(0x10));
+    d2e_shell_set_message(&shell, message);
+    render_shell();
+    esp_rom_printf("D2E_SHELL_READY,packages=%u,message=%s\n",
+                   (unsigned)(sizeof(packages) / sizeof(packages[0])),
+                   message);
+}
+
+static const d2e_package *wait_for_shell_command(void) {
+#if D2E_SHELL_AUTORUN
+    return &packages[0];
+#else
+    for (;;) {
+        uint8_t bytes[32];
+        const int received = read_uart(bytes, sizeof(bytes));
+        int index;
+        for (index = 0; index < received; ++index) {
+            const d2e_package *const selected =
+                d2e_shell_feed(&shell, bytes[index]);
+            if (selected != NULL) {
+                return selected;
+            }
+        }
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+        {
+            const uint8_t button_down =
+                gpio_get_level(BOARD_BOOT_BUTTON) == 0 ? 1U : 0U;
+            if (button_down != 0U && boot_button_down == 0U) {
+                boot_button_down = button_down;
+                return &packages[0];
+            }
+            boot_button_down = button_down;
+        }
+#endif
+        if (shell.dirty != 0U) {
+            render_shell();
+        }
+        vTaskDelay(pdMS_TO_TICKS(16));
+    }
+#endif
+}
+
+#if D2E_QEMU_SCRIPTED_INPUT
+static void feed_scripted_input(uint64_t frame) {
+    static const struct {
+        uint32_t target;
+        uint8_t ascii;
+        uint8_t scan;
+    } setup[] = {
+        {UINT32_C(0x0d127), (uint8_t)'n', UINT8_C(0x31)},
+        {UINT32_C(0x0d159), (uint8_t)'k', UINT8_C(0x25)},
+        {UINT32_C(0x0d1da), (uint8_t)' ', UINT8_C(0x39)},
+    };
+    static const struct {
+        uint64_t delay;
+        uint8_t ascii;
+        uint8_t scan;
+    } gameplay[] = {
+        {UINT64_C(150), 0U, UINT8_C(0x4d)},
+        {UINT64_C(220), 0U, UINT8_C(0x4b)},
+        {UINT64_C(280), (uint8_t)' ', UINT8_C(0x39)},
+    };
+    static size_t setup_index;
+    static size_t gameplay_index;
+    static uint64_t gameplay_start;
+
+    if (setup_index < sizeof(setup) / sizeof(setup[0])) {
+        uint32_t target;
+        if (cpu.segments[D2E_X86_CS] < d2e_generated_program.load_segment) {
+            return;
+        }
+        target = ((uint32_t)(uint16_t)(cpu.segments[D2E_X86_CS] -
+                                       d2e_generated_program.load_segment)
+                  << 4U) +
+                 cpu.ip;
+        if (target == setup[setup_index].target &&
+            d2e_pc_at_enqueue_key(&pc_at, setup[setup_index].ascii,
+                                  setup[setup_index].scan)) {
+            ++setup_index;
+            if (setup_index == sizeof(setup) / sizeof(setup[0])) {
+                gameplay_start = frame;
+            }
+        }
+        return;
+    }
+    if (gameplay_index < sizeof(gameplay) / sizeof(gameplay[0]) &&
+        frame >= gameplay_start + gameplay[gameplay_index].delay &&
+        d2e_pc_at_enqueue_key(&pc_at, gameplay[gameplay_index].ascii,
+                              gameplay[gameplay_index].scan)) {
+        ++gameplay_index;
+    }
+}
+#endif
+
+static int poll_program_input(void) {
+    uint8_t bytes[32];
+    const int received = read_uart(bytes, sizeof(bytes));
+    int index;
+    int return_requested = 0;
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+    const uint8_t button_down =
+        gpio_get_level(BOARD_BOOT_BUTTON) == 0 ? 1U : 0U;
+    if (button_down != 0U && boot_button_down == 0U) {
+        (void)d2e_pc_at_enqueue_key(&pc_at, (uint8_t)' ', UINT8_C(0x39));
+    }
+    boot_button_down = button_down;
+#endif
+    for (index = 0; index < received; ++index) {
+        if (bytes[index] == UINT8_C(0x1d)) {
+            return_requested = 1;
+        } else {
+            (void)d2e_pc_input_feed_byte(&pc_input, &pc_at, bytes[index]);
+        }
+    }
+    update_clock();
+    return return_requested;
+}
+
+static void run_package(const d2e_package *package) {
+    uint64_t frame = 0U;
+    uint32_t previous_hash = 0U;
+    const char *return_source = "program";
+    char message[D2E_SHELL_COLUMNS + 1U];
+
+    d2e_pc_at_reset(&pc_at);
+    d2e_pc_input_init(&pc_input);
+    if (!d2e_supervisor_launch(&supervisor, package)) {
+        (void)snprintf(message, sizeof(message), "%s load failed",
+                       package->command);
+        enter_shell(message);
+        return;
+    }
+    esp_rom_printf("D2E_SHELL_RUN,command=%s,csip=%04x:%04x,heap=%u\n",
+                   package->command, (unsigned)cpu.segments[D2E_X86_CS],
+                   (unsigned)cpu.ip,
+                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+
+    while (supervisor.state == D2E_SUPERVISOR_ACTIVE) {
+        uint32_t hash = UINT32_C(2166136261);
+        size_t index;
+        int report_frame;
+        (void)d2e_supervisor_step(&supervisor, D2E_RUN_BUDGET);
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+        ESP_ERROR_CHECK(render_pc_frame());
+#endif
+#if D2E_QEMU_SCRIPTED_INPUT
+        feed_scripted_input(frame + UINT64_C(1));
+#endif
+        if (poll_program_input()) {
+            return_source = "user";
+            break;
+        }
+        (void)d2e_pc_at_dispatch_keyboard_irq(&pc_at);
+        for (index = 0U; index < sizeof(cga_vram); ++index) {
+            hash = (hash ^ cga_vram[index]) * UINT32_C(16777619);
+        }
+        ++frame;
+        report_frame =
+            hash != previous_hash || (frame % UINT64_C(60)) == 0U;
+#if D2E_QEMU_INTERACTIVE && D2E_QEMU_INTERACTIVE_FRAME_LIMIT > 0
+        if (frame >= D2E_QEMU_INTERACTIVE_FRAME_LIMIT) {
+            report_frame = 1;
+        }
+#endif
+        if (report_frame) {
+            esp_rom_printf(
+                "D2E_FRAME,seq=%" PRIu64 ",mode=%u,dirty=%u,fnv1a=%08x\n",
+                frame, (unsigned)pc_at.video_mode,
+                hash != previous_hash ? 1U : 0U, (unsigned)hash);
+            previous_hash = hash;
+        }
+#if D2E_QEMU_INTERACTIVE && D2E_QEMU_INTERACTIVE_FRAME_LIMIT > 0
+        if (frame >= D2E_QEMU_INTERACTIVE_FRAME_LIMIT) {
+#if D2E_QEMU_DUMP_FRAME
+            d2e_qemu_dump_cga(&pc_at, cga_vram, sizeof(cga_vram));
+#endif
+            return_source = "harness";
+            break;
+        }
+#elif D2E_QEMU_SMOKE
+        if (frame >= UINT64_C(64)) {
+            return_source = "harness";
+            break;
+        }
+#endif
+        if (supervisor.state == D2E_SUPERVISOR_ACTIVE) {
+#if D2E_QEMU_INTERACTIVE || !D2E_QEMU_SMOKE
+            vTaskDelay(pdMS_TO_TICKS(16));
+#endif
+        }
+    }
+
+    esp_rom_printf(
+        "D2E_SHELL_RETURN,command=%s,source=%s,state=%u,reason=%u,exit=%u,"
+        "instructions=%" PRIu64 "\n",
+        package->command, return_source, (unsigned)supervisor.state,
+        (unsigned)supervisor.last_stop_reason, (unsigned)supervisor.exit_code,
+        cpu.instructions_retired);
+    if (supervisor.state == D2E_SUPERVISOR_EXITED) {
+        (void)snprintf(message, sizeof(message), "%s exited, code %u",
+                       package->command, (unsigned)supervisor.exit_code);
+    } else if (supervisor.state == D2E_SUPERVISOR_FAULTED) {
+        (void)snprintf(message, sizeof(message), "%s fault, reason %u",
+                       package->command,
+                       (unsigned)supervisor.last_stop_reason);
+    } else {
+        (void)snprintf(message, sizeof(message), "%s returned (%s)",
+                       package->command, return_source);
+    }
+    enter_shell(message);
+}
+
+void app_main(void) {
+    d2e_x86_cpu_init(&cpu, conventional_memory, sizeof(conventional_memory),
+                     NULL);
+    d2e_pc_at_init(&pc_at, cga_vram, sizeof(cga_vram));
+    d2e_pc_at_attach(&pc_at, &cpu);
+    d2e_supervisor_init(&supervisor, &cpu);
+    d2e_shell_init(&shell, packages,
+                   sizeof(packages) / sizeof(packages[0]));
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+    ESP_ERROR_CHECK(cyd_display_init(&display));
+#endif
+#if D2E_QEMU_BOARD_DEVICES
+    ESP_ERROR_CHECK(cyd_sd_mount_and_probe());
+#endif
+    ESP_ERROR_CHECK(init_input());
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+    ESP_ERROR_CHECK(pc_speaker_audio_init(&pc_at));
+#endif
+
+    enter_shell("Type HELP for commands");
+    for (;;) {
+        const d2e_package *const package = wait_for_shell_command();
+        run_package(package);
+#if D2E_QEMU_EXIT_AFTER_RETURN
+        finish(0);
+#endif
+    }
+}

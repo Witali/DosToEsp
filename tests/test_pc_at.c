@@ -206,6 +206,16 @@ static void test_pit_and_speaker(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     second = d2e_x86_port_in8(cpu, UINT16_C(0x0061));
     CHECK(first == UINT8_C(0x13));
     CHECK(second == UINT8_C(0x03));
+
+    calls = capture.calls;
+    d2e_pc_at_reset(machine);
+    CHECK(capture.calls == calls + 1U);
+    CHECK(capture.control.gate == 0U);
+    CHECK(capture.control.speaker_data == 0U);
+    CHECK(machine->speaker_callback == capture_speaker);
+    CHECK(machine->speaker_context == &capture);
+    CHECK(machine->attached_cpu == cpu);
+    CHECK(cpu->port_context == machine);
 }
 
 static void test_strict_unknown(d2e_x86_cpu *cpu) {

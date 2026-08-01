@@ -66,6 +66,7 @@ typedef struct d2e_pc_at {
 
 void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
                     size_t cga_vram_size);
+void d2e_pc_at_reset(d2e_pc_at *machine);
 void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu);
 int d2e_pc_at_interrupt(void *context, d2e_x86_cpu *cpu,
                         uint8_t interrupt_number);

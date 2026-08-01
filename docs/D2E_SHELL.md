@@ -41,6 +41,10 @@ hooks, memory contents or register state into the next program.
 - `RUN <name>` starts one package.
 - `HELP` prints the available commands.
 
+Typing a package name directly is equivalent to `RUN <name>`. During a
+program, `Ctrl+]` requests an immediate return to the shell. On the physical
+CYD board, pressing BOOT at the shell starts the first catalog entry.
+
 The first ESP32 catalog contains `ALLEY`, backed by the generated Alley Cat
 translation in internal flash. SD-card discovery and external native module
 loading are subsequent milestones.

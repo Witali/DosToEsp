@@ -1,9 +1,18 @@
 set(d2e_root "${CMAKE_CURRENT_LIST_DIR}/../../..")
 option(D2E_QEMU_SMOKE "Restart after the native smoke test" OFF)
 option(D2E_ALLEY_CAT "Build the generated Alley Cat MZ program" OFF)
+set(D2E_SHELL_DEFAULT OFF)
+if(D2E_ALLEY_CAT)
+    set(D2E_SHELL_DEFAULT ON)
+endif()
+option(D2E_SHELL "Build the resident translated-program shell"
+    ${D2E_SHELL_DEFAULT})
+option(D2E_SHELL_AUTORUN "Automatically run the first shell package" OFF)
 option(D2E_QEMU_INTERACTIVE "Run Alley Cat continuously in QEMU" OFF)
 option(D2E_QEMU_DUMP_FRAME "Dump final CGA VRAM through QEMU UART" OFF)
 option(D2E_QEMU_SCRIPTED_INPUT "Inject deterministic Alley Cat keys" OFF)
+option(D2E_QEMU_EXIT_AFTER_RETURN
+    "Restart the ESP32 after a bounded shell session" OFF)
 option(D2E_QEMU_BOARD_DEVICES
     "Use the patched QEMU ST7789 and SDSPI board devices" OFF)
 set(D2E_QEMU_INTERACTIVE_FRAME_LIMIT "0" CACHE STRING
@@ -12,6 +21,11 @@ set(D2E_QEMU_INTERACTIVE_FRAME_LIMIT "0" CACHE STRING
 set(d2e_board_device_sources)
 if(D2E_QEMU_BOARD_DEVICES)
     list(APPEND d2e_board_device_sources "cyd_sd.c")
+endif()
+
+set(d2e_entry_source "main.c")
+if(D2E_SHELL)
+    set(d2e_entry_source "d2e_shell_main.c")
 endif()
 
 if(D2E_ALLEY_CAT)
@@ -30,7 +44,7 @@ endif()
 
 idf_component_register(
     SRCS
-        "main.c"
+        ${d2e_entry_source}
         "cyd_display.c"
         "pc_speaker_audio.c"
         "qemu_frame_dump.c"
@@ -38,6 +52,8 @@ idf_component_register(
         ${d2e_generated_sources}
         "${d2e_root}/src/core/native_runtime.c"
         "${d2e_root}/src/core/native_patterns.c"
+        "${d2e_root}/src/core/package.c"
+        "${d2e_root}/src/core/supervisor.c"
         "${d2e_root}/src/core/x86_alu.c"
         "${d2e_root}/src/core/x86_cpu.c"
         "${d2e_root}/src/core/x86_memory.c"
@@ -47,6 +63,7 @@ idf_component_register(
         "${d2e_root}/src/devices/text_video.c"
         "${d2e_root}/src/machine/pc_at.c"
         "${d2e_root}/src/machine/pc_input.c"
+        "${d2e_root}/src/shell/shell.c"
     INCLUDE_DIRS
         "."
         "${d2e_root}/include"
@@ -88,6 +105,14 @@ if(D2E_QEMU_SCRIPTED_INPUT)
         D2E_QEMU_SCRIPTED_INPUT=1
     )
 endif()
+if(D2E_QEMU_EXIT_AFTER_RETURN)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        D2E_QEMU_EXIT_AFTER_RETURN=1
+    )
+endif()
 if(D2E_ALLEY_CAT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE D2E_ALLEY_CAT=1)
+endif()
+if(D2E_SHELL_AUTORUN)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE D2E_SHELL_AUTORUN=1)
 endif()
