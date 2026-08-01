@@ -20,6 +20,7 @@
 #include "d2e/text_video.h"
 #include "board_config.h"
 #include "cyd_display.h"
+#include "pc_speaker_audio.h"
 #if D2E_QEMU_BOARD_DEVICES
 #include "cyd_sd.h"
 #endif
@@ -266,6 +267,9 @@ void app_main(void) {
 #endif
 #if D2E_ALLEY_CAT
     ESP_ERROR_CHECK(init_pc_input());
+#if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
+    ESP_ERROR_CHECK(pc_speaker_audio_init(&pc_at));
+#endif
 #endif
     if (!d2e_native_load(&cpu, &d2e_generated_program)) {
         esp_rom_printf("D2E_NATIVE_FAIL,load,reason=%u,address=%08x\n",

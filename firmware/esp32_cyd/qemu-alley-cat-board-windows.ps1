@@ -3,6 +3,9 @@ param(
     [ValidateRange(0, 1000000)]
     [int]$FrameLimit = 0,
     [string]$SdImage,
+    [ValidateRange(0, 100)]
+    [int]$Volume = 70,
+    [string]$AudioCapture,
     [switch]$Headless,
     [switch]$ScriptedInput
 )
@@ -66,10 +69,21 @@ foreach ($required in @($qemu, $SdImage)) {
 New-Item -ItemType Directory -Force -Path (Split-Path $log -Parent) |
     Out-Null
 $display = if ($Headless) { "none" } else { "sdl" }
+$machine =
+    "esp32,sdspi=on,st7789=on,audiodev=esp32dac," +
+    "dac-rate=16000,dac-volume=$Volume"
+$audioBackend = "dsound,id=esp32dac"
+if ($AudioCapture) {
+    $AudioCapture = [IO.Path]::GetFullPath($AudioCapture)
+    New-Item -ItemType Directory -Force -Path `
+        (Split-Path $AudioCapture -Parent) | Out-Null
+    $audioBackend = "wav,id=esp32dac,path=$AudioCapture"
+}
 $qemuArguments = @(
     "-L", $qemuData,
     "-accel", "tcg,thread=multi",
-    "-machine", "esp32,sdspi=on,st7789=on",
+    "-machine", $machine,
+    "-audiodev", $audioBackend,
     "-display", $display,
     "-monitor", "none",
     "-serial", "stdio",
@@ -93,4 +107,17 @@ if (-not (Select-String -LiteralPath $log -Quiet -Pattern "D2E_SD_READY,")) {
 if (-not (Select-String -LiteralPath $log -Quiet -Pattern "D2E_FRAME,")) {
     throw "QEMU did not render an Alley Cat frame. See $log"
 }
+if (-not (Select-String -LiteralPath $log -Quiet -Pattern "D2E_AUDIO_READY,")) {
+    throw "QEMU did not initialize PC speaker audio. See $log"
+}
+if (-not (Select-String -LiteralPath $log -Quiet -Pattern "D2E_AUDIO_ACTIVE,")) {
+    throw "Alley Cat did not program an audible PC speaker tone. See $log"
+}
 Write-Host "QEMU ST7789/SDSPI run passed: $log"
+if ($AudioCapture) {
+    if (-not (Test-Path -LiteralPath $AudioCapture -PathType Leaf) -or
+        (Get-Item -LiteralPath $AudioCapture).Length -le 44) {
+        throw "QEMU did not write PC speaker PCM: $AudioCapture"
+    }
+    Write-Host "QEMU PC speaker audio capture: $AudioCapture"
+}

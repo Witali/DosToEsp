@@ -32,6 +32,7 @@ idf_component_register(
     SRCS
         "main.c"
         "cyd_display.c"
+        "pc_speaker_audio.c"
         "qemu_frame_dump.c"
         ${d2e_board_device_sources}
         ${d2e_generated_sources}
@@ -42,6 +43,7 @@ idf_component_register(
         "${d2e_root}/src/core/x86_memory.c"
         "${d2e_root}/src/devices/cga.c"
         "${d2e_root}/src/devices/cp437_font.c"
+        "${d2e_root}/src/devices/pc_speaker.c"
         "${d2e_root}/src/devices/text_video.c"
         "${d2e_root}/src/machine/pc_at.c"
         "${d2e_root}/src/machine/pc_input.c"
@@ -49,6 +51,7 @@ idf_component_register(
         "."
         "${d2e_root}/include"
     REQUIRES
+        esp_driver_dac
         esp_driver_gpio
         esp_driver_sdspi
         esp_driver_spi
