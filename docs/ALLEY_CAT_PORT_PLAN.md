@@ -118,6 +118,8 @@ expected register/memory digest.
   and IRQ1 as observed by
   the game.
 - [ ] Provide deterministic BIOS/PIT time and real-time ESP32 scheduling.
+- [x] Confirm that the DOS target uses PIT channel 2 and port 61h for title
+  music and in-game PC Speaker music/effects.
 - [ ] Convert observed PC speaker/PIT programming to the board audio output.
 
 Acceptance gate: title screen, input, first playable scene and sound on the

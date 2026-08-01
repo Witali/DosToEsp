@@ -316,3 +316,23 @@ compiled and linked all 15 C translation units into a `0xaf010` application
 image, leaving 32 percent of the application partition free. The binary-size
 difference from the monolithic build is only 16 bytes. An eight-frame ESP32
 QEMU smoke run executed the linked regions and ended with `D2E_QEMU_DONE,0`.
+
+## 2026-08-01: interactive Windows QEMU reset
+
+The visible ST7789 Windows launcher previously passed `-no-reboot`
+unconditionally. QEMU therefore treated the SDL Reset action as a request to
+exit, which is appropriate for a finite smoke test but wrong for interactive
+play. The launcher now uses `-no-reboot` only in headless mode. Visible mode
+defaults to a large frame limit and permits emulated ESP32 reboot.
+
+An eight-frame headless run still exited cleanly with `D2E_QEMU_DONE,0`. A
+new visible process was then launched and its Windows command line contained
+`-display sdl` without `-no-reboot`, preserving reset inside the same QEMU
+process.
+
+The original DOS game is expected to produce title music and in-game music or
+effects through the PC Speaker. The current PC/AT runtime models PIT channel 2
+and system port 61h register state, but no waveform is sent to GPIO26 yet.
+HLV-codec's patched Windows QEMU already routes the ESP32 continuous DAC to
+DirectSound, so connecting a PC Speaker square-wave producer to that existing
+backend remains a separate required sound milestone.
