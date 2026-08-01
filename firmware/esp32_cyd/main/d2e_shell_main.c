@@ -293,7 +293,14 @@ static int poll_program_input(void) {
         if (bytes[index] == UINT8_C(0x1d)) {
             return_requested = 1;
         } else {
-            (void)d2e_pc_input_feed_byte(&pc_input, &pc_at, bytes[index]);
+            const int accepted =
+                d2e_pc_input_feed_byte(&pc_input, &pc_at, bytes[index]);
+#if D2E_QEMU_BOARD_DEVICES
+            if (accepted) {
+                esp_rom_printf("D2E_UART_KEY,byte=%02x\n",
+                               (unsigned)bytes[index]);
+            }
+#endif
         }
     }
     update_clock();

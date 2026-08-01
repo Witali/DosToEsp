@@ -24,8 +24,13 @@ Reference tree: `C:/Work/HLV-codec`
   microSD, DAC and BOOT GPIO assignments.
 - `firmware/esp32_2432s028_hlv_player_idf_c/main/cyd_display.c`: known-good
   ESP-IDF ST7789 SPI/DMA configuration.
-- `firmware/esp32_2432s028_hlv_player_idf_c/qemu/README.md`: patched Espressif
-  QEMU/ST7789 workflow and pinned QEMU lineage.
+- `firmware/esp32_2432s028_hlv_player_idf_c/qemu/README.md`: original
+  QEMU/ST7789 workflow and pinned QEMU lineage used during bring-up.
+
+The maintained emulator tree now lives at `C:/Work/QEMU-ESP32`. It is based
+on Espressif commit `40edccac415693c5130f91c01d84176ae6008566`; the imported
+HLV board changes and the DosToEsp SDL-keyboard bridge are regular commits on
+its `main` branch. HLV-codec is no longer modified to build DosToEsp QEMU.
 
 ## Disassembly and target compiler
 
@@ -34,4 +39,3 @@ Reference tree: `C:/Work/HLV-codec`
   disassembler and is not linked into the firmware.
 - Espressif Xtensa GCC `esp-14.2.0_20260121` from the sibling HLV-codec's
   pinned ESP-IDF 5.5.5 installation is used by the native-code audit.
-

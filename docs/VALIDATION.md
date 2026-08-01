@@ -425,3 +425,30 @@ The generated game frame was dumped before cleanup and remained valid. The
 linked image occupied `0xa4dd0` bytes, leaving 36 percent of the one-megabyte
 application partition free. Normal DOS termination uses the same return path;
 `Ctrl+]` provides an explicit abort-to-shell path for interactive programs.
+
+## 2026-08-01: dedicated QEMU-ESP32 fork and host keyboard path
+
+`C:/Work/QEMU-ESP32` was created from Espressif tag
+`esp-develop-9.2.2-20260417` at commit `40edccac`. The five HLV board patches
+were retained under `patches/hlv` and applied as focused commits. ST7789 SDL
+keyboard forwarding was then added in that repository: printable keys become
+ASCII, arrows become ANSI sequences, modifiers are tracked, and the bytes are
+injected into the emulated ESP32 UART0 RX FIFO. The resulting Windows binary
+reports `QEMU emulator version 9.2.2 (DosToEsp QEMU-ESP32)`.
+
+The full DosToEsp host suite passed after expanding the common UART-to-PC/AT
+mapper for punctuation, control characters and an unambiguous doubled-Escape
+sequence. Both an eight-frame and a 240-frame firmware run passed through the
+new fork with SD, ST7789 and PC-speaker telemetry.
+
+Finally, a hidden QEMU run exposed an HMP TCP monitor. `sendkey left` traversed
+the normal QEMU input handler, ST7789 keyboard bridge, UART0 driver and
+firmware parser. The serial log proved the complete path:
+
+```text
+D2E_SHELL_RUN,command=ALLEY,csip=1723:0000,heap=99264
+D2E_UART_KEY,byte=44
+```
+
+Hex byte `44` is the final `D` in the generated `ESC [ D` left-arrow
+sequence; the parser accepted it and queued PC/AT scan code `4Bh`.
