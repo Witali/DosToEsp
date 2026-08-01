@@ -18,8 +18,8 @@ $project = $PSScriptRoot
 $root = [IO.Path]::GetFullPath((Join-Path $project "..\.."))
 $hlvProject = [IO.Path]::GetFullPath((Join-Path $project `
     "..\..\..\HLV-codec\firmware\esp32_2432s028_hlv_player_idf_c"))
-$hlvRoot = [IO.Path]::GetFullPath((Join-Path $hlvProject "..\.."))
-$qemuRoot = Join-Path $hlvRoot "local_tools\qemu-sdspi-windows"
+$qemuRoot = [IO.Path]::GetFullPath((Join-Path $project `
+    "..\..\..\QEMU-ESP32"))
 $qemu = Join-Path $qemuRoot "bin\qemu-system-xtensa.exe"
 $qemuData = Join-Path $qemuRoot "share\qemu"
 $build = Join-Path $project "build-qemu-board-alley-cat"
@@ -32,9 +32,7 @@ if (-not $SdImage) {
 $SdImage = [IO.Path]::GetFullPath($SdImage)
 
 & (Join-Path $project "generate-game.ps1") -AlleyCat
-if (-not (Test-Path -LiteralPath $qemu -PathType Leaf)) {
-    & (Join-Path $hlvProject "setup-qemu-sdspi-windows.ps1")
-}
+& (Join-Path $qemuRoot "setup-qemu-esp32-windows.ps1")
 foreach ($required in @($qemu, $SdImage)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required QEMU file does not exist: $required"

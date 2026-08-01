@@ -34,17 +34,18 @@ It reports `D2E_SHELL_READY`, `D2E_SHELL_RUN`, `D2E_SHELL_RETURN` and finally
 `D2E_QEMU_DONE,0`. The supervisor clears conventional memory before launch
 and again when it returns to the shell.
 
-Run the game with the sibling HLV-codec project's native Windows QEMU models
-for the CYD ST7789 display and SDSPI card:
+Run the game with the sibling `QEMU-ESP32` fork, which owns the native Windows
+CYD ST7789, SDSPI, audio, reset and SDL keyboard models:
 
 ```powershell
 .\qemu-alley-cat-board-windows.ps1 -ScriptedInput
 ```
 
-The default visible run opens an SDL window at the `D2E DOS 0.1` prompt.
+The command builds `C:\Work\QEMU-ESP32` when its cached runtime is stale. The
+default visible run opens an SDL window at the `D2E DOS 0.1` prompt.
 Enter `DIR`, `HELP`, `RUN ALLEY`, or simply `ALLEY`; `Ctrl+]` returns from a
 running program to the prompt. The firmware renders through the same SPI2 DMA driver
-used on the board, mounts the HLV-codec FAT image through SPI3 and stores UART
+used on the board, mounts the HLV-codec FAT fixture through SPI3 and stores UART
 telemetry in `out/qemu/alley-cat-board-windows.log`. PIT channel 2 and port
 `61h` PC-speaker output is synthesized at 16 kHz and sent through the ESP32
 continuous DAC on GPIO26; patched QEMU routes it to DirectSound. Visible runs use a large

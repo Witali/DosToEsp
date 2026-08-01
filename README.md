@@ -96,7 +96,9 @@ The first ESP-IDF image can also be exercised in QEMU or flashed to the CYD:
 
 The Alley Cat board image runs continuously in translated-code slices. The
 BOOT button sends Space. A serial terminal on UART0 can send letters, digits,
-Enter, Backspace and ANSI arrow-key sequences; the backtick key sends Escape.
+punctuation, control characters, Enter, Backspace and ANSI arrow-key
+sequences. A doubled Escape byte represents the standalone Escape key without
+conflicting with an ANSI sequence.
 The interactive QEMU command uses the same UART/ANSI mapping and runs until
 QEMU is closed; pass `-FrameLimit 8` for a bounded regression run.
 The standard Espressif QEMU does not emulate the CYD's external SPI panel, so
@@ -105,11 +107,12 @@ the
 frames, converts it to `out/qemu/alley-cat-frame.bmp`, and opens the image in
 the host viewer. Pass `-FrameLimit N` to select a later frame or `-NoOpen` for
 automation.
-On Windows, `qemu-alley-cat-board-windows.ps1` instead uses HLV-codec's
-patched QEMU models for the real SPI2 ST7789 and SPI3 SD-card interfaces. It
-opens an SDL display by default, mounts the sibling project's FAT demo card,
-routes the ESP32 GPIO26 continuous DAC to DirectSound, and validates SD,
-rendered-frame and active PC-speaker telemetry. Use
+On Windows, `qemu-alley-cat-board-windows.ps1` instead builds and uses the
+sibling `QEMU-ESP32` fork. That repository contains the ST7789, SPI3 SDSPI,
+audio, reset and SDL-keyboard-to-UART0 models as normal Git commits. It opens
+an SDL display by default, mounts the HLV-codec FAT demo card, routes the ESP32
+GPIO26 continuous DAC to DirectSound, and validates SD, rendered-frame and
+active PC-speaker telemetry. Use
 `-Headless` for automation, `-SdImage path.img` for another FAT image and
 `-FrameLimit N` to bound the run. `-Volume 0..100` controls host playback;
 `-AudioCapture out\speaker.wav` selects the WAV backend instead of DirectSound
