@@ -26,6 +26,12 @@ typedef struct d2e_native_block {
     d2e_native_block_fn function;
 } d2e_native_block;
 
+typedef struct d2e_native_image_fragment {
+    uint32_t offset;
+    const uint8_t *data;
+    size_t size;
+} d2e_native_image_fragment;
+
 typedef struct d2e_native_program {
     const char *name;
     d2e_native_image_format format;
@@ -41,6 +47,8 @@ typedef struct d2e_native_program {
     const d2e_native_block *blocks;
     size_t block_count;
     d2e_native_region_fn region;
+    const d2e_native_image_fragment *image_fragments;
+    size_t image_fragment_count;
 } d2e_native_program;
 
 int d2e_native_load_com(d2e_x86_cpu *cpu,

@@ -44,6 +44,16 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME d2e_core_tests COMMAND d2e_core_tests)
 
+    add_executable(d2e_sparse_image_tests tests/test_sparse_image.c)
+    target_link_libraries(d2e_sparse_image_tests PRIVATE d2e_core)
+    if(MSVC)
+        target_compile_options(d2e_sparse_image_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(d2e_sparse_image_tests PRIVATE
+            -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME d2e_sparse_image_tests COMMAND d2e_sparse_image_tests)
+
     add_executable(d2e_supervisor_tests tests/test_supervisor.c)
     target_link_libraries(d2e_supervisor_tests PRIVATE d2e_core)
     if(MSVC)

@@ -18,6 +18,7 @@ $asmOption = if ($XtensaAsmSmoke) { "ON" } else { "OFF" }
     "-B", $buildDirectory,
     "-D", "D2E_QEMU_SMOKE=ON",
     "-D", "D2E_XTENSA_ASM_SMOKE=$asmOption",
+    "-D", "CCACHE_ENABLE=0",
     "qemu",
     "--qemu-extra-args=-no-reboot"
 )

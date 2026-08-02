@@ -30,9 +30,53 @@ D2E_ASM_ABI_ASSERT(program_image,
                    offsetof(d2e_native_program, image) == 20);
 D2E_ASM_ABI_ASSERT(program_region,
                    offsetof(d2e_native_program, region) == 44);
-D2E_ASM_ABI_ASSERT(program_size, sizeof(d2e_native_program) == 48);
+D2E_ASM_ABI_ASSERT(program_image_fragments,
+                   offsetof(d2e_native_program, image_fragments) == 48);
+D2E_ASM_ABI_ASSERT(program_image_fragment_count,
+                   offsetof(d2e_native_program, image_fragment_count) == 52);
+D2E_ASM_ABI_ASSERT(program_size, sizeof(d2e_native_program) == 56);
 #undef D2E_ASM_ABI_ASSERT
 #endif
+
+static int load_program_image(d2e_x86_cpu *cpu,
+                              const d2e_native_program *program,
+                              uint32_t image_address) {
+    size_t index;
+    size_t previous_end = 0;
+    if (program->image != NULL) {
+        if (program->image_fragment_count != 0U) {
+            return 0;
+        }
+        memcpy(cpu->memory + image_address, program->image,
+               program->image_size);
+        return 1;
+    }
+    if (program->image_fragment_count != 0U &&
+        program->image_fragments == NULL) {
+        return 0;
+    }
+
+    for (index = 0; index < program->image_fragment_count; ++index) {
+        const d2e_native_image_fragment *const fragment =
+            &program->image_fragments[index];
+        if (fragment->data == NULL || fragment->size == 0U ||
+            fragment->offset > program->image_size ||
+            fragment->size > program->image_size - fragment->offset ||
+            fragment->offset < previous_end) {
+            return 0;
+        }
+        previous_end = fragment->offset + fragment->size;
+    }
+
+    memset(cpu->memory + image_address, 0, program->image_size);
+    for (index = 0; index < program->image_fragment_count; ++index) {
+        const d2e_native_image_fragment *const fragment =
+            &program->image_fragments[index];
+        memcpy(cpu->memory + image_address + fragment->offset,
+               fragment->data, fragment->size);
+    }
+    return 1;
+}
 
 static const d2e_native_block *find_block(const d2e_native_program *program,
                                           uint16_t ip) {
@@ -68,7 +112,9 @@ int d2e_native_load_com(d2e_x86_cpu *cpu,
 
     d2e_x86_cpu_reset(cpu);
     memset(cpu->memory + psp, 0, UINT16_C(0x0100));
-    memcpy(cpu->memory + image, program->image, program->image_size);
+    if (!load_program_image(cpu, program, image)) {
+        return 0;
+    }
     cpu->memory[psp] = UINT8_C(0xcd);
     cpu->memory[psp + 1U] = UINT8_C(0x20);
     cpu->segments[D2E_X86_CS] = program->load_segment;
@@ -113,7 +159,9 @@ int d2e_native_load_mz(d2e_x86_cpu *cpu,
 
     d2e_x86_cpu_reset(cpu);
     memset(cpu->memory + psp, 0, UINT16_C(0x0100));
-    memcpy(cpu->memory + image, program->image, program->image_size);
+    if (!load_program_image(cpu, program, image)) {
+        return 0;
+    }
     cpu->memory[psp] = UINT8_C(0xcd);
     cpu->memory[psp + 1U] = UINT8_C(0x20);
 

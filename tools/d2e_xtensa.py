@@ -63,6 +63,59 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
     raise _error(instruction, "currently supports only immediate/register MOV sources")
 
 
+def omitted_image_offsets(
+    image: bytes,
+    blocks: Mapping[int, Sequence[Any]],
+    image_base: int = 0x100,
+) -> frozenset[int]:
+    """Return initialized-image offsets replaced by native code/control flow."""
+    omitted: set[int] = set()
+    for block in blocks.values():
+        for instruction in block:
+            instruction_offset = instruction.address - image_base
+            instruction_end = instruction_offset + instruction.size
+            if instruction_offset < 0 or instruction_end > len(image):
+                raise BackendError(
+                    f"{instruction.address:04x}: decoded instruction lies outside the image"
+                )
+            omitted.update(range(instruction_offset, instruction_end))
+
+            if instruction.mnemonic == "jmp" and instruction.indirect_targets:
+                pattern_offset = instruction_offset - 9
+                table_offset = instruction.next_address - image_base
+                if pattern_offset < 0 or pattern_offset + 3 > len(image):
+                    raise BackendError(
+                        f"{instruction.address:04x}: recognized jump table has no bounded pattern"
+                    )
+                table_size = (image[pattern_offset + 2] + 1) * 2
+                table_end = table_offset + table_size
+                if table_offset < 0 or table_end > len(image):
+                    raise BackendError(
+                        f"{instruction.address:04x}: recognized jump table lies outside the image"
+                    )
+                omitted.update(range(table_offset, table_end))
+    return frozenset(omitted)
+
+
+def extract_data_fragments(
+    image: bytes,
+    blocks: Mapping[int, Sequence[Any]],
+    image_base: int = 0x100,
+) -> list[tuple[int, bytes]]:
+    """Extract contiguous initialized ranges not replaced by native lowering."""
+    omitted = omitted_image_offsets(image, blocks, image_base)
+    fragments: list[tuple[int, bytes]] = []
+    start: int | None = None
+    for offset in range(len(image) + 1):
+        keep = offset < len(image) and offset not in omitted
+        if keep and start is None:
+            start = offset
+        elif not keep and start is not None:
+            fragments.append((start, image[start:offset]))
+            start = None
+    return fragments
+
+
 def emit_program(
     image: bytes,
     blocks: Mapping[int, Sequence[Any]],
@@ -82,6 +135,7 @@ def emit_program(
         )
 
     emitter = _Emitter()
+    data_fragments = extract_data_fragments(image, blocks)
     load_literal = emitter.literal(load_segment, "load_segment")
     entry_literal = emitter.literal(entry, "entry")
     next_ip_literal = emitter.literal(block[-1].next_address, "next_ip")
@@ -160,17 +214,42 @@ def emit_program(
             "    retw",
             "    .size program_region, . - program_region",
             "",
-            '    .section .rodata.d2e_generated_image,"a",@progbits',
-            "    .align 4",
-            ".Lprogram_image:",
         ]
     )
-    for offset in range(0, len(image), 12):
-        chunk = image[offset : offset + 12]
-        lines.append("    .byte " + ", ".join(f"0x{value:02x}" for value in chunk))
+    for fragment_index, (_, fragment_data) in enumerate(data_fragments):
+        lines.extend(
+            [
+                '    .section .rodata.d2e_generated_data,"a",@progbits',
+                "    .align 4",
+                f".Lprogram_data_{fragment_index}:",
+            ]
+        )
+        for offset in range(0, len(fragment_data), 12):
+            chunk = fragment_data[offset : offset + 12]
+            lines.append("    .byte " + ", ".join(f"0x{value:02x}" for value in chunk))
+    if data_fragments:
+        lines.extend(
+            [
+                '    .section .rodata.d2e_generated_fragments,"a",@progbits',
+                "    .align 4",
+                ".Lprogram_fragments:",
+            ]
+        )
+        for fragment_index, (fragment_offset, fragment_data) in enumerate(
+            data_fragments
+        ):
+            lines.extend(
+                [
+                    f"    .long {fragment_offset}",
+                    f"    .long .Lprogram_data_{fragment_index}",
+                    f"    .long {len(fragment_data)}",
+                ]
+            )
     encoded_name = name.encode("ascii")
     lines.extend(
         [
+            '    .section .rodata.d2e_generated_name,"a",@progbits',
+            "    .align 4",
             ".Lprogram_name:",
             "    .byte " + ", ".join(f"0x{value:02x}" for value in encoded_name + b"\0"),
             "",
@@ -187,13 +266,19 @@ def emit_program(
             "    .short 0 /* initial_ss */",
             "    .short 0xfffe /* initial_sp */",
             "    .short 0 /* pointer alignment */",
-            "    .long .Lprogram_image",
+            "    .long 0 /* full image omitted */",
             f"    .long {len(image)}",
             "    .long 0 /* relocations */",
             "    .long 0 /* relocation_count */",
             "    .long 0 /* blocks */",
             "    .long 0 /* block_count */",
             "    .long program_region",
+            (
+                "    .long .Lprogram_fragments"
+                if data_fragments
+                else "    .long 0 /* image_fragments */"
+            ),
+            f"    .long {len(data_fragments)} /* image_fragment_count */",
             "    .size d2e_generated_program, . - d2e_generated_program",
             "",
         ]
