@@ -64,6 +64,10 @@ typedef int (*d2e_x86_port_in8_fn)(void *context, uint16_t port,
                                    uint8_t *value);
 typedef int (*d2e_x86_port_out8_fn)(void *context, uint16_t port,
                                     uint8_t value);
+typedef int (*d2e_x86_port_in16_fn)(void *context, uint16_t port,
+                                    uint16_t *value);
+typedef int (*d2e_x86_port_out16_fn)(void *context, uint16_t port,
+                                     uint16_t value);
 struct d2e_x86_cpu;
 typedef int (*d2e_x86_interrupt_fn)(void *context,
                                     struct d2e_x86_cpu *cpu,
@@ -81,6 +85,8 @@ typedef struct d2e_x86_cpu {
     void *port_context;
     d2e_x86_port_in8_fn port_in8;
     d2e_x86_port_out8_fn port_out8;
+    d2e_x86_port_in16_fn port_in16;
+    d2e_x86_port_out16_fn port_out16;
     void *interrupt_context;
     d2e_x86_interrupt_fn interrupt;
     d2e_x86_stop_reason stop_reason;
@@ -98,10 +104,15 @@ void d2e_x86_map_cga_vram(d2e_x86_cpu *cpu, uint8_t *cga_vram);
 void d2e_x86_configure_ports(d2e_x86_cpu *cpu, void *context,
                              d2e_x86_port_in8_fn input,
                              d2e_x86_port_out8_fn output);
+void d2e_x86_configure_ports16(d2e_x86_cpu *cpu,
+                               d2e_x86_port_in16_fn input,
+                               d2e_x86_port_out16_fn output);
 void d2e_x86_configure_interrupts(d2e_x86_cpu *cpu, void *context,
                                   d2e_x86_interrupt_fn interrupt);
 uint8_t d2e_x86_port_in8(d2e_x86_cpu *cpu, uint16_t port);
+uint16_t d2e_x86_port_in16(d2e_x86_cpu *cpu, uint16_t port);
 void d2e_x86_port_out8(d2e_x86_cpu *cpu, uint16_t port, uint8_t value);
+void d2e_x86_port_out16(d2e_x86_cpu *cpu, uint16_t port, uint16_t value);
 
 uint8_t d2e_x86_get_reg8(const d2e_x86_cpu *cpu, unsigned encoded_reg);
 void d2e_x86_set_reg8(d2e_x86_cpu *cpu, unsigned encoded_reg, uint8_t value);

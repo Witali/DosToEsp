@@ -741,7 +741,7 @@ def string_statements(instruction: Instruction, cached: bool) -> list[str]:
     repeated = bool(repeat_mode)
     if operation not in (
         "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw",
-        "scasb", "scasw",
+        "cmpsb", "cmpsw", "scasb", "scasw",
     ):
         raise TranslationError(f"unsupported string instruction {mnemonic}")
     width = 1 if operation.endswith("b") else 2
@@ -752,7 +752,17 @@ def string_statements(instruction: Instruction, cached: bool) -> list[str]:
         lines.append("while (r_cx != 0U) {")
     indent = "    " if repeated else ""
     destination, source = operands
-    if operation.startswith("scas"):
+    if operation.startswith("cmps"):
+        left = value_expression(destination, width * 8, cached)
+        right = value_expression(source, width * 8, cached)
+        lines.append(
+            f"{indent}(void)d2e_x86_sub{width * 8}(cpu, {left}, {right});"
+        )
+        lines.append(
+            f"{indent}if (cpu->stop_reason != D2E_X86_RUNNING) "
+            "{ goto finish; }"
+        )
+    elif operation.startswith("scas"):
         accumulator = value_expression(destination, width * 8, cached)
         memory_value = value_expression(source, width * 8, cached)
         lines.append(
@@ -768,9 +778,9 @@ def string_statements(instruction: Instruction, cached: bool) -> list[str]:
             destination, value_expression(source, width * 8, cached), cached
         )
         lines.extend(f"{indent}{statement}" for statement in statements)
-    if operation.startswith(("movs", "lods")):
+    if operation.startswith(("movs", "cmps", "lods")):
         lines.append(indent + string_index_update("si", width))
-    if operation.startswith(("movs", "stos", "scas")):
+    if operation.startswith(("movs", "cmps", "stos", "scas")):
         lines.append(indent + string_index_update("di", width))
     if repeated:
         lines.append("    r_cx = (uint16_t)(r_cx - UINT16_C(1));")
@@ -830,25 +840,29 @@ def translate_data_instruction(
     ).removeprefix("repe ")
     if operation in (
         "movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw",
-        "scasb", "scasw",
+        "cmpsb", "cmpsw", "scasb", "scasw",
     ):
         return string_statements(instruction, cached)
     if mnemonic == "in" and len(operands) == 2:
-        if operand_width(operands[0], cached) != 8:
-            raise TranslationError("only 8-bit IN is implemented")
+        width = operand_width(operands[0], cached)
+        if width not in (8, 16):
+            raise TranslationError("IN requires an 8-bit or 16-bit destination")
         lines = write_operand(
             operands[0],
-            f"d2e_x86_port_in8(cpu, {port_expression(operands[1], cached)})",
+            f"d2e_x86_port_in{width}(cpu, "
+            f"{port_expression(operands[1], cached)})",
             cached,
         )
         lines.append("if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
         return lines
     if mnemonic == "out" and len(operands) == 2:
-        if operand_width(operands[1], cached) != 8:
-            raise TranslationError("only 8-bit OUT is implemented")
-        value = value_expression(operands[1], 8, cached)
+        width = operand_width(operands[1], cached)
+        if width not in (8, 16):
+            raise TranslationError("OUT requires an 8-bit or 16-bit source")
+        value = value_expression(operands[1], width, cached)
         return [
-            f"d2e_x86_port_out8(cpu, {port_expression(operands[0], cached)}, {value});",
+            f"d2e_x86_port_out{width}(cpu, "
+            f"{port_expression(operands[0], cached)}, {value});",
             "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
         ]
     if mnemonic == "mov" and len(operands) == 2:
@@ -856,6 +870,38 @@ def translate_data_instruction(
         return write_operand(
             operands[0], value_expression(operands[1], width, cached), cached
         )
+    if mnemonic == "lea" and len(operands) == 2:
+        destination, source = operands
+        if source[0] != "mem" or not isinstance(source[1], MemoryOperand):
+            raise TranslationError("LEA source must be memory")
+        return write_operand(
+            destination,
+            memory_offset_expression(source[1], cached),
+            cached,
+        )
+    if mnemonic in ("lds", "les") and len(operands) == 2:
+        destination, source = operands
+        if source[0] != "mem" or not isinstance(source[1], MemoryOperand):
+            raise TranslationError(f"{mnemonic.upper()} source must be memory")
+        segment = memory_segment_expression(source[1])
+        offset = memory_offset_expression(source[1], cached)
+        lines = [
+            f"pointer_offset = {offset};",
+            f"pointer_value = d2e_x86_read16_seg(cpu, {segment}, pointer_offset);",
+        ]
+        lines.extend(write_operand(destination, "pointer_value", cached))
+        segment_name = "D2E_X86_DS" if mnemonic == "lds" else "D2E_X86_ES"
+        lines.append(
+            f"cpu->segments[{segment_name}] = d2e_x86_read16_seg(cpu, "
+            f"{segment}, (uint16_t)(pointer_offset + UINT16_C(2)));"
+        )
+        return lines
+    if mnemonic in ("xlat", "xlatb") and not operands:
+        return [
+            "r_ax = (uint16_t)((r_ax & UINT16_C(0xff00)) | ",
+            "    d2e_x86_read8(cpu, d2e_x86_linear("
+            "cpu->segments[D2E_X86_DS], (uint16_t)(r_bx + (uint8_t)r_ax))));",
+        ]
     if mnemonic in (
         "add",
         "adc",
@@ -1023,6 +1069,8 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 used.add("sp")
             if instruction.mnemonic in ("lahf", "sahf"):
                 used.add("ax")
+            if instruction.mnemonic in ("xlat", "xlatb"):
+                used.update(("ax", "bx"))
             if instruction.mnemonic == "cbw":
                 used.add("ax")
             if instruction.mnemonic == "cwd":
@@ -1113,6 +1161,14 @@ def emit_region(
         for instruction in block
     ):
         lines.append("    uint16_t exchange_value;")
+    if any(
+        instruction.mnemonic in ("lds", "les")
+        for block in blocks.values()
+        for instruction in block
+    ):
+        lines.extend(
+            ["    uint16_t pointer_offset;", "    uint16_t pointer_value;"]
+        )
     if any(
         instruction.mnemonic == "mul"
         and operand_width(instruction.operands[0], True) == 16

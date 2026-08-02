@@ -121,7 +121,7 @@ def effects(instruction: Any) -> FlagEffects:
     ).removeprefix("repe ")
     if operation in ("movsb", "movsw", "stosb", "stosw", "lodsb", "lodsw"):
         return FlagEffects(reads=DF)
-    if operation in ("scasb", "scasw"):
+    if operation in ("cmpsb", "cmpsw", "scasb", "scasw"):
         repeat_reads = ZF if mnemonic.startswith(("repne ", "repe ")) else 0
         return FlagEffects(reads=DF | repeat_reads, defines=ARITHMETIC)
 

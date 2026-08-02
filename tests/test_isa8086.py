@@ -146,25 +146,15 @@ CASES = (
 KNOWN_GAPS = {
     "call-far",
     "call-indirect",
-    "cmpsb",
-    "cmpsw",
     "div-byte",
     "div-word",
     "idiv-byte",
     "idiv-word",
     "imul-byte",
     "imul-word",
-    "in-word",
     "int3",
     "into",
     "jmp-indirect",
-    "lds",
-    "lea",
-    "les",
-    "out-word",
-    "repe-cmpsb",
-    "repne-cmpsb",
-    "xlat",
 }
 
 

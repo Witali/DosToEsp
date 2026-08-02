@@ -19,6 +19,8 @@ void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     void *const port_context = cpu->port_context;
     const d2e_x86_port_in8_fn port_in8 = cpu->port_in8;
     const d2e_x86_port_out8_fn port_out8 = cpu->port_out8;
+    const d2e_x86_port_in16_fn port_in16 = cpu->port_in16;
+    const d2e_x86_port_out16_fn port_out16 = cpu->port_out16;
     void *const interrupt_context = cpu->interrupt_context;
     const d2e_x86_interrupt_fn interrupt = cpu->interrupt;
 
@@ -30,6 +32,8 @@ void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     cpu->port_context = port_context;
     cpu->port_in8 = port_in8;
     cpu->port_out8 = port_out8;
+    cpu->port_in16 = port_in16;
+    cpu->port_out16 = port_out16;
     cpu->interrupt_context = interrupt_context;
     cpu->interrupt = interrupt;
     cpu->flags = D2E_X86_FLAG_FIXED;
@@ -48,6 +52,13 @@ void d2e_x86_configure_ports(d2e_x86_cpu *cpu, void *context,
     cpu->port_out8 = output;
 }
 
+void d2e_x86_configure_ports16(d2e_x86_cpu *cpu,
+                               d2e_x86_port_in16_fn input,
+                               d2e_x86_port_out16_fn output) {
+    cpu->port_in16 = input;
+    cpu->port_out16 = output;
+}
+
 void d2e_x86_configure_interrupts(d2e_x86_cpu *cpu, void *context,
                                   d2e_x86_interrupt_fn interrupt) {
     cpu->interrupt_context = context;
@@ -64,9 +75,27 @@ uint8_t d2e_x86_port_in8(d2e_x86_cpu *cpu, uint16_t port) {
     return value;
 }
 
+uint16_t d2e_x86_port_in16(d2e_x86_cpu *cpu, uint16_t port) {
+    uint16_t value = UINT16_C(0xffff);
+    if (cpu->port_in16 == NULL ||
+        !cpu->port_in16(cpu->port_context, port, &value)) {
+        cpu->fault_address = port;
+        cpu->stop_reason = D2E_X86_UNHANDLED_PORT;
+    }
+    return value;
+}
+
 void d2e_x86_port_out8(d2e_x86_cpu *cpu, uint16_t port, uint8_t value) {
     if (cpu->port_out8 == NULL ||
         !cpu->port_out8(cpu->port_context, port, value)) {
+        cpu->fault_address = port;
+        cpu->stop_reason = D2E_X86_UNHANDLED_PORT;
+    }
+}
+
+void d2e_x86_port_out16(d2e_x86_cpu *cpu, uint16_t port, uint16_t value) {
+    if (cpu->port_out16 == NULL ||
+        !cpu->port_out16(cpu->port_context, port, value)) {
         cpu->fault_address = port;
         cpu->stop_reason = D2E_X86_UNHANDLED_PORT;
     }

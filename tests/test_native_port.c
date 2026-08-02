@@ -7,6 +7,8 @@ typedef struct port_state {
     uint16_t ports[2];
     uint8_t values[2];
     unsigned output_count;
+    uint16_t word_port;
+    uint16_t word_value;
 } port_state;
 
 extern const d2e_native_program d2e_generated_program;
@@ -31,10 +33,24 @@ static int output(void *context, uint16_t port, uint8_t value) {
     return 1;
 }
 
+static int input16(void *context, uint16_t port, uint16_t *value) {
+    port_state *const state = context;
+    state->word_port = port;
+    *value = UINT16_C(0x1234);
+    return 1;
+}
+
+static int output16(void *context, uint16_t port, uint16_t value) {
+    port_state *const state = context;
+    state->word_port = port;
+    state->word_value = value;
+    return 1;
+}
+
 int main(void) {
     const size_t conventional_size = UINT32_C(128) * 1024U;
     uint8_t *const memory = calloc(conventional_size, 1);
-    port_state state = {{0}, {0}, 0};
+    port_state state = {{0}, {0}, 0, 0, 0};
     d2e_x86_cpu cpu;
     int failed = 0;
 
@@ -43,6 +59,7 @@ int main(void) {
     }
     d2e_x86_cpu_init(&cpu, memory, conventional_size, NULL);
     d2e_x86_configure_ports(&cpu, &state, input, output);
+    d2e_x86_configure_ports16(&cpu, input16, output16);
     if (!d2e_native_load(&cpu, &d2e_generated_program) ||
         d2e_native_run(&cpu, &d2e_generated_program, 100U) !=
             D2E_X86_EXITED) {
@@ -64,7 +81,23 @@ int main(void) {
         failed = 1;
     }
     if (!failed) {
+        cpu.stop_reason = D2E_X86_RUNNING;
+        if (d2e_x86_port_in16(&cpu, UINT16_C(0x01f0)) != UINT16_C(0x1234) ||
+            state.word_port != UINT16_C(0x01f0)) {
+            fprintf(stderr, "word input did not preserve width and port\n");
+            failed = 1;
+        }
+        d2e_x86_port_out16(&cpu, UINT16_C(0x01f0), UINT16_C(0xabcd));
+        if (cpu.stop_reason != D2E_X86_RUNNING ||
+            state.word_port != UINT16_C(0x01f0) ||
+            state.word_value != UINT16_C(0xabcd)) {
+            fprintf(stderr, "word output did not preserve width and port\n");
+            failed = 1;
+        }
+    }
+    if (!failed) {
         d2e_x86_configure_ports(&cpu, NULL, NULL, NULL);
+        d2e_x86_configure_ports16(&cpu, NULL, NULL);
         cpu.stop_reason = D2E_X86_RUNNING;
         (void)d2e_x86_port_in8(&cpu, UINT16_C(0x0099));
         if (cpu.stop_reason != D2E_X86_UNHANDLED_PORT ||
