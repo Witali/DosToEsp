@@ -41,6 +41,9 @@ bounded workload.
 
 ## 1. Literal and immediate compaction
 
+- [x] Define the preferred 8086-to-ESP32 instruction pairs and selection rules
+  in `X86_XTENSA_INSTRUCTION_PAIRS.md`, verified against the official Cadence
+  ISA summary and the installed ESP32 assembler.
 - [x] Intern numeric assembly literals by their exact normalized 32-bit value.
   The current API emits no relocatable literals, so value identity is
   sufficient; relocatable values must use a typed key when introduced.
@@ -52,6 +55,7 @@ bounded workload.
   Explicit `mov.n` and `movi.n` selection was also evaluated, but linked IROM
   was unchanged because the Xtensa assembler already applies density
   relaxation; keep the source-neutral forms.
+- [ ] Select `addi` for representable `SUB immediate` forms when carry is dead.
 - [x] Measure generated literals, IROM, DROM and total module bytes separately.
 - [x] Evaluate the original 15-20 KiB estimate. Generated `.long` entries fell
   from 9,256 to 3,891, but linker relaxation had already merged many duplicate
