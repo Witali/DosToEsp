@@ -588,14 +588,55 @@ def _emit_sub16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
         raise _error(instruction, "requires a two-operand SUB")
     destination, source = instruction.operands
     width = _binary_operand_width(instruction, destination)
-    lines = _emit_binary_values(
-        emitter, instruction, destination, source, width
-    )
     direct_flags = (live_flags & ~(d2e_flags.CF | d2e_flags.ZF)) == 0
+    immediate_add: int | None = None
+    if (
+        direct_flags
+        and (live_flags & d2e_flags.CF) == 0
+        and source[0] == "imm"
+    ):
+        mask = 0xFF if width == 8 else 0xFFFF
+        sign_bit = 1 << (width - 1)
+        value = (-int(source[1])) & mask
+        signed = value if value < sign_bit else value - (mask + 1)
+        if -128 <= signed <= 127:
+            immediate_add = signed
+
+    if immediate_add is not None:
+        if destination[0] == "reg":
+            lines = _emit_nonmemory_value(
+                emitter, instruction, destination, width, "a4"
+            )
+        elif destination[0] == "mem":
+            memory = _memory_operand(instruction, destination, width)
+            lines = [
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_read{width}",
+                "    mov a4, a10",
+            ]
+        else:
+            raise _error(
+                instruction, "requires a register or memory SUB destination"
+            )
+    else:
+        lines = _emit_binary_values(
+            emitter, instruction, destination, source, width
+        )
+
     if direct_flags:
-        if live_flags:
-            lines.extend(_emit_compare_flags(emitter, "a4", "a5", live_flags))
-        lines.extend(["    sub a4, a4, a5", f"    extui a4, a4, 0, {width}"])
+        if immediate_add is not None:
+            lines.append(f"    addi a4, a4, {immediate_add}")
+            lines.append(f"    extui a4, a4, 0, {width}")
+            if live_flags & d2e_flags.ZF:
+                lines.extend(_emit_zero_flag(emitter, "a4"))
+        else:
+            if live_flags:
+                lines.extend(
+                    _emit_compare_flags(emitter, "a4", "a5", live_flags)
+                )
+            lines.extend(
+                ["    sub a4, a4, a5", f"    extui a4, a4, 0, {width}"]
+            )
         result_register = "a4"
     else:
         lines.extend(
@@ -1584,12 +1625,13 @@ def _cached_baseline_instruction_count(instruction: Any) -> int:
     if instruction.mnemonic == "mov":
         return 2
     if (
-        instruction.mnemonic == "add"
+        instruction.mnemonic in ("add", "sub")
         and instruction.operands[1][0] == "imm"
     ):
         value = int(instruction.operands[1][1]) & 0xFFFF
         signed = value if value < 0x8000 else value - 0x10000
-        if -128 <= signed <= 127:
+        addi_value = signed if instruction.mnemonic == "add" else -signed
+        if -128 <= addi_value <= 127:
             return 4
     if instruction.mnemonic in ("add", "sub", "and", "or", "xor", "not"):
         return 5

@@ -55,7 +55,11 @@ bounded workload.
   Explicit `mov.n` and `movi.n` selection was also evaluated, but linked IROM
   was unchanged because the Xtensa assembler already applies density
   relaxation; keep the source-neutral forms.
-- [ ] Select `addi` for representable `SUB immediate` forms when carry is dead.
+- [x] Select `addi` for representable `SUB immediate` forms when carry is dead.
+  Register and memory destinations use the same lowering, and a live `ZF` is
+  derived from the truncated result. A live `CF` retains the original `SUB`
+  path because carry needs both original operands. Alley Cat IROM fell by 20
+  bytes without changing DROM, module size or fallback count.
 - [x] Measure generated literals, IROM, DROM and total module bytes separately.
 - [x] Evaluate the original 15-20 KiB estimate. Generated `.long` entries fell
   from 9,256 to 3,891, but linker relaxation had already merged many duplicate
@@ -200,3 +204,4 @@ bounded workload.
 | Direct byte/memory/live-flags `ADD` | 293,814 | 31,420 | 424,636 | 245 | 68,688 cycles/1K instructions | Keep: IROM -5,698, fallback -137 and measured cycles -2.4%; 60-frame QEMU run passed at 259 Hz |
 | Direct `INT imm8` and `INT3` | 281,974 | 31,420 | 424,636 | 132 | 46,381-60,946 cycles/1K instructions | Keep: IROM -11,840 and fallback -113; repeated identical-build QEMU values exposed virtual-counter variability, physical profile pending |
 | Direct all-form `IN`/`OUT` | 277,322 | 31,420 | 424,636 | 89 | 58,238 cycles/1K instructions | Keep: IROM -4,652 and fallback -43; median of three direct QEMU runs is below the surrounding 58,565-cycle control median; physical profile pending |
+| `SUB immediate` via `ADDI` | 277,302 | 31,420 | 424,636 | 89 | 55,974 cycles/1K instructions | Keep: IROM -20; 60-frame QEMU run passed with 12,881,855 retired guest instructions and 259 Hz audio; virtual-counter variance requires physical confirmation |

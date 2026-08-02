@@ -772,10 +772,51 @@ def main() -> int:
         )
         assert "call8 d2e_native_helper_read8" in direct_byte_subtract_assembly
         assert "call8 d2e_native_helper_write8" in direct_byte_subtract_assembly
-        assert "movi a5, 1" in direct_byte_subtract_assembly
+        assert "addi a4, a4, -1" in direct_byte_subtract_assembly
+        assert "movi a5, 1" not in direct_byte_subtract_assembly
         assert "call8 d2e_x86_sub8" not in direct_byte_subtract_assembly
         assert "extui a4, a4, 0, 8" in direct_byte_subtract_assembly
         assert ".byte 0x02" in direct_byte_subtract_assembly
+
+        live_zero_subtract_fixture = bytes.fromhex("83 e8 01 74 01 f4 f4")
+        output = pathlib.Path(temporary) / "asm-live-zero-subtract"
+        manifest = d2e_build.build_sources(
+            live_zero_subtract_fixture,
+            "live-zero-subtract.com",
+            "com",
+            "live_zero_subtract",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        live_zero_subtract_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "addi a4, a4, -1" in live_zero_subtract_assembly
+        assert "movi a5, 1" not in live_zero_subtract_assembly
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" in live_zero_subtract_assembly
+        assert "call8 d2e_x86_sub16" not in live_zero_subtract_assembly
+
+        live_carry_subtract_fixture = bytes.fromhex("83 e8 01 72 01 f4 f4")
+        output = pathlib.Path(temporary) / "asm-live-carry-subtract"
+        manifest = d2e_build.build_sources(
+            live_carry_subtract_fixture,
+            "live-carry-subtract.com",
+            "com",
+            "live_carry_subtract",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        live_carry_subtract_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "addi a4, a4, -1" not in live_carry_subtract_assembly
+        assert "movi a5, 1" in live_carry_subtract_assembly
+        assert "sub a4, a4, a5" in live_carry_subtract_assembly
+        assert "call8 d2e_x86_sub16" not in live_carry_subtract_assembly
 
         direct_increment_fixture = bytes.fromhex("fe 06 05 01 f4 ff")
         output = pathlib.Path(temporary) / "asm-direct-increment"
