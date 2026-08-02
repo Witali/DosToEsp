@@ -414,7 +414,10 @@ def _emit_nonmemory_value(
         ]
     if operand[0] == "imm":
         mask = 0xFF if width == 8 else 0xFFFF
-        literal = emitter.literal(int(operand[1]) & mask, "immediate")
+        value = int(operand[1]) & mask
+        if value <= 2047:
+            return [f"    movi {target_register}, {value}"]
+        literal = emitter.literal(value, "immediate")
         return [f"    l32r {target_register}, {literal}"]
     raise _error(instruction, "uses mismatched or unsupported binary operands")
 
@@ -481,32 +484,53 @@ def _emit_sub16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
     if len(instruction.operands) != 2:
         raise _error(instruction, "requires a two-operand SUB")
     destination, source = instruction.operands
-    if destination[0] != "reg" or destination[1] not in REG16_OFFSETS:
-        raise _error(instruction, "currently supports only 16-bit register SUB destinations")
-    if live_flags != 0:
-        raise _error(instruction, "does not yet materialize live SUB flags")
+    width = _binary_operand_width(instruction, destination)
+    lines = _emit_binary_values(
+        emitter, instruction, destination, source, width
+    )
+    direct_flags = (live_flags & ~(d2e_flags.CF | d2e_flags.ZF)) == 0
+    if direct_flags:
+        if live_flags:
+            lines.extend(_emit_compare_flags(emitter, "a4", "a5", live_flags))
+        lines.extend(["    sub a4, a4, a5", f"    extui a4, a4, 0, {width}"])
+        result_register = "a4"
+    else:
+        lines.extend(
+            [
+                "    mov a10, a2",
+                "    mov a11, a4",
+                "    mov a12, a5",
+                f"    call8 d2e_x86_sub{width}",
+            ]
+        )
+        result_register = "a10"
 
-    destination_offset = REG16_OFFSETS[str(destination[1])]
-    lines = [
-        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-    ]
-    if source[0] == "imm":
-        source_literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
-        lines.append(f"    l32r a5, {source_literal}")
-    elif source[0] == "reg" and source[1] in REG16_OFFSETS:
-        source_offset = REG16_OFFSETS[str(source[1])]
+    if destination[0] == "reg":
+        register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+        if destination[1] not in register_offsets:
+            raise _error(instruction, "uses a mismatched SUB destination")
+        destination_offset = register_offsets[str(destination[1])]
+        store = "s8i" if width == 8 else "s16i"
         lines.append(
-            f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+            f"    {store} {result_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, width)
+        completed = emitter.local("subtract_write_completed")
+        lines.extend(
+            [
+                f"    mov a13, {result_register}",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_write{width}",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
         )
     else:
-        raise _error(instruction, "currently supports only immediate/register SUB sources")
-    lines.extend(
-        [
-            "    sub a4, a4, a5",
-            "    extui a4, a4, 0, 16",
-            f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-        ]
-    )
+        raise _error(instruction, "requires a register or memory SUB destination")
     return lines
 
 

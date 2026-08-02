@@ -171,6 +171,7 @@ KNOWN_XTENSA_DIRECT = {
     "pushf",
     "ret",
     "ret-immediate",
+    "sub",
 }
 
 

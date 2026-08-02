@@ -56,7 +56,8 @@ bounded QEMU workload.
     - [x] memory forms (neutral on the current Alley Cat block set);
   - [x] memory and byte forms of `cmp`, using ALU helpers only for flags beyond
     the direct `CF`/`ZF` subset;
-  - [ ] memory and byte forms of `sub`;
+  - [x] memory and byte forms of `sub`, with small binary immediates emitted as
+    `movi` instead of separate flash literals;
   - [ ] common logical and increment/decrement instructions.
 
 ## Evaluation log
@@ -82,6 +83,8 @@ bounded QEMU workload.
 | Direct `PUSHF` and `POPF` | 681,328 (-96) | 196,906 (-187) | Pass; 60 frames, 259 Hz, clean shell return | Keep: one more native block and the existing `0x0fd5` writable-flags contract |
 | Direct memory `PUSH` and `POP` | 681,328 (+0) | 196,906 (+0) | Host pass; Alley Cat QEMU unchanged | Keep: general translator coverage with no Alley Cat image cost |
 | Direct byte/memory `CMP` and full-flags helper fallback | 673,072 (-8,256) | 139,398 (-57,508) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 557 more native blocks and helpers only when partial direct flags are insufficient |
+| Initial byte/memory `SUB` with literal-loaded immediates | 673,248 (+176) | 126,760 (-12,638) | Pass | Supersede: CISC shrank, but native literals and alignment produced net image growth |
+| Direct byte/memory `SUB` with inline small immediates | 672,368 (-704 from CMP control) | 126,800 (-12,598) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 136 more native blocks and one fewer flash load for common immediates |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
