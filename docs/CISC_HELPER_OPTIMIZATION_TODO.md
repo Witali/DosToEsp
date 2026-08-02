@@ -31,7 +31,7 @@ bounded QEMU workload.
   arithmetic when no produced status flag is live.
 - [ ] Materialize only the required status-flag subset when some, but not all,
   produced flags remain live.
-- [ ] Use a bounded 32-bit retired-instruction delta and materialize the 64-bit
+- [x] Use a bounded 32-bit retired-instruction delta and materialize the 64-bit
   counter only at synchronization points.
 - [ ] Share cold budget-exhaustion and guest-PC materialization paths instead
   of repeating them in every block.
@@ -52,6 +52,7 @@ bounded QEMU workload.
 | Mixed single-step specialization | 631,872 (-62,144) | 365,577 (-61,960) | Pass | Keep: removes unreachable multi-block machinery |
 | Elide dead CISC status flags | 622,832 (-9,040) | 356,695 (-8,882) | Pass | Keep: plain wrapping arithmetic replaces unused flag helpers |
 | Shared ZF-only result helper | 622,880 (+48) | 356,695 (+0) | Not run | Revert: call sites do not shrink and the helper adds flash code |
+| Pack CISC retired delta into the assembly handoff | 608,208 (-14,624) | 342,383 (-14,312) | Pass | Keep: one shared 64-bit synchronization path |
 
 Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
 semantics are not default solutions because they can trade execution speed for

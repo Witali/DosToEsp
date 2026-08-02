@@ -1259,10 +1259,12 @@ def emit_region(
         if single_step
         else "d2e_x86_cpu *cpu, uint32_t block_budget"
     )
+    retired_type = "uint32_t" if single_step else "uint64_t"
+    retired_constant = "UINT32_C" if single_step else "UINT64_C"
     lines = [
         f"{storage}uint32_t {function_name}({parameters}) {{",
         "    uint32_t executed = 0;",
-        "    uint64_t retired = 0;",
+        f"    {retired_type} retired = 0;",
     ]
     if image_format == "mz":
         lines.append("    uint32_t module_target;")
@@ -1384,7 +1386,7 @@ def emit_region(
             mnemonic = instruction.mnemonic
             if mnemonic in CONDITIONS:
                 target = direct_target(instruction)
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 lines.append(f"    if ({CONDITIONS[mnemonic]}) {{")
                 emit_native_target(
                     lines, target, blocks, "        ", image_format, load_segment,
@@ -1402,7 +1404,7 @@ def emit_region(
                 )
                 terminated = True
             elif mnemonic == "jmp":
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 if (
                     len(instruction.operands) == 1
                     and instruction.operands[0][0] != "imm"
@@ -1426,7 +1428,7 @@ def emit_region(
             elif mnemonic == "loop":
                 target = direct_target(instruction)
                 lines.append("    r_cx = (uint16_t)(r_cx - 1U);")
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 lines.append("    if (r_cx != 0U) {")
                 emit_native_target(
                     lines, target, blocks, "        ", image_format, load_segment,
@@ -1451,7 +1453,7 @@ def emit_region(
                     else "(cpu->flags & D2E_X86_FLAG_ZF) == 0U"
                 )
                 lines.append("    r_cx = (uint16_t)(r_cx - 1U);")
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 lines.append(f"    if (r_cx != 0U && {flag_condition}) {{")
                 emit_native_target(
                     lines, target, blocks, "        ", image_format, load_segment,
@@ -1470,7 +1472,7 @@ def emit_region(
                 terminated = True
             elif mnemonic == "jcxz":
                 target = direct_target(instruction)
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 lines.append("    if (r_cx == 0U) {")
                 emit_native_target(
                     lines, target, blocks, "        ", image_format, load_segment,
@@ -1496,7 +1498,7 @@ def emit_region(
                 lines.append(
                     f"    cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
                 )
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 lines.extend(emit_cached_store(registers))
                 lines.extend(
                     [
@@ -1512,7 +1514,7 @@ def emit_region(
                 lines.append(post_block_handoff)
                 terminated = True
             elif mnemonic == "into":
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 lines.append("    if ((cpu->flags & D2E_X86_FLAG_OF) != 0U) {")
                 lines.append(
                     f"        cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
@@ -1545,7 +1547,7 @@ def emit_region(
                 lines.append(
                     f"    cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
                 )
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 lines.append("    cpu->stop_reason = D2E_X86_EXITED;")
                 lines.append("    goto finish;")
                 terminated = True
@@ -1574,7 +1576,7 @@ def emit_region(
                         "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
                     ]
                 )
-                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append(f"    retired += {retired_constant}({len(block)});")
                 if indirect_call:
                     lines.append("    cpu->ip = control_offset;")
                     lines.append(post_block_handoff)
@@ -1632,7 +1634,7 @@ def emit_region(
                         "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
                         "    cpu->segments[D2E_X86_CS] = control_segment;",
                         "    cpu->ip = control_offset;",
-                        f"    retired += UINT64_C({len(block)});",
+                        f"    retired += {retired_constant}({len(block)});",
                         post_block_handoff,
                     ]
                 )
@@ -1649,7 +1651,7 @@ def emit_region(
                     [
                         "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
                         f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
-                        f"    retired += UINT64_C({len(block)});",
+                        f"    retired += {retired_constant}({len(block)});",
                         post_block_handoff,
                     ]
                 )
@@ -1667,7 +1669,7 @@ def emit_region(
                         "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
                         "    cpu->segments[D2E_X86_CS] = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(2)));",
                         f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
-                        f"    retired += UINT64_C({len(block)});",
+                        f"    retired += {retired_constant}({len(block)});",
                         post_block_handoff,
                     ]
                 )
@@ -1679,7 +1681,7 @@ def emit_region(
                         "    cpu->segments[D2E_X86_CS] = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(2)));",
                         "    cpu->flags = (uint16_t)((d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(4))) & UINT16_C(0x0fd5)) | D2E_X86_FLAG_FIXED);",
                         "    r_sp = (uint16_t)(r_sp + UINT16_C(6));",
-                        f"    retired += UINT64_C({len(block)});",
+                        f"    retired += {retired_constant}({len(block)});",
                         "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
                         post_block_handoff,
                     ]
@@ -1720,7 +1722,7 @@ def emit_region(
                     [
                         "    cpu->segments[D2E_X86_CS] = control_segment;",
                         "    cpu->ip = control_offset;",
-                        f"    retired += UINT64_C({len(block)});",
+                        f"    retired += {retired_constant}({len(block)});",
                         post_block_handoff,
                     ]
                 )
@@ -1739,7 +1741,7 @@ def emit_region(
                 break
         if not terminated:
             next_address = block[-1].next_address
-            lines.append(f"    retired += UINT64_C({len(block)});")
+            lines.append(f"    retired += {retired_constant}({len(block)});")
             emit_native_target(
                 lines, next_address, blocks, "    ", image_format, load_segment,
                 single_step,
@@ -1748,13 +1750,21 @@ def emit_region(
 
     lines.append("finish:")
     lines.extend(emit_cached_store(registers))
-    lines.extend(
-        [
-            "    cpu->instructions_retired += retired;",
-            "    return executed;",
-            "}",
-        ]
-    )
+    if single_step:
+        lines.extend(
+            [
+                "    return (retired << 1U) | executed;",
+                "}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "    cpu->instructions_retired += retired;",
+                "    return executed;",
+                "}",
+            ]
+        )
     return lines
 
 

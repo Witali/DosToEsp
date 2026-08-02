@@ -257,6 +257,11 @@ def main() -> int:
         assert "uint32_t block_budget" not in mixed_region
         assert "executed >= block_budget" not in mixed_region
         assert mixed_region.count("goto dispatch;") == 1
+        assert "uint32_t retired = 0;" in mixed_region
+        assert "return (retired << 1U) | executed;" in mixed_region
+        assert "cpu->instructions_retired += retired;" not in mixed_region
+        assert "srli a7, a4, 1" in mixed_assembly
+        assert "extui a10, a4, 0, 1" in mixed_assembly
 
         fallback_image = bytes([0x50] * 257)
         fallback_decoded = d2e_translate.discover(
