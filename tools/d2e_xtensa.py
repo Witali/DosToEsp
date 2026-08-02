@@ -46,19 +46,41 @@ SEGMENT_INDICES = {
 class _Emitter:
     def __init__(self, image_format: str, load_segment: int) -> None:
         self.literals: list[tuple[str, int]] = []
+        self._literal_labels: dict[int, str] = {}
         self.local_count = 0
         self.image_format = image_format
         self.load_segment = load_segment
 
     def literal(self, value: int, purpose: str) -> str:
+        value &= 0xFFFFFFFF
+        existing = self._literal_labels.get(value)
+        if existing is not None:
+            return existing
         label = f".Lprogram_region_{purpose}_{len(self.literals)}"
-        self.literals.append((label, value & 0xFFFFFFFF))
+        self.literals.append((label, value))
+        self._literal_labels[value] = label
         return label
 
     def local(self, purpose: str) -> str:
         label = f".Lprogram_region_{purpose}_{self.local_count}"
         self.local_count += 1
         return label
+
+
+def _emit_load_constant(
+    emitter: _Emitter,
+    target_register: str,
+    value: int,
+    purpose: str,
+) -> list[str]:
+    """Load an exact 32-bit value without allocating an avoidable literal."""
+    value &= 0xFFFFFFFF
+    if value <= 2047:
+        return [f"    movi {target_register}, {value}"]
+    if value >= 0xFFFFF800:
+        return [f"    movi {target_register}, {value - 0x100000000}"]
+    literal = emitter.literal(value, purpose)
+    return [f"    l32r {target_register}, {literal}"]
 
 
 def _error(instruction: Any, detail: str) -> BackendError:
@@ -98,18 +120,21 @@ def _emit_memory_arguments(
     segment = getattr(memory, "segment", None) or default_segment
     if segment not in SEGMENT_INDICES:
         raise _error(instruction, "uses an unsupported memory segment")
-    offset_literal = emitter.literal(
-        int(getattr(memory, "displacement", 0)) & 0xFFFF,
-        "memory_offset",
-    )
     lines = [
         "    mov a10, a2",
         (
             "    l16ui a11, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
             f"({SEGMENT_INDICES[segment]} * 2)"
         ),
-        f"    l32r a12, {offset_literal}",
     ]
+    lines.extend(
+        _emit_load_constant(
+            emitter,
+            "a12",
+            int(getattr(memory, "displacement", 0)) & 0xFFFF,
+            "memory_offset",
+        )
+    )
     for register in (base, index):
         if register is not None:
             lines.extend(
@@ -133,9 +158,10 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
     if destination[0] == "reg" and destination[1] in REG16_OFFSETS:
         destination_offset = REG16_OFFSETS[str(destination[1])]
         if source[0] == "imm":
-            literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
             return [
-                f"    l32r a4, {literal}",
+                *_emit_load_constant(
+                    emitter, "a4", int(source[1]) & 0xFFFF, "immediate"
+                ),
                 f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
             ]
         if source[0] == "reg" and source[1] in REG16_OFFSETS:
@@ -199,9 +225,10 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
     if destination[0] == "reg" and destination[1] in REG8_OFFSETS:
         destination_offset = REG8_OFFSETS[str(destination[1])]
         if source[0] == "imm":
-            literal = emitter.literal(int(source[1]) & 0xFF, "immediate")
             return [
-                f"    l32r a4, {literal}",
+                *_emit_load_constant(
+                    emitter, "a4", int(source[1]) & 0xFF, "immediate"
+                ),
                 f"    s8i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
             ]
         if source[0] == "reg" and source[1] in REG8_OFFSETS:
@@ -233,8 +260,11 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
         lines = _emit_memory_arguments(emitter, instruction, memory)
         if source[0] == "imm":
             mask = 0xFF if width == 8 else 0xFFFF
-            literal = emitter.literal(int(source[1]) & mask, "immediate")
-            lines.append(f"    l32r a13, {literal}")
+            lines.extend(
+                _emit_load_constant(
+                    emitter, "a13", int(source[1]) & mask, "immediate"
+                )
+            )
         elif (
             source[0] == "reg"
             and width == 16
@@ -297,8 +327,9 @@ def _emit_mul16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
     if live_flags == 0:
         lines.append("    movi a12, 0 /* no MUL flags are live */")
     else:
-        live_literal = emitter.literal(live_flags, "live_flags")
-        lines.append(f"    l32r a12, {live_literal}")
+        lines.extend(
+            _emit_load_constant(emitter, "a12", live_flags, "live_flags")
+        )
     lines.append("    call8 d2e_native_helper_mul16")
     return lines
 
@@ -317,8 +348,11 @@ def _emit_add16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
         f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
     ]
     if source[0] == "imm":
-        source_literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
-        lines.append(f"    l32r a5, {source_literal}")
+        lines.extend(
+            _emit_load_constant(
+                emitter, "a5", int(source[1]) & 0xFFFF, "immediate"
+            )
+        )
     elif source[0] == "reg" and source[1] in REG16_OFFSETS:
         source_offset = REG16_OFFSETS[str(source[1])]
         lines.append(
@@ -415,10 +449,7 @@ def _emit_nonmemory_value(
     if operand[0] == "imm":
         mask = 0xFF if width == 8 else 0xFFFF
         value = int(operand[1]) & mask
-        if value <= 2047:
-            return [f"    movi {target_register}, {value}"]
-        literal = emitter.literal(value, "immediate")
-        return [f"    l32r {target_register}, {literal}"]
+        return _emit_load_constant(emitter, target_register, value, "immediate")
     raise _error(instruction, "uses mismatched or unsupported binary operands")
 
 

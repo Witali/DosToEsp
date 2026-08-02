@@ -189,6 +189,48 @@ def main() -> int:
         assert assembly.count("j .Lprogram_region_budget_finish") == len(blocks)
         assert assembly.count(".Lprogram_region_untranslated:") == 1
 
+        literal_emitter = d2e_xtensa._Emitter("com", 0x1000)
+        shared_literal = literal_emitter.literal(0x1234, "first")
+        assert literal_emitter.literal(0x100001234, "second") == shared_literal
+        assert literal_emitter.literals == [(shared_literal, 0x1234)]
+        assert d2e_xtensa._emit_load_constant(
+            literal_emitter, "a4", 2047, "small"
+        ) == ["    movi a4, 2047"]
+        assert d2e_xtensa._emit_load_constant(
+            literal_emitter, "a5", -2048, "negative"
+        ) == ["    movi a5, -2048"]
+        large_load = d2e_xtensa._emit_load_constant(
+            literal_emitter, "a8", 0x3456, "large"
+        )
+        assert large_load == [
+            "    l32r a8, .Lprogram_region_large_1"
+        ]
+        assert d2e_xtensa._emit_load_constant(
+            literal_emitter, "a9", 0x3456, "duplicate"
+        ) == ["    l32r a9, .Lprogram_region_large_1"]
+        assert literal_emitter.literals == [
+            (shared_literal, 0x1234),
+            (".Lprogram_region_large_1", 0x3456),
+        ]
+
+        repeated_immediate_fixture = bytes.fromhex(
+            "b8 34 12 bb 34 12 b9 07 00 ba 07 00 f4"
+        )
+        repeated_decoded = d2e_translate.discover(
+            repeated_immediate_fixture, 0x100, 0x100
+        )
+        repeated_blocks = d2e_translate.make_blocks(repeated_decoded, 0x100)
+        repeated_assembly = d2e_xtensa.emit_program(
+            repeated_immediate_fixture,
+            repeated_blocks,
+            "repeated_immediate",
+            0x1000,
+            0x100,
+        )
+        assert repeated_assembly.count("    .long 0x00001234") == 1
+        assert repeated_assembly.count("    movi a4, 7") == 2
+        assert "    .long 0x00000007" not in repeated_assembly
+
         dispatch_probe_emitter = d2e_xtensa._Emitter("com", 0x1000)
         dispatch_probe_leaders = tuple(range(0x100, 0x111))
         dispatch_probe_literals = {

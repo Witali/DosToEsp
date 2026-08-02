@@ -35,15 +35,21 @@ bounded workload.
 
 ## 1. Literal and immediate compaction
 
-- [ ] Intern assembly literals by value, relocation kind and required reach.
-- [ ] Reuse common constants such as the load segment instead of emitting one
-  literal per instruction.
-- [ ] Select `movi`, `addi` and compact Xtensa encodings when their immediate
-  range is sufficient.
-- [ ] Measure native text, literal bytes, total module bytes and execution time
-  separately.
-- [ ] Target a 15-20 KiB reduction, treating 20,496 bytes as an upper bound and
-  not as a guaranteed result.
+- [x] Intern numeric assembly literals by their exact normalized 32-bit value.
+  The current API emits no relocatable literals, so value identity is
+  sufficient; relocatable values must use a typed key when introduced.
+- [x] Reuse common constants such as the load segment instead of emitting one
+  source literal per instruction.
+- [x] Select `movi` for exact signed 12-bit values used by immediate operands
+  and guest-memory displacement calculations.
+- [ ] Select `addi` and other compact Xtensa encodings where they reduce linked
+  size without changing guest flag behavior.
+- [x] Measure generated literals, IROM, DROM and total module bytes separately.
+- [x] Evaluate the original 15-20 KiB estimate. Generated `.long` entries fell
+  from 9,256 to 3,891, but linker relaxation had already merged many duplicate
+  literals. Linked IROM fell by 2,164 bytes, from 302,088 to 299,924 bytes.
+  DROM and the 424,636-byte module file did not change because DROM remains on
+  the same 64 KiB boundary.
 
 ## 2. Remove high-volume CISC fallback
 
@@ -161,3 +167,4 @@ bounded workload.
 | Change | IROM bytes | DROM bytes | Module bytes | Fallback blocks | Target cycles | Decision |
 |---|---:|---:|---:|---:|---:|---|
 | Audit checkpoint | 302,088 | 31,420 | 424,636 | 382 | Not measured | Baseline |
+| Intern literals and select `movi` | 299,924 | 31,420 | 424,636 | 382 | Not measured | Keep: IROM -2,164; 60-frame QEMU run passed at 259 Hz |
