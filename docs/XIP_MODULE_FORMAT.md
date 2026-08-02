@@ -87,3 +87,7 @@ python tools/d2e_build.py CAT.EXE --name alley-cat --backend xtensa-asm `
 The packer reads post-relaxation words for internal absolute references. This
 is required because Xtensa relaxation can merge literal pools and change final
 target offsets after input relocations were emitted.
+
+The staged plan for compact relocation streams, relative native references,
+and zero-relocation modules is documented in
+[`XIP_RELOCATION_OPTIMIZATION_PLAN.md`](XIP_RELOCATION_OPTIMIZATION_PLAN.md).
