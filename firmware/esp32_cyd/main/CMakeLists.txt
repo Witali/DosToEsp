@@ -66,6 +66,7 @@ idf_component_register(
         "${d2e_root}/src/core/x86_control.c"
         "${d2e_root}/src/core/x86_cpu.c"
         "${d2e_root}/src/core/x86_memory.c"
+        "${d2e_root}/src/core/xip_module.c"
         "${d2e_root}/src/devices/cga.c"
         "${d2e_root}/src/devices/cp437_font.c"
         "${d2e_root}/src/devices/pc_speaker.c"
@@ -88,7 +89,7 @@ idf_component_register(
         freertos
         fatfs
         heap
-        littlefs
+        esp_partition
         sdmmc
         vfs
 )

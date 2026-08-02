@@ -103,8 +103,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "QEMU exited with code $LASTEXITCODE. See $log"
 }
 if (-not (Select-String -LiteralPath $log -Quiet `
-        -Pattern "D2E_DRIVE_READY,drive=A,type=littlefs,")) {
-    throw "QEMU did not mount the emulated LittleFS A: drive. See $log"
+        -Pattern "D2E_DRIVE_READY,drive=A,type=xip,")) {
+    throw "QEMU did not mount the emulated XIP A: drive. See $log"
 }
 if (-not (Select-String -LiteralPath $log -Quiet `
         -Pattern "D2E_DRIVE_READY,drive=C,type=sd-fat,")) {
@@ -119,7 +119,7 @@ if (-not (Select-String -LiteralPath $log -Quiet -Pattern "D2E_AUDIO_READY,")) {
 if (-not (Select-String -LiteralPath $log -Quiet -Pattern "D2E_AUDIO_ACTIVE,")) {
     throw "Alley Cat did not program an audible PC speaker tone. See $log"
 }
-Write-Host "QEMU ST7789/LittleFS/SDSPI run passed: $log"
+Write-Host "QEMU ST7789/XIP/SDSPI run passed: $log"
 if ($AudioCapture) {
     if (-not (Test-Path -LiteralPath $AudioCapture -PathType Leaf) -or
         (Get-Item -LiteralPath $AudioCapture).Length -le 44) {
