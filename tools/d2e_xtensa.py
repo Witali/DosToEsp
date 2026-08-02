@@ -230,13 +230,49 @@ def _emit_zero_flag(emitter: _Emitter, result_register: str) -> list[str]:
     ]
 
 
+def _emit_compare_flags(
+    emitter: _Emitter,
+    left_register: str,
+    right_register: str,
+    live_flags: int,
+) -> list[str]:
+    lines = [
+        "    l16ui a8, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+        f"    movi a9, {-1 - live_flags}",
+        "    and a8, a8, a9",
+    ]
+    if live_flags & d2e_flags.CF:
+        carry_done = emitter.local("compare_carry_done")
+        lines.extend(
+            [
+                f"    bgeu {left_register}, {right_register}, {carry_done}",
+                f"    movi a9, {d2e_flags.CF}",
+                "    or a8, a8, a9",
+                f"{carry_done}:",
+            ]
+        )
+    if live_flags & d2e_flags.ZF:
+        zero_done = emitter.local("compare_zero_done")
+        lines.extend(
+            [
+                f"    sub a9, {left_register}, {right_register}",
+                f"    bnez a9, {zero_done}",
+                f"    movi a9, {d2e_flags.ZF}",
+                "    or a8, a8, a9",
+                f"{zero_done}:",
+            ]
+        )
+    lines.append("    s16i a8, a2, D2E_ASM_CPU_FLAGS_OFFSET")
+    return lines
+
+
 def _emit_cmp16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[str]:
     if len(instruction.operands) != 2:
         raise _error(instruction, "requires a two-operand CMP")
     left, right = instruction.operands
     if left[0] != "reg" or left[1] not in REG16_OFFSETS:
         raise _error(instruction, "currently supports only 16-bit register CMP left operands")
-    if live_flags not in (0, d2e_flags.ZF):
+    if live_flags & ~(d2e_flags.CF | d2e_flags.ZF):
         raise _error(instruction, "does not yet materialize these live CMP flags")
     if live_flags == 0:
         return ["    /* CMP result and all flags are dead. */"]
@@ -251,9 +287,60 @@ def _emit_cmp16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
         lines.append(f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {right_offset}")
     else:
         raise _error(instruction, "currently supports only immediate/register CMP right operands")
-    lines.extend(["    sub a4, a4, a5", "    extui a4, a4, 0, 16"])
-    lines.extend(_emit_zero_flag(emitter, "a4"))
+    lines.extend(_emit_compare_flags(emitter, "a4", "a5", live_flags))
     return lines
+
+
+def _emit_sub16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[str]:
+    if len(instruction.operands) != 2:
+        raise _error(instruction, "requires a two-operand SUB")
+    destination, source = instruction.operands
+    if destination[0] != "reg" or destination[1] not in REG16_OFFSETS:
+        raise _error(instruction, "currently supports only 16-bit register SUB destinations")
+    if live_flags != 0:
+        raise _error(instruction, "does not yet materialize live SUB flags")
+
+    destination_offset = REG16_OFFSETS[str(destination[1])]
+    lines = [
+        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+    ]
+    if source[0] == "imm":
+        source_literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
+        lines.append(f"    l32r a5, {source_literal}")
+    elif source[0] == "reg" and source[1] in REG16_OFFSETS:
+        source_offset = REG16_OFFSETS[str(source[1])]
+        lines.append(
+            f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+        )
+    else:
+        raise _error(instruction, "currently supports only immediate/register SUB sources")
+    lines.extend(
+        [
+            "    sub a4, a4, a5",
+            "    extui a4, a4, 0, 16",
+            f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+        ]
+    )
+    return lines
+
+
+def _emit_shl16(instruction: Any, live_flags: int) -> list[str]:
+    if (
+        len(instruction.operands) != 2
+        or instruction.operands[0][0] != "reg"
+        or instruction.operands[0][1] not in REG16_OFFSETS
+        or instruction.operands[1] != ("imm", 1)
+    ):
+        raise _error(instruction, "currently supports only 16-bit register SHL by one")
+    if live_flags != 0:
+        raise _error(instruction, "does not yet materialize live SHL flags")
+    destination_offset = REG16_OFFSETS[str(instruction.operands[0][1])]
+    return [
+        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+        "    slli a4, a4, 1",
+        "    extui a4, a4, 0, 16",
+        f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+    ]
 
 
 def _direct_target(instruction: Any) -> int:
@@ -289,15 +376,71 @@ def _emit_retired(emitter: _Emitter, count: int) -> list[str]:
 
 
 def _emit_condition(emitter: _Emitter, instruction: Any, taken: str) -> list[str]:
-    if instruction.mnemonic not in ("je", "jz", "jne", "jnz"):
+    supported = {
+        "jb",
+        "jc",
+        "jnae",
+        "jae",
+        "jnb",
+        "jnc",
+        "je",
+        "jz",
+        "jne",
+        "jnz",
+        "jbe",
+        "jna",
+        "ja",
+        "jnbe",
+    }
+    if instruction.mnemonic not in supported:
         raise _error(instruction, "does not support this condition yet")
-    branch = "bnez" if instruction.mnemonic in ("je", "jz") else "beqz"
+    branch_when_clear = {
+        "jae",
+        "jnb",
+        "jnc",
+        "jne",
+        "jnz",
+        "ja",
+        "jnbe",
+    }
+    branch = "beqz" if instruction.mnemonic in branch_when_clear else "bnez"
+    mask = d2e_flags.CONDITION_READS[instruction.mnemonic]
     return [
         "    l16ui a4, a2, D2E_ASM_CPU_FLAGS_OFFSET",
-        f"    movi a5, {d2e_flags.ZF}",
+        f"    movi a5, {mask}",
         "    and a4, a4, a5",
         f"    {branch} a4, {taken}",
     ]
+
+
+def _emit_indirect_jump(
+    emitter: _Emitter,
+    instruction: Any,
+    blocks: Mapping[int, Sequence[Any]],
+) -> list[str]:
+    entries = tuple(getattr(instruction, "indirect_table_entries", ()))
+    if not entries:
+        raise _error(instruction, "has no recovered jump-table entries")
+    if (
+        len(instruction.operands) != 1
+        or instruction.operands[0][0] != "mem"
+        or getattr(instruction.operands[0][1], "segment", None) != "cs"
+        or getattr(instruction.operands[0][1], "base", None) != "bx"
+        or getattr(instruction.operands[0][1], "index", None) is not None
+    ):
+        raise _error(instruction, "uses an unsupported indirect jump form")
+
+    matches = [emitter.local("jump_table_entry") for _ in entries]
+    lines = [
+        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS['bx']}",
+    ]
+    for index, match in enumerate(matches):
+        lines.extend([f"    movi a5, {index * 2}", f"    beq a4, a5, {match}"])
+    lines.append("    j .Lprogram_region_unknown")
+    for match, target in zip(matches, entries, strict=True):
+        lines.append(f"{match}:")
+        lines.extend(_emit_edge(emitter, target, blocks))
+    return lines
 
 
 def omitted_image_offsets(
@@ -408,7 +551,12 @@ def emit_program(
                 if index != len(block) - 1:
                     raise _error(instruction, "requires JMP to end its block")
                 body.extend(_emit_retired(emitter, len(block)))
-                body.extend(_emit_edge(emitter, _direct_target(instruction), blocks))
+                if instruction.indirect_targets:
+                    body.extend(_emit_indirect_jump(emitter, instruction, blocks))
+                else:
+                    body.extend(
+                        _emit_edge(emitter, _direct_target(instruction), blocks)
+                    )
                 terminated = True
             elif mnemonic == "hlt":
                 if index != len(block) - 1:
@@ -443,6 +591,21 @@ def emit_program(
                 body.extend(
                     _emit_cmp16(
                         emitter,
+                        instruction,
+                        flag_liveness.live_defined[instruction.address],
+                    )
+                )
+            elif mnemonic == "sub":
+                body.extend(
+                    _emit_sub16(
+                        emitter,
+                        instruction,
+                        flag_liveness.live_defined[instruction.address],
+                    )
+                )
+            elif mnemonic == "shl":
+                body.extend(
+                    _emit_shl16(
                         instruction,
                         flag_liveness.live_defined[instruction.address],
                     )

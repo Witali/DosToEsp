@@ -50,6 +50,7 @@ class Instruction:
     op_str: str
     operands: tuple[tuple[str, OperandValue], ...]
     indirect_targets: tuple[int, ...] = ()
+    indirect_table_entries: tuple[int, ...] = ()
 
     @property
     def next_address(self) -> int:
@@ -249,10 +250,10 @@ def direct_target(instruction: Instruction) -> int:
     return int(instruction.operands[0][1])
 
 
-def recover_cs_bx_jump_table(
+def recover_cs_bx_jump_table_entries(
     image: bytes, base: int, instruction: Instruction
 ) -> tuple[int, ...]:
-    """Recover the bounded 8086 switch idiom used by the target compiler."""
+    """Recover ordered entries from the bounded switch idiom."""
     if (
         instruction.mnemonic != "jmp"
         or len(instruction.operands) != 1
@@ -296,7 +297,16 @@ def recover_cs_bx_jump_table(
         if target < base or target >= image_end:
             return ()
         targets.append(target)
-    return tuple(dict.fromkeys(targets))
+    return tuple(targets)
+
+
+def recover_cs_bx_jump_table(
+    image: bytes, base: int, instruction: Instruction
+) -> tuple[int, ...]:
+    """Recover unique control-flow targets from the bounded switch idiom."""
+    return tuple(
+        dict.fromkeys(recover_cs_bx_jump_table_entries(image, base, instruction))
+    )
 
 
 def recover_interrupt_vector_targets(
@@ -406,10 +416,12 @@ def discover(
                 f"control flow enters the middle of {owner:04x} at {address:04x}"
             )
         instruction = decode_one(disassembler, image, base, address)
-        indirect_targets = recover_cs_bx_jump_table(image, base, instruction)
-        if indirect_targets:
+        indirect_entries = recover_cs_bx_jump_table_entries(image, base, instruction)
+        if indirect_entries:
             instruction = dataclasses.replace(
-                instruction, indirect_targets=indirect_targets
+                instruction,
+                indirect_targets=tuple(dict.fromkeys(indirect_entries)),
+                indirect_table_entries=indirect_entries,
             )
         for byte_address in range(address, instruction.next_address):
             previous = occupied.get(byte_address)

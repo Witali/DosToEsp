@@ -17,6 +17,12 @@ observable.
 The C backend remains available as the semantic reference and fallback until the
 assembly backend passes the same host, ESP-IDF and QEMU validation gates.
 
+All classification, compaction, flag analysis and instruction/control-flow
+lowering are responsibilities of the translator. A build starts from the
+unmodified DOS binary and produces ready-to-assemble sources and descriptors;
+the workflow must not depend on manual edits or post-processing of generated
+files.
+
 ## Baseline
 
 The 2026-08-02 Alley Cat build provides the initial comparison point:

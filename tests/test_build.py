@@ -183,7 +183,7 @@ def main() -> int:
         assert ".Lprogram_region_block_0100:" in assembly
         assert ".Lprogram_region_block_010b:" in assembly
         assert ".Lprogram_region_block_0119:" in assembly
-        assert "movi a8, -65" in assembly
+        assert "movi a9, -65" in assembly
         assert "beqz a4, .Lprogram_region_branch_taken_" in assembly
         add_start = assembly.index("/* 0103: add ax, 1 */")
         cmp_start = assembly.index("/* 0106: cmp ax, 0x1235 */")
@@ -205,6 +205,25 @@ def main() -> int:
         )
         indirect_decoded = d2e_translate.discover(indirect_fixture, 0x100, 0x100)
         indirect_blocks = d2e_translate.make_blocks(indirect_decoded, 0x100)
+        indirect_jump = next(
+            instruction
+            for instruction in indirect_decoded.values()
+            if instruction.indirect_table_entries
+        )
+        assert indirect_jump.indirect_table_entries == (0x117, 0x11B, 0x11F)
+        indirect_assembly = d2e_xtensa.emit_program(
+            indirect_fixture,
+            indirect_blocks,
+            "native_indirect",
+            0x1000,
+            0x100,
+        )
+        assert "/* 010c: jmp word ptr cs:[bx + 0x111] */" in indirect_assembly
+        assert "movi a5, 0" in indirect_assembly
+        assert "movi a5, 2" in indirect_assembly
+        assert "movi a5, 4" in indirect_assembly
+        assert ".Lprogram_region_jump_table_entry_" in indirect_assembly
+        assert ".byte 0x17, 0x01, 0x1b, 0x01, 0x1f, 0x01" not in indirect_assembly
         retained_offsets = {
             offset + index
             for offset, data in d2e_xtensa.extract_data_fragments(
