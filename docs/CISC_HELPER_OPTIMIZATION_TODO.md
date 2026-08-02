@@ -23,8 +23,10 @@ bounded QEMU workload.
 - [ ] Replace sparse module-address switches with compact dense block IDs.
 - [ ] Let a CISC region execute connected blocks until it reaches an assembly
   handoff, a runtime boundary, or the shared block budget.
-- [ ] Remove mixed-backend single-block budget scaffolding and redundant full
-  CPU register synchronization.
+- [x] Specialize mixed-backend CISC entry points for one basic block and
+  remove their unused block-budget and post-block redispatch scaffolding.
+- [ ] Reduce redundant full CPU register synchronization at mixed-backend
+  boundaries.
 - [ ] Apply whole-program flag liveness to CISC lowering. Emit plain arithmetic
   when no produced flag is live and materialize only required flags otherwise.
 - [ ] Use a bounded 32-bit retired-instruction delta and materialize the 64-bit
@@ -45,6 +47,7 @@ bounded QEMU workload.
 |---|---:|---:|---|---|
 | Baseline | 694,000 | 427,537 | Pass | Keep |
 | Direct region range routing | 694,016 (+16) | 427,537 (+0) | Pass | Keep: size-neutral, removes failed region calls |
+| Mixed single-step specialization | 631,872 (-62,144) | 365,577 (-61,960) | Pass | Keep: removes unreachable multi-block machinery |
 
 Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
 semantics are not default solutions because they can trade execution speed for

@@ -1139,7 +1139,14 @@ def emit_native_target(
     indent: str,
     image_format: str,
     load_segment: int,
+    single_step: bool = False,
 ) -> None:
+    if single_step:
+        lines.append(
+            f"{indent}cpu->ip = {guest_ip_expression(target, image_format, load_segment)};"
+        )
+        lines.append(f"{indent}goto finish;")
+        return
     if target in blocks:
         lines.append(f"{indent}goto block_{target:04x};")
     else:
@@ -1166,10 +1173,22 @@ def emit_region(
     function_name: str = "program_region",
     handoff_on_unknown: bool = False,
     storage: str = "static ",
+    single_step: bool = False,
 ) -> list[str]:
     registers = cached_registers(blocks)
+    post_block_handoff = (
+        "    goto finish;" if single_step else "    goto dispatch;"
+    )
+    nested_post_block_handoff = (
+        "        goto finish;" if single_step else "        goto dispatch;"
+    )
+    parameters = (
+        "d2e_x86_cpu *cpu"
+        if single_step
+        else "d2e_x86_cpu *cpu, uint32_t block_budget"
+    )
     lines = [
-        f"{storage}uint32_t {function_name}(d2e_x86_cpu *cpu, uint32_t block_budget) {{",
+        f"{storage}uint32_t {function_name}({parameters}) {{",
         "    uint32_t executed = 0;",
         "    uint64_t retired = 0;",
     ]
@@ -1277,16 +1296,17 @@ def emit_region(
 
     for leader in sorted(blocks):
         block = blocks[leader]
-        lines.extend(
-            [
-                f"block_{leader:04x}:",
-                "    if (executed >= block_budget) {",
-                f"        cpu->ip = {guest_ip_expression(leader, image_format, load_segment)};",
-                "        goto finish;",
-                "    }",
-                "    ++executed;",
-            ]
-        )
+        lines.append(f"block_{leader:04x}:")
+        if not single_step:
+            lines.extend(
+                [
+                    "    if (executed >= block_budget) {",
+                    f"        cpu->ip = {guest_ip_expression(leader, image_format, load_segment)};",
+                    "        goto finish;",
+                    "    }",
+                ]
+            )
+        lines.append("    ++executed;")
         terminated = False
         for instruction in block:
             mnemonic = instruction.mnemonic
@@ -1295,7 +1315,8 @@ def emit_region(
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append(f"    if ({CONDITIONS[mnemonic]}) {{")
                 emit_native_target(
-                    lines, target, blocks, "        ", image_format, load_segment
+                    lines, target, blocks, "        ", image_format, load_segment,
+                    single_step,
                 )
                 lines.append("    }")
                 emit_native_target(
@@ -1305,6 +1326,7 @@ def emit_region(
                     "    ",
                     image_format,
                     load_segment,
+                    single_step,
                 )
                 terminated = True
             elif mnemonic == "jmp":
@@ -1317,7 +1339,7 @@ def emit_region(
                     target = value_expression(operand, 16, cached=True)
                     lines.append(f"    cpu->ip = (uint16_t)({target});")
                     lines.append("    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
-                    lines.append("    goto dispatch;")
+                    lines.append(post_block_handoff)
                 else:
                     emit_native_target(
                         lines,
@@ -1326,6 +1348,7 @@ def emit_region(
                         "    ",
                         image_format,
                         load_segment,
+                        single_step,
                     )
                 terminated = True
             elif mnemonic == "loop":
@@ -1334,7 +1357,8 @@ def emit_region(
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append("    if (r_cx != 0U) {")
                 emit_native_target(
-                    lines, target, blocks, "        ", image_format, load_segment
+                    lines, target, blocks, "        ", image_format, load_segment,
+                    single_step,
                 )
                 lines.append("    }")
                 emit_native_target(
@@ -1344,6 +1368,7 @@ def emit_region(
                     "    ",
                     image_format,
                     load_segment,
+                    single_step,
                 )
                 terminated = True
             elif mnemonic in ("loope", "loopne"):
@@ -1357,7 +1382,8 @@ def emit_region(
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append(f"    if (r_cx != 0U && {flag_condition}) {{")
                 emit_native_target(
-                    lines, target, blocks, "        ", image_format, load_segment
+                    lines, target, blocks, "        ", image_format, load_segment,
+                    single_step,
                 )
                 lines.append("    }")
                 emit_native_target(
@@ -1367,6 +1393,7 @@ def emit_region(
                     "    ",
                     image_format,
                     load_segment,
+                    single_step,
                 )
                 terminated = True
             elif mnemonic == "jcxz":
@@ -1374,7 +1401,8 @@ def emit_region(
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 lines.append("    if (r_cx == 0U) {")
                 emit_native_target(
-                    lines, target, blocks, "        ", image_format, load_segment
+                    lines, target, blocks, "        ", image_format, load_segment,
+                    single_step,
                 )
                 lines.append("    }")
                 emit_native_target(
@@ -1384,6 +1412,7 @@ def emit_region(
                     "    ",
                     image_format,
                     load_segment,
+                    single_step,
                 )
                 terminated = True
             elif mnemonic in ("int", "int3"):
@@ -1408,7 +1437,7 @@ def emit_region(
                     ]
                 )
                 lines.extend(emit_cached_load(registers))
-                lines.append("    goto dispatch;")
+                lines.append(post_block_handoff)
                 terminated = True
             elif mnemonic == "into":
                 lines.append(f"    retired += UINT64_C({len(block)});")
@@ -1428,7 +1457,7 @@ def emit_region(
                     ]
                 )
                 lines.extend(emit_cached_load(registers, "        "))
-                lines.append("        goto dispatch;")
+                lines.append(nested_post_block_handoff)
                 lines.append("    }")
                 emit_native_target(
                     lines,
@@ -1437,6 +1466,7 @@ def emit_region(
                     "    ",
                     image_format,
                     load_segment,
+                    single_step,
                 )
                 terminated = True
             elif mnemonic == "hlt":
@@ -1475,7 +1505,7 @@ def emit_region(
                 lines.append(f"    retired += UINT64_C({len(block)});")
                 if indirect_call:
                     lines.append("    cpu->ip = control_offset;")
-                    lines.append("    goto dispatch;")
+                    lines.append(post_block_handoff)
                 else:
                     emit_native_target(
                         lines,
@@ -1484,6 +1514,7 @@ def emit_region(
                         "    ",
                         image_format,
                         load_segment,
+                        single_step,
                     )
                 terminated = True
             elif mnemonic == "lcall":
@@ -1530,7 +1561,7 @@ def emit_region(
                         "    cpu->segments[D2E_X86_CS] = control_segment;",
                         "    cpu->ip = control_offset;",
                         f"    retired += UINT64_C({len(block)});",
-                        "    goto dispatch;",
+                        post_block_handoff,
                     ]
                 )
                 terminated = True
@@ -1547,7 +1578,7 @@ def emit_region(
                         "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
                         f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
                         f"    retired += UINT64_C({len(block)});",
-                        "    goto dispatch;",
+                        post_block_handoff,
                     ]
                 )
                 terminated = True
@@ -1565,7 +1596,7 @@ def emit_region(
                         "    cpu->segments[D2E_X86_CS] = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(2)));",
                         f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
                         f"    retired += UINT64_C({len(block)});",
-                        "    goto dispatch;",
+                        post_block_handoff,
                     ]
                 )
                 terminated = True
@@ -1578,7 +1609,7 @@ def emit_region(
                         "    r_sp = (uint16_t)(r_sp + UINT16_C(6));",
                         f"    retired += UINT64_C({len(block)});",
                         "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
-                        "    goto dispatch;",
+                        post_block_handoff,
                     ]
                 )
                 terminated = True
@@ -1618,7 +1649,7 @@ def emit_region(
                         "    cpu->segments[D2E_X86_CS] = control_segment;",
                         "    cpu->ip = control_offset;",
                         f"    retired += UINT64_C({len(block)});",
-                        "    goto dispatch;",
+                        post_block_handoff,
                     ]
                 )
                 terminated = True
@@ -1631,7 +1662,8 @@ def emit_region(
             next_address = block[-1].next_address
             lines.append(f"    retired += UINT64_C({len(block)});")
             emit_native_target(
-                lines, next_address, blocks, "    ", image_format, load_segment
+                lines, next_address, blocks, "    ", image_format, load_segment,
+                single_step,
             )
         lines.append("")
 
@@ -2139,7 +2171,7 @@ def emit_xtensa_source_files(
     for symbol in region_symbols:
         bridge.extend(
             [
-                f"uint32_t {symbol}(d2e_x86_cpu *cpu, uint32_t block_budget);",
+                f"uint32_t {symbol}(d2e_x86_cpu *cpu);",
             ]
         )
     bridge.extend(
@@ -2173,7 +2205,7 @@ def emit_xtensa_source_files(
         bridge.extend(
             [
                 f"    if (module_target <= UINT32_C(0x{final_leader:05x})) {{",
-                f"        return {symbol}(cpu, UINT32_C(1));",
+                f"        return {symbol}(cpu);",
                 "    }",
             ]
         )
@@ -2196,6 +2228,7 @@ def emit_xtensa_source_files(
                 region_symbols[index],
                 handoff_on_unknown=True,
                 storage="",
+                single_step=True,
             )
         )
         region.append("")

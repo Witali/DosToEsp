@@ -251,9 +251,12 @@ def main() -> int:
         assert "d2e_x86_write16_seg(" in mixed_region
         assert "r_sp, r_ax);" in mixed_region
         assert "block_0103:" not in mixed_region
-        assert "UINT32_C(1)" in mixed_cisc
+        assert "UINT32_C(1)" not in mixed_cisc
         assert "uint32_t step;" not in mixed_cisc
         assert "const uint32_t module_target = cpu->ip;" in mixed_cisc
+        assert "uint32_t block_budget" not in mixed_region
+        assert "executed >= block_budget" not in mixed_region
+        assert mixed_region.count("goto dispatch;") == 1
 
         fallback_image = bytes([0x50] * 257)
         fallback_decoded = d2e_translate.discover(
