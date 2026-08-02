@@ -2,12 +2,18 @@
 #include "d2e/x86_alu.h"
 #include "d2e/x86_control.h"
 #include "d2e/native_helpers.h"
+#include "d2e/native_runtime.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static unsigned failures;
+
+typedef struct extended_memory_capture {
+    uint8_t bytes[16];
+    unsigned clears;
+} extended_memory_capture;
 
 #define CHECK(expression)                                                       \
     do {                                                                        \
@@ -17,6 +23,27 @@ static unsigned failures;
             ++failures;                                                         \
         }                                                                       \
     } while (0)
+
+static uint8_t capture_extended_read(void *context, uint32_t offset) {
+    extended_memory_capture *const capture =
+        (extended_memory_capture *)context;
+    return capture->bytes[offset];
+}
+
+static int capture_extended_write(void *context, uint32_t offset,
+                                  uint8_t value) {
+    extended_memory_capture *const capture =
+        (extended_memory_capture *)context;
+    capture->bytes[offset] = value;
+    return 1;
+}
+
+static void capture_extended_clear(void *context) {
+    extended_memory_capture *const capture =
+        (extended_memory_capture *)context;
+    memset(capture->bytes, 0, sizeof(capture->bytes));
+    ++capture->clears;
+}
 
 static void test_register_bytes(d2e_x86_cpu *cpu) {
     cpu->regs[D2E_X86_AX] = UINT16_C(0x1234);
@@ -374,6 +401,61 @@ static void test_sparse_video_mapping(void) {
     CHECK(cpu.fault_address == UINT32_C(0xa0000));
 }
 
+static void test_extended_conventional_memory(void) {
+    uint8_t primary[16];
+    uint32_t extended[4];
+    d2e_x86_cpu cpu;
+
+    memset(primary, UINT8_C(0xaa), sizeof(primary));
+    memset(extended, UINT8_C(0xbb), sizeof(extended));
+    d2e_x86_cpu_init(&cpu, primary, sizeof(primary), NULL);
+    d2e_x86_map_extended_memory(&cpu, (uint8_t *)(void *)extended,
+                                sizeof(extended));
+    CHECK(cpu.memory_size == sizeof(primary) + sizeof(extended));
+    d2e_x86_write16(&cpu, UINT32_C(15), UINT16_C(0x3412));
+    CHECK(primary[15] == UINT8_C(0x12));
+    CHECK(d2e_x86_read8(&cpu, UINT32_C(16)) == UINT8_C(0x34));
+    CHECK(d2e_x86_read16(&cpu, UINT32_C(15)) == UINT16_C(0x3412));
+    d2e_x86_cpu_reset(&cpu);
+    CHECK(cpu.extended_memory == (uint8_t *)(void *)extended);
+    CHECK(cpu.memory_size == sizeof(primary) + sizeof(extended));
+    d2e_x86_clear_memory(&cpu);
+    CHECK(primary[15] == 0U);
+    CHECK(extended[0] == 0U);
+
+    {
+        extended_memory_capture capture = {{0}, 0U};
+        d2e_x86_configure_extended_memory(
+            &cpu, sizeof(capture.bytes), &capture, capture_extended_read,
+            capture_extended_write, capture_extended_clear);
+        d2e_x86_write8(&cpu, UINT32_C(18), UINT8_C(0x5a));
+        CHECK(capture.bytes[2] == UINT8_C(0x5a));
+        CHECK(d2e_x86_read8(&cpu, UINT32_C(18)) == UINT8_C(0x5a));
+        d2e_x86_clear_memory(&cpu);
+        CHECK(capture.bytes[2] == 0U);
+        CHECK(capture.clears == 1U);
+    }
+}
+
+static void test_dos_case_map_target(d2e_x86_cpu *cpu) {
+    cpu->stop_reason = D2E_X86_RUNNING;
+    cpu->segments[D2E_X86_CS] = UINT16_C(0xf000);
+    cpu->ip = UINT16_C(0xff00);
+    cpu->segments[D2E_X86_SS] = UINT16_C(0x2000);
+    cpu->regs[D2E_X86_SP] = UINT16_C(0x0100);
+    d2e_x86_write16_seg(cpu, UINT16_C(0x2000), UINT16_C(0x0100),
+                        UINT16_C(0x5678));
+    d2e_x86_write16_seg(cpu, UINT16_C(0x2000), UINT16_C(0x0102),
+                        UINT16_C(0x1234));
+    d2e_x86_set_reg8(cpu, 0U, (uint8_t)'q');
+    CHECK(d2e_native_service_control_target(cpu));
+    CHECK(d2e_x86_get_reg8(cpu, 0U) == (uint8_t)'Q');
+    CHECK(cpu->segments[D2E_X86_CS] == UINT16_C(0x1234));
+    CHECK(cpu->ip == UINT16_C(0x5678));
+    CHECK(cpu->regs[D2E_X86_SP] == UINT16_C(0x0104));
+    CHECK(!d2e_native_service_control_target(cpu));
+}
+
 int main(void) {
     uint8_t *const memory = calloc(D2E_X86_MEMORY_SIZE, 1);
     uint32_t *const generations = calloc(D2E_X86_PAGE_COUNT, sizeof(uint32_t));
@@ -398,7 +480,9 @@ int main(void) {
     test_multiply_and_adjust(&cpu);
     test_divide(&cpu);
     test_add_with_carry(&cpu);
+    test_dos_case_map_target(&cpu);
     test_sparse_video_mapping();
+    test_extended_conventional_memory();
 
     free(generations);
     free(memory);

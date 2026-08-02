@@ -12,6 +12,8 @@ extern "C" {
 #define D2E_PC_AT_KEY_QUEUE_CAPACITY 16U
 #define D2E_PC_AT_SCAN_QUEUE_CAPACITY 32U
 #define D2E_PC_AT_TEXT_PAGES 8U
+#define D2E_PC_AT_DOS_PATH_CAPACITY 260U
+#define D2E_PC_AT_DOS_FILE_CAPACITY 8U
 
 typedef struct d2e_pc_at_key {
     uint8_t ascii;
@@ -57,6 +59,22 @@ typedef struct d2e_pc_at {
     uint8_t scan_head;
     uint8_t scan_count;
     uint8_t keyboard_irq_active;
+    uint16_t dos_psp_segment;
+    uint16_t dos_block_paragraphs;
+    uint16_t dos_allocation_cursor;
+    uint8_t dos_allocation_strategy;
+    char dos_drive_root[D2E_PC_AT_DOS_PATH_CAPACITY];
+    char dos_current_directory[D2E_PC_AT_DOS_PATH_CAPACITY];
+    void *dos_files[D2E_PC_AT_DOS_FILE_CAPACITY];
+    uint8_t dos_current_drive;
+    uint8_t dos_break_check;
+    uint16_t dos_dta_segment;
+    uint16_t dos_dta_offset;
+    char dos_find_directory_path[D2E_PC_AT_DOS_PATH_CAPACITY];
+    char dos_find_pattern[D2E_PC_AT_DOS_PATH_CAPACITY];
+    void *dos_find_directory;
+    intptr_t dos_find_handle;
+    uint16_t dos_find_attributes;
     uint32_t speaker_generation;
     d2e_pc_at_speaker_callback speaker_callback;
     void *speaker_context;
@@ -68,6 +86,9 @@ void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
                     size_t cga_vram_size);
 void d2e_pc_at_reset(d2e_pc_at *machine);
 void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu);
+void d2e_pc_at_prepare_dos(d2e_pc_at *machine, uint16_t psp_segment);
+void d2e_pc_at_set_dos_drive_root(d2e_pc_at *machine, char drive,
+                                  const char *root);
 int d2e_pc_at_interrupt(void *context, d2e_x86_cpu *cpu,
                         uint8_t interrupt_number);
 int d2e_pc_at_port_in8(void *context, uint16_t port, uint8_t *value);

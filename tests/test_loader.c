@@ -51,6 +51,7 @@ static int test_mz_load(void) {
         failed = 1;
     } else if (memory[psp] != UINT8_C(0xcd) ||
                memory[psp + 1U] != UINT8_C(0x20) ||
+               d2e_x86_read16(&cpu, psp + 2U) != UINT16_C(0x2000) ||
                memory[image] != UINT8_C(0x90) ||
                memory[image + 2U] != UINT8_C(0x34) ||
                memory[image + 3U] != UINT8_C(0x22)) {

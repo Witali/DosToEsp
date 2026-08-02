@@ -1,7 +1,23 @@
+#if defined(_MSC_VER)
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "d2e/pc_at.h"
 #include "d2e/text_video.h"
 
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 
 enum {
     k_bda_video_mode = 0x449,
@@ -520,6 +536,8 @@ static int video_interrupt(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
                 return 1;
             }
             return 0;
+        case 0xfe:
+            return 1;
         default:
             return 0;
     }
@@ -624,10 +642,854 @@ static int services_interrupt(d2e_x86_cpu *cpu) {
     return 0;
 }
 
+static int mouse_interrupt(d2e_x86_cpu *cpu) {
+    const uint16_t function = cpu->regs[D2E_X86_AX];
+    if (function == 0U || function == UINT16_C(0x0021)) {
+        cpu->regs[D2E_X86_AX] = 0U;
+        cpu->regs[D2E_X86_BX] = 0U;
+    } else if (function == UINT16_C(0x0003)) {
+        cpu->regs[D2E_X86_BX] = 0U;
+        cpu->regs[D2E_X86_CX] = 0U;
+        cpu->regs[D2E_X86_DX] = 0U;
+    }
+    return 1;
+}
+
+static uint16_t dos_memory_end(const d2e_x86_cpu *cpu) {
+    const size_t paragraphs = cpu->memory_size >> 4U;
+    return paragraphs > UINT16_MAX ? UINT16_MAX : (uint16_t)paragraphs;
+}
+
+static void dos_success(d2e_x86_cpu *cpu) {
+    set_flag(cpu, D2E_X86_FLAG_CF, 0);
+}
+
+static void dos_error(d2e_x86_cpu *cpu, uint16_t error) {
+    cpu->regs[D2E_X86_AX] = error;
+    set_flag(cpu, D2E_X86_FLAG_CF, 1);
+}
+
+static uint16_t dos_errno(void) {
+    switch (errno) {
+        case ENOENT:
+            return UINT16_C(2);
+        case EMFILE:
+            return UINT16_C(4);
+        case EACCES:
+            return UINT16_C(5);
+        default:
+            return UINT16_C(5);
+    }
+}
+
+static int dos_read_guest_string(const d2e_x86_cpu *cpu, uint16_t segment,
+                                 uint16_t offset, char *destination,
+                                 size_t capacity) {
+    size_t index;
+    if (capacity == 0U) {
+        return 0;
+    }
+    for (index = 0U; index + 1U < capacity; ++index) {
+        const uint32_t address = d2e_x86_linear(segment, offset);
+        const uint8_t value = d2e_x86_read8(cpu, address);
+        destination[index] = (char)value;
+        offset = (uint16_t)(offset + UINT16_C(1));
+        if (value == 0U) {
+            return 1;
+        }
+    }
+    destination[capacity - 1U] = '\0';
+    return 0;
+}
+
+static int dos_append_component(char *path, size_t capacity,
+                                const char *component, size_t length) {
+    size_t used = strlen(path);
+    const int separator = used != 0U && path[used - 1U] != '/' &&
+                          path[used - 1U] != '\\';
+    if (used + (separator ? 1U : 0U) + length + 1U > capacity) {
+        return 0;
+    }
+    if (separator) {
+        path[used++] = '/';
+    }
+    memcpy(path + used, component, length);
+    path[used + length] = '\0';
+    return 1;
+}
+
+static void dos_remove_component(char *path, size_t root_length) {
+    size_t length = strlen(path);
+    while (length > root_length &&
+           (path[length - 1U] == '/' || path[length - 1U] == '\\')) {
+        path[--length] = '\0';
+    }
+    while (length > root_length && path[length - 1U] != '/' &&
+           path[length - 1U] != '\\') {
+        path[--length] = '\0';
+    }
+    while (length > root_length &&
+           (path[length - 1U] == '/' || path[length - 1U] == '\\')) {
+        path[--length] = '\0';
+    }
+}
+
+static int dos_resolve_path(const d2e_pc_at *machine, const char *guest,
+                            char *host, size_t capacity) {
+    const char *cursor = guest;
+    const char *component;
+    size_t root_length;
+    if (machine->dos_drive_root[0] == '\0' || guest == NULL ||
+        capacity == 0U) {
+        return 0;
+    }
+    if (cursor[0] != '\0' && cursor[1] == ':') {
+        const unsigned char requested =
+            (unsigned char)toupper((unsigned char)cursor[0]);
+        if (requested != (unsigned char)('A' + machine->dos_current_drive)) {
+            return 0;
+        }
+        cursor += 2;
+    }
+    (void)snprintf(host, capacity, "%s", machine->dos_drive_root);
+    root_length = strlen(host);
+    if (*cursor != '/' && *cursor != '\\' &&
+        machine->dos_current_directory[0] != '\0' &&
+        !dos_append_component(host, capacity,
+                              machine->dos_current_directory,
+                              strlen(machine->dos_current_directory))) {
+        return 0;
+    }
+    while (*cursor == '/' || *cursor == '\\') {
+        ++cursor;
+    }
+    while (*cursor != '\0') {
+        size_t length;
+        component = cursor;
+        while (*cursor != '\0' && *cursor != '/' && *cursor != '\\') {
+            ++cursor;
+        }
+        length = (size_t)(cursor - component);
+        if (length == 1U && component[0] == '.') {
+            /* Keep the current directory. */
+        } else if (length == 2U && component[0] == '.' &&
+                   component[1] == '.') {
+            dos_remove_component(host, root_length);
+        } else if (length != 0U &&
+                   !dos_append_component(host, capacity, component, length)) {
+            return 0;
+        }
+        while (*cursor == '/' || *cursor == '\\') {
+            ++cursor;
+        }
+    }
+    return 1;
+}
+
+static FILE *dos_file(d2e_pc_at *machine, uint16_t handle) {
+    const size_t index = handle >= 5U ? (size_t)(handle - 5U) : SIZE_MAX;
+    return index < D2E_PC_AT_DOS_FILE_CAPACITY
+               ? (FILE *)machine->dos_files[index]
+               : NULL;
+}
+
+typedef struct dos_find_entry {
+    char name[D2E_PC_AT_DOS_PATH_CAPACITY];
+    uint32_t size;
+    time_t modified;
+    uint8_t attributes;
+} dos_find_entry;
+
+static int dos_wildcard_match(const char *pattern, const char *name) {
+    if (strcmp(pattern, "*.*") == 0) {
+        pattern = "*";
+    }
+    while (*pattern != '\0') {
+        if (*pattern == '*') {
+            while (*pattern == '*') {
+                ++pattern;
+            }
+            if (*pattern == '\0') {
+                return 1;
+            }
+            while (*name != '\0') {
+                if (dos_wildcard_match(pattern, name)) {
+                    return 1;
+                }
+                ++name;
+            }
+            return dos_wildcard_match(pattern, name);
+        }
+        if (*name == '\0' ||
+            (*pattern != '?' &&
+             toupper((unsigned char)*pattern) !=
+                 toupper((unsigned char)*name))) {
+            return 0;
+        }
+        ++pattern;
+        ++name;
+    }
+    return *name == '\0';
+}
+
+static void dos_close_find(d2e_pc_at *machine) {
+#if defined(_WIN32)
+    if (machine->dos_find_handle != (intptr_t)-1) {
+        (void)_findclose(machine->dos_find_handle);
+        machine->dos_find_handle = (intptr_t)-1;
+    }
+#else
+    if (machine->dos_find_directory != NULL) {
+        (void)closedir((DIR *)machine->dos_find_directory);
+        machine->dos_find_directory = NULL;
+    }
+#endif
+}
+
+#if defined(_WIN32)
+static int dos_make_enumeration_path(const d2e_pc_at *machine, char *path,
+                                     size_t capacity) {
+    const size_t directory_length = strlen(machine->dos_find_directory_path);
+    if (directory_length + 3U > capacity) {
+        return 0;
+    }
+    memcpy(path, machine->dos_find_directory_path, directory_length);
+    memcpy(path + directory_length, "/*", 3U);
+    return 1;
+}
+#endif
+
+static int dos_open_find(d2e_pc_at *machine) {
+#if defined(_WIN32)
+    char enumeration_path[D2E_PC_AT_DOS_PATH_CAPACITY];
+    struct _finddata_t ignored;
+    if (!dos_make_enumeration_path(machine, enumeration_path,
+                                   sizeof(enumeration_path))) {
+        return 0;
+    }
+    machine->dos_find_handle = _findfirst(enumeration_path, &ignored);
+    if (machine->dos_find_handle == (intptr_t)-1) {
+        return 0;
+    }
+    (void)_findclose(machine->dos_find_handle);
+    machine->dos_find_handle = (intptr_t)-1;
+    return 1;
+#else
+    machine->dos_find_directory =
+        opendir(machine->dos_find_directory_path);
+    return machine->dos_find_directory != NULL;
+#endif
+}
+
+#if defined(_WIN32)
+static int dos_next_find_entry(d2e_pc_at *machine, dos_find_entry *entry) {
+    struct _finddata_t data;
+    int result;
+    if (machine->dos_find_handle == (intptr_t)-1) {
+        char enumeration_path[D2E_PC_AT_DOS_PATH_CAPACITY];
+        if (!dos_make_enumeration_path(machine, enumeration_path,
+                                       sizeof(enumeration_path))) {
+            return 0;
+        }
+        machine->dos_find_handle = _findfirst(enumeration_path, &data);
+        result = machine->dos_find_handle != (intptr_t)-1 ? 0 : -1;
+    } else {
+        result = _findnext(machine->dos_find_handle, &data);
+    }
+    while (result == 0) {
+        if (strcmp(data.name, ".") != 0 && strcmp(data.name, "..") != 0 &&
+            dos_wildcard_match(machine->dos_find_pattern, data.name)) {
+            (void)snprintf(entry->name, sizeof(entry->name), "%s", data.name);
+            entry->size = data.size > UINT32_MAX ? UINT32_MAX
+                                                 : (uint32_t)data.size;
+            entry->modified = data.time_write;
+            entry->attributes =
+                (data.attrib & _A_SUBDIR) != 0U ? UINT8_C(0x10)
+                                                : UINT8_C(0x20);
+            if ((data.attrib & _A_HIDDEN) != 0U) {
+                entry->attributes |= UINT8_C(0x02);
+            }
+            if ((data.attrib & _A_SYSTEM) != 0U) {
+                entry->attributes |= UINT8_C(0x04);
+            }
+            return 1;
+        }
+        result = _findnext(machine->dos_find_handle, &data);
+    }
+    return 0;
+}
+#else
+static int dos_next_find_entry(d2e_pc_at *machine, dos_find_entry *entry) {
+    struct dirent *item;
+    while (machine->dos_find_directory != NULL &&
+           (item = readdir((DIR *)machine->dos_find_directory)) != NULL) {
+        char path[D2E_PC_AT_DOS_PATH_CAPACITY];
+        struct stat status;
+        const size_t directory_length =
+            strlen(machine->dos_find_directory_path);
+        const size_t name_length = strlen(item->d_name);
+        if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0 ||
+            !dos_wildcard_match(machine->dos_find_pattern, item->d_name)) {
+            continue;
+        }
+        if (directory_length + name_length + 2U > sizeof(path)) {
+            continue;
+        }
+        memcpy(path, machine->dos_find_directory_path, directory_length);
+        path[directory_length] = '/';
+        memcpy(path + directory_length + 1U, item->d_name, name_length + 1U);
+        if (stat(path, &status) != 0) {
+            continue;
+        }
+        (void)snprintf(entry->name, sizeof(entry->name), "%s", item->d_name);
+        entry->size = status.st_size < 0
+                          ? 0U
+                          : (uint64_t)status.st_size > UINT32_MAX
+                                ? UINT32_MAX
+                                : (uint32_t)status.st_size;
+        entry->modified = status.st_mtime;
+        entry->attributes = S_ISDIR(status.st_mode) ? UINT8_C(0x10)
+                                                    : UINT8_C(0x20);
+        if (item->d_name[0] == '.') {
+            entry->attributes |= UINT8_C(0x02);
+        }
+        return 1;
+    }
+    return 0;
+}
+#endif
+
+static void dos_write_dta_byte(d2e_x86_cpu *cpu, const d2e_pc_at *machine,
+                               uint16_t offset, uint8_t value) {
+    d2e_x86_write8(
+        cpu,
+        d2e_x86_linear(machine->dos_dta_segment,
+                       (uint16_t)(machine->dos_dta_offset + offset)),
+        value);
+}
+
+static void dos_write_dta_word(d2e_x86_cpu *cpu, const d2e_pc_at *machine,
+                               uint16_t offset, uint16_t value) {
+    dos_write_dta_byte(cpu, machine, offset, (uint8_t)value);
+    dos_write_dta_byte(cpu, machine, (uint16_t)(offset + UINT16_C(1)),
+                       (uint8_t)(value >> 8U));
+}
+
+static void dos_write_dta_entry(d2e_x86_cpu *cpu, const d2e_pc_at *machine,
+                                const dos_find_entry *entry) {
+    struct tm *local = localtime(&entry->modified);
+    uint16_t time_value = 0U;
+    uint16_t date_value = UINT16_C(0x0021);
+    size_t index;
+    if (local != NULL) {
+        unsigned year = local->tm_year >= 80 ? (unsigned)local->tm_year - 80U
+                                             : 0U;
+        if (year > 127U) {
+            year = 127U;
+        }
+        time_value = (uint16_t)(((uint16_t)local->tm_hour << 11U) |
+                                ((uint16_t)local->tm_min << 5U) |
+                                (uint16_t)(local->tm_sec / 2));
+        date_value = (uint16_t)(((uint16_t)year << 9U) |
+                                ((uint16_t)(local->tm_mon + 1) << 5U) |
+                                (uint16_t)local->tm_mday);
+    }
+    for (index = 0U; index < 43U; ++index) {
+        dos_write_dta_byte(cpu, machine, (uint16_t)index, 0U);
+    }
+    dos_write_dta_byte(cpu, machine, UINT16_C(21), entry->attributes);
+    dos_write_dta_word(cpu, machine, UINT16_C(22), time_value);
+    dos_write_dta_word(cpu, machine, UINT16_C(24), date_value);
+    dos_write_dta_word(cpu, machine, UINT16_C(26), (uint16_t)entry->size);
+    dos_write_dta_word(cpu, machine, UINT16_C(28),
+                       (uint16_t)(entry->size >> 16U));
+    for (index = 0U; index < 12U && entry->name[index] != '\0'; ++index) {
+        dos_write_dta_byte(cpu, machine, (uint16_t)(30U + index),
+                           (uint8_t)toupper((unsigned char)entry->name[index]));
+    }
+}
+
+static int dos_find_next(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
+    dos_find_entry entry;
+    while (dos_next_find_entry(machine, &entry)) {
+        const uint8_t special = entry.attributes & UINT8_C(0x16);
+        if (special != 0U &&
+            (special & (uint8_t)~machine->dos_find_attributes) != 0U) {
+            continue;
+        }
+        dos_write_dta_entry(cpu, machine, &entry);
+        if (cpu->stop_reason == D2E_X86_RUNNING) {
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    dos_close_find(machine);
+    dos_error(cpu, UINT16_C(18));
+    return 1;
+}
+
+static int dos_interrupt(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
+    const uint8_t function = get_ah(cpu);
+    if (function == UINT8_C(0x2a) || function == UINT8_C(0x2c)) {
+        const time_t now = time(NULL);
+        const struct tm *const local = localtime(&now);
+        if (function == UINT8_C(0x2a)) {
+            const unsigned year = local != NULL && local->tm_year >= 80
+                                      ? (unsigned)local->tm_year + 1900U
+                                      : 1980U;
+            cpu->regs[D2E_X86_CX] = (uint16_t)year;
+            cpu->regs[D2E_X86_DX] =
+                (uint16_t)(((uint16_t)(local != NULL ? local->tm_mon + 1 : 1)
+                            << 8U) |
+                           (uint16_t)(local != NULL ? local->tm_mday : 1));
+            set_al(cpu, (uint8_t)(local != NULL ? local->tm_wday : 2));
+        } else {
+            cpu->regs[D2E_X86_CX] =
+                (uint16_t)(((uint16_t)(local != NULL ? local->tm_hour : 0)
+                            << 8U) |
+                           (uint16_t)(local != NULL ? local->tm_min : 0));
+            cpu->regs[D2E_X86_DX] =
+                (uint16_t)((uint16_t)(local != NULL ? local->tm_sec : 0)
+                           << 8U);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x2b) || function == UINT8_C(0x2d)) {
+        set_al(cpu, UINT8_C(0xff));
+        return 1;
+    }
+    if (function == UINT8_C(0x02)) {
+        const uint8_t character = (uint8_t)cpu->regs[D2E_X86_DX];
+        teletype(machine, cpu, character, UINT8_C(0x07));
+        set_al(cpu, character);
+        return 1;
+    }
+    if (function == UINT8_C(0x06)) {
+        const uint8_t requested = (uint8_t)cpu->regs[D2E_X86_DX];
+        if (requested != UINT8_C(0xff)) {
+            teletype(machine, cpu, requested, UINT8_C(0x07));
+            set_al(cpu, requested);
+            set_flag(cpu, D2E_X86_FLAG_ZF, 0);
+        } else if (machine->key_count == 0U) {
+            set_al(cpu, 0U);
+            set_flag(cpu, D2E_X86_FLAG_ZF, 1);
+        } else {
+            const d2e_pc_at_key key = machine->key_queue[machine->key_head];
+            machine->key_head = (uint8_t)((machine->key_head + 1U) %
+                                           D2E_PC_AT_KEY_QUEUE_CAPACITY);
+            --machine->key_count;
+            set_al(cpu, key.ascii);
+            set_flag(cpu, D2E_X86_FLAG_ZF, 0);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x09)) {
+        uint16_t offset = cpu->regs[D2E_X86_DX];
+        unsigned count;
+        for (count = 0U; count < UINT16_MAX; ++count) {
+            const uint8_t character = d2e_x86_read8(
+                cpu, d2e_x86_linear(cpu->segments[D2E_X86_DS], offset));
+            if (character == (uint8_t)'$') {
+                set_al(cpu, character);
+                return 1;
+            }
+            teletype(machine, cpu, character, UINT8_C(0x07));
+            offset = (uint16_t)(offset + UINT16_C(1));
+            if (cpu->stop_reason != D2E_X86_RUNNING) {
+                return 1;
+            }
+        }
+        dos_error(cpu, UINT16_C(5));
+        return 1;
+    }
+    if (function == UINT8_C(0x0b)) {
+        set_al(cpu, machine->key_count != 0U ? UINT8_C(0xff) : 0U);
+        return 1;
+    }
+    if (function == UINT8_C(0x0e)) {
+        const uint8_t requested = (uint8_t)cpu->regs[D2E_X86_DX];
+        if (requested == machine->dos_current_drive) {
+            set_al(cpu, (uint8_t)(machine->dos_current_drive + 1U));
+        } else {
+            set_al(cpu, (uint8_t)(machine->dos_current_drive + 1U));
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x19)) {
+        set_al(cpu, machine->dos_current_drive);
+        return 1;
+    }
+    if (function == UINT8_C(0x1a)) {
+        machine->dos_dta_segment = cpu->segments[D2E_X86_DS];
+        machine->dos_dta_offset = cpu->regs[D2E_X86_DX];
+        dos_success(cpu);
+        return 1;
+    }
+    if (function == UINT8_C(0x30)) {
+        cpu->regs[D2E_X86_AX] = UINT16_C(0x0005);
+        cpu->regs[D2E_X86_BX] = UINT16_C(0xff00);
+        cpu->regs[D2E_X86_CX] = 0U;
+        dos_success(cpu);
+        return 1;
+    }
+    if (function == UINT8_C(0x2f)) {
+        cpu->segments[D2E_X86_ES] = machine->dos_dta_segment;
+        cpu->regs[D2E_X86_BX] = machine->dos_dta_offset;
+        return 1;
+    }
+    if (function == UINT8_C(0x25)) {
+        const uint32_t vector = (uint32_t)get_al(cpu) * UINT32_C(4);
+        d2e_x86_write16(cpu, vector, cpu->regs[D2E_X86_DX]);
+        d2e_x86_write16(cpu, vector + UINT32_C(2),
+                        cpu->segments[D2E_X86_DS]);
+        if (cpu->stop_reason == D2E_X86_RUNNING) {
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x35)) {
+        const uint32_t vector = (uint32_t)get_al(cpu) * UINT32_C(4);
+        cpu->regs[D2E_X86_BX] = d2e_x86_read16(cpu, vector);
+        cpu->segments[D2E_X86_ES] =
+            d2e_x86_read16(cpu, vector + UINT32_C(2));
+        dos_success(cpu);
+        return 1;
+    }
+    if (function == UINT8_C(0x38)) {
+        static const uint8_t country_info[34] = {
+            0U, 0U, '$', 0U, 0U, 0U, 0U, ',', 0U, '.', 0U, '/', 0U,
+            ':', 0U, 0U, 2U, 0U, 0U, UINT8_C(0xff), 0U, UINT8_C(0xf0),
+            ',', 0U,
+        };
+        size_t index;
+        if (get_al(cpu) != 0U) {
+            dos_error(cpu, UINT16_C(2));
+            return 1;
+        }
+        for (index = 0U; index < sizeof(country_info); ++index) {
+            d2e_x86_write8(
+                cpu,
+                d2e_x86_linear(
+                    cpu->segments[D2E_X86_DS],
+                    (uint16_t)(cpu->regs[D2E_X86_DX] + (uint16_t)index)),
+                country_info[index]);
+        }
+        cpu->regs[D2E_X86_BX] = UINT16_C(1);
+        if (cpu->stop_reason == D2E_X86_RUNNING) {
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x33)) {
+        const uint8_t subfunction = get_al(cpu);
+        const uint8_t requested = (uint8_t)cpu->regs[D2E_X86_DX];
+        if (subfunction == 0U) {
+            cpu->regs[D2E_X86_DX] =
+                (uint16_t)((cpu->regs[D2E_X86_DX] & UINT16_C(0xff00)) |
+                           machine->dos_break_check);
+            dos_success(cpu);
+        } else if (subfunction == 1U || subfunction == 2U) {
+            const uint8_t previous = machine->dos_break_check;
+            machine->dos_break_check = requested != 0U ? 1U : 0U;
+            if (subfunction == 2U) {
+                cpu->regs[D2E_X86_DX] =
+                    (uint16_t)((cpu->regs[D2E_X86_DX] & UINT16_C(0xff00)) |
+                               previous);
+            }
+            dos_success(cpu);
+        } else if (subfunction == UINT8_C(5)) {
+            cpu->regs[D2E_X86_DX] =
+                (uint16_t)((cpu->regs[D2E_X86_DX] & UINT16_C(0xff00)) | 3U);
+            dos_success(cpu);
+        } else if (subfunction == UINT8_C(6)) {
+            cpu->regs[D2E_X86_BX] = UINT16_C(0x0500);
+            cpu->regs[D2E_X86_DX] = 0U;
+            dos_success(cpu);
+        } else {
+            dos_error(cpu, UINT16_C(1));
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x3d)) {
+        char guest_path[D2E_PC_AT_DOS_PATH_CAPACITY];
+        char host_path[D2E_PC_AT_DOS_PATH_CAPACITY];
+        const uint8_t access = get_al(cpu) & UINT8_C(3);
+        const char *mode = access == 0U ? "rb" : "r+b";
+        size_t index;
+        FILE *file;
+        if (!dos_read_guest_string(cpu, cpu->segments[D2E_X86_DS],
+                                   cpu->regs[D2E_X86_DX], guest_path,
+                                   sizeof(guest_path)) ||
+            !dos_resolve_path(machine, guest_path, host_path,
+                              sizeof(host_path))) {
+            dos_error(cpu, UINT16_C(3));
+            return 1;
+        }
+        for (index = 0U; index < D2E_PC_AT_DOS_FILE_CAPACITY; ++index) {
+            if (machine->dos_files[index] == NULL) {
+                break;
+            }
+        }
+        if (index == D2E_PC_AT_DOS_FILE_CAPACITY) {
+            dos_error(cpu, UINT16_C(4));
+            return 1;
+        }
+        file = fopen(host_path, mode);
+        if (file == NULL) {
+            dos_error(cpu, dos_errno());
+        } else {
+            machine->dos_files[index] = file;
+            cpu->regs[D2E_X86_AX] = (uint16_t)(index + 5U);
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x3e)) {
+        FILE *const file = dos_file(machine, cpu->regs[D2E_X86_BX]);
+        if (file == NULL) {
+            dos_error(cpu, UINT16_C(6));
+        } else {
+            const size_t index = (size_t)(cpu->regs[D2E_X86_BX] - 5U);
+            const int result = fclose(file);
+            machine->dos_files[index] = NULL;
+            if (result == 0) {
+                dos_success(cpu);
+            } else {
+                dos_error(cpu, dos_errno());
+            }
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x3f)) {
+        FILE *const file = dos_file(machine, cpu->regs[D2E_X86_BX]);
+        uint16_t remaining = cpu->regs[D2E_X86_CX];
+        uint16_t offset = cpu->regs[D2E_X86_DX];
+        uint16_t transferred = 0U;
+        uint8_t buffer[256];
+        if (file == NULL) {
+            dos_error(cpu, UINT16_C(6));
+            return 1;
+        }
+        while (remaining != 0U) {
+            const size_t requested =
+                remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+            const size_t count = fread(buffer, 1U, requested, file);
+            size_t index;
+            for (index = 0U; index < count; ++index) {
+                d2e_x86_write8(
+                    cpu,
+                    d2e_x86_linear(cpu->segments[D2E_X86_DS], offset),
+                    buffer[index]);
+                offset = (uint16_t)(offset + UINT16_C(1));
+            }
+            transferred = (uint16_t)(transferred + (uint16_t)count);
+            remaining = (uint16_t)(remaining - (uint16_t)count);
+            if (count != requested || cpu->stop_reason != D2E_X86_RUNNING) {
+                break;
+            }
+        }
+        if (ferror(file)) {
+            clearerr(file);
+            dos_error(cpu, UINT16_C(5));
+        } else {
+            cpu->regs[D2E_X86_AX] = transferred;
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x42)) {
+        FILE *const file = dos_file(machine, cpu->regs[D2E_X86_BX]);
+        const int32_t offset =
+            (int32_t)(((uint32_t)cpu->regs[D2E_X86_CX] << 16U) |
+                      cpu->regs[D2E_X86_DX]);
+        const uint8_t origin = get_al(cpu);
+        const int whence = origin == 0U ? SEEK_SET
+                           : origin == 1U ? SEEK_CUR
+                                          : SEEK_END;
+        long position;
+        if (file == NULL) {
+            dos_error(cpu, UINT16_C(6));
+        } else if (origin > 2U || fseek(file, (long)offset, whence) != 0 ||
+                   (position = ftell(file)) < 0L) {
+            dos_error(cpu, UINT16_C(1));
+        } else {
+            cpu->regs[D2E_X86_AX] = (uint16_t)(uint32_t)position;
+            cpu->regs[D2E_X86_DX] = (uint16_t)((uint32_t)position >> 16U);
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x44)) {
+        const uint8_t subfunction = get_al(cpu);
+        if (subfunction == 0U) {
+            cpu->regs[D2E_X86_DX] =
+                cpu->regs[D2E_X86_BX] < UINT16_C(5)
+                    ? UINT16_C(0x0080)
+                    : 0U;
+            dos_success(cpu);
+        } else if (subfunction == UINT8_C(0x08)) {
+            cpu->regs[D2E_X86_AX] = 0U;
+            dos_success(cpu);
+        } else if (subfunction == UINT8_C(0x09)) {
+            cpu->regs[D2E_X86_DX] = 0U;
+            dos_success(cpu);
+        } else if (subfunction == UINT8_C(0x0e) ||
+                   subfunction == UINT8_C(0x0f)) {
+            set_al(cpu, 0U);
+            dos_success(cpu);
+        } else {
+            dos_error(cpu, UINT16_C(1));
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x47)) {
+        const uint8_t requested = (uint8_t)cpu->regs[D2E_X86_DX];
+        const uint8_t drive = requested == 0U
+                                  ? machine->dos_current_drive
+                                  : (uint8_t)(requested - 1U);
+        size_t index;
+        if (drive != machine->dos_current_drive) {
+            dos_error(cpu, UINT16_C(15));
+            return 1;
+        }
+        for (index = 0U;; ++index) {
+            const uint8_t value =
+                (uint8_t)machine->dos_current_directory[index];
+            d2e_x86_write8(
+                cpu,
+                d2e_x86_linear(
+                    cpu->segments[D2E_X86_DS],
+                    (uint16_t)(cpu->regs[D2E_X86_SI] + (uint16_t)index)),
+                value);
+            if (value == 0U || cpu->stop_reason != D2E_X86_RUNNING) {
+                break;
+            }
+        }
+        if (cpu->stop_reason == D2E_X86_RUNNING) {
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x4e)) {
+        char guest_path[D2E_PC_AT_DOS_PATH_CAPACITY];
+        char host_path[D2E_PC_AT_DOS_PATH_CAPACITY];
+        char *separator;
+        dos_close_find(machine);
+        if (!dos_read_guest_string(cpu, cpu->segments[D2E_X86_DS],
+                                   cpu->regs[D2E_X86_DX], guest_path,
+                                   sizeof(guest_path)) ||
+            !dos_resolve_path(machine, guest_path, host_path,
+                              sizeof(host_path))) {
+            dos_error(cpu, UINT16_C(3));
+            return 1;
+        }
+        separator = strrchr(host_path, '/');
+        if (separator == NULL) {
+            separator = strrchr(host_path, '\\');
+        }
+        if (separator == NULL || separator[1] == '\0') {
+            dos_error(cpu, UINT16_C(3));
+            return 1;
+        }
+        (void)snprintf(machine->dos_find_pattern,
+                       sizeof(machine->dos_find_pattern), "%s",
+                       separator + 1);
+        *separator = '\0';
+        (void)snprintf(machine->dos_find_directory_path,
+                       sizeof(machine->dos_find_directory_path), "%s",
+                       host_path);
+        machine->dos_find_attributes = cpu->regs[D2E_X86_CX];
+        if (!dos_open_find(machine)) {
+            dos_error(cpu, UINT16_C(3));
+            return 1;
+        }
+        return dos_find_next(machine, cpu);
+    }
+    if (function == UINT8_C(0x4f)) {
+        return dos_find_next(machine, cpu);
+    }
+    if (function == UINT8_C(0x48)) {
+        const uint16_t memory_end = dos_memory_end(cpu);
+        const uint16_t requested = cpu->regs[D2E_X86_BX];
+        const uint16_t available =
+            machine->dos_allocation_cursor < memory_end
+                ? (uint16_t)(memory_end - machine->dos_allocation_cursor)
+                : 0U;
+        if (requested == 0U || requested > available) {
+            cpu->regs[D2E_X86_BX] = available;
+            dos_error(cpu, UINT16_C(8));
+        } else {
+            cpu->regs[D2E_X86_AX] = machine->dos_allocation_cursor;
+            machine->dos_allocation_cursor =
+                (uint16_t)(machine->dos_allocation_cursor + requested);
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x49)) {
+        dos_success(cpu);
+        return 1;
+    }
+    if (function == UINT8_C(0x4a)) {
+        const uint16_t memory_end = dos_memory_end(cpu);
+        const uint16_t segment = cpu->segments[D2E_X86_ES];
+        const uint16_t requested = cpu->regs[D2E_X86_BX];
+        const uint16_t available =
+            segment < memory_end ? (uint16_t)(memory_end - segment) : 0U;
+        if (segment != machine->dos_psp_segment || requested == 0U ||
+            requested > available) {
+            cpu->regs[D2E_X86_BX] = available;
+            dos_error(cpu, UINT16_C(8));
+        } else {
+            machine->dos_block_paragraphs = requested;
+            machine->dos_allocation_cursor =
+                (uint16_t)(segment + requested);
+            dos_success(cpu);
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x58)) {
+        const uint8_t subfunction = get_al(cpu);
+        if (subfunction == 0U) {
+            cpu->regs[D2E_X86_AX] = machine->dos_allocation_strategy;
+            dos_success(cpu);
+        } else if (subfunction == 1U &&
+                   cpu->regs[D2E_X86_BX] <= UINT16_C(2)) {
+            machine->dos_allocation_strategy =
+                (uint8_t)cpu->regs[D2E_X86_BX];
+            dos_success(cpu);
+        } else {
+            dos_error(cpu, UINT16_C(1));
+        }
+        return 1;
+    }
+    if (function == UINT8_C(0x59)) {
+        const uint8_t previous_error = get_al(cpu);
+        cpu->regs[D2E_X86_AX] = previous_error;
+        cpu->regs[D2E_X86_BX] = UINT16_C(0x0803);
+        cpu->regs[D2E_X86_CX] = UINT16_C(0x0100);
+        cpu->regs[D2E_X86_DX] = 0U;
+        dos_success(cpu);
+        return 1;
+    }
+    return 0;
+}
+
+static int multiplex_interrupt(d2e_x86_cpu *cpu) {
+    if (cpu->regs[D2E_X86_AX] == UINT16_C(0x1680)) {
+        set_al(cpu, 0U);
+        return 1;
+    }
+    return 0;
+}
+
 void d2e_pc_at_init(d2e_pc_at *machine, uint8_t *cga_vram,
                     size_t cga_vram_size) {
     unsigned channel;
     memset(machine, 0, sizeof(*machine));
+#if defined(_WIN32)
+    machine->dos_find_handle = (intptr_t)-1;
+#endif
     d2e_cga_init(&machine->cga);
     machine->cga_vram = cga_vram;
     machine->cga_vram_size = cga_vram_size;
@@ -658,8 +1520,30 @@ void d2e_pc_at_reset(d2e_pc_at *machine) {
         machine->speaker_callback;
     void *const speaker_context = machine->speaker_context;
     d2e_x86_cpu *const attached_cpu = machine->attached_cpu;
+    char dos_drive_root[D2E_PC_AT_DOS_PATH_CAPACITY];
+    char dos_current_directory[D2E_PC_AT_DOS_PATH_CAPACITY];
+    const uint8_t dos_current_drive = machine->dos_current_drive;
+    size_t file_index;
+
+    (void)snprintf(dos_drive_root, sizeof(dos_drive_root), "%s",
+                   machine->dos_drive_root);
+    (void)snprintf(dos_current_directory, sizeof(dos_current_directory), "%s",
+                   machine->dos_current_directory);
+    for (file_index = 0U; file_index < D2E_PC_AT_DOS_FILE_CAPACITY;
+         ++file_index) {
+        if (machine->dos_files[file_index] != NULL) {
+            (void)fclose((FILE *)machine->dos_files[file_index]);
+        }
+    }
+    dos_close_find(machine);
 
     d2e_pc_at_init(machine, cga_vram, cga_vram_size);
+    (void)snprintf(machine->dos_drive_root,
+                   sizeof(machine->dos_drive_root), "%s", dos_drive_root);
+    (void)snprintf(machine->dos_current_directory,
+                   sizeof(machine->dos_current_directory), "%s",
+                   dos_current_directory);
+    machine->dos_current_drive = dos_current_drive;
     if (attached_cpu != NULL) {
         d2e_pc_at_attach(machine, attached_cpu);
     }
@@ -677,6 +1561,34 @@ void d2e_pc_at_attach(d2e_pc_at *machine, d2e_x86_cpu *cpu) {
     d2e_x86_configure_ports(cpu, machine, d2e_pc_at_port_in8,
                             d2e_pc_at_port_out8);
     update_video_bda(machine, cpu);
+}
+
+void d2e_pc_at_prepare_dos(d2e_pc_at *machine, uint16_t psp_segment) {
+    uint16_t memory_end;
+    if (machine == NULL || machine->attached_cpu == NULL) {
+        return;
+    }
+    memory_end = dos_memory_end(machine->attached_cpu);
+    machine->dos_psp_segment = psp_segment;
+    machine->dos_dta_segment = psp_segment;
+    machine->dos_dta_offset = UINT16_C(0x0080);
+    machine->dos_block_paragraphs =
+        psp_segment < memory_end ? (uint16_t)(memory_end - psp_segment) : 0U;
+    machine->dos_allocation_cursor = memory_end;
+}
+
+void d2e_pc_at_set_dos_drive_root(d2e_pc_at *machine, char drive,
+                                  const char *root) {
+    const unsigned char upper =
+        (unsigned char)toupper((unsigned char)drive);
+    if (machine == NULL || root == NULL || upper < (unsigned char)'A' ||
+        upper > (unsigned char)'Z') {
+        return;
+    }
+    (void)snprintf(machine->dos_drive_root,
+                   sizeof(machine->dos_drive_root), "%s", root);
+    machine->dos_current_directory[0] = '\0';
+    machine->dos_current_drive = (uint8_t)(upper - (unsigned char)'A');
 }
 
 void d2e_pc_at_set_speaker_callback(
@@ -708,6 +1620,14 @@ int d2e_pc_at_interrupt(void *context, d2e_x86_cpu *cpu,
             return keyboard_interrupt(machine, cpu);
         case 0x1a:
             return clock_interrupt(machine, cpu);
+        case 0x21:
+            return dos_interrupt(machine, cpu);
+        case 0x28:
+            return 1;
+        case 0x2f:
+            return multiplex_interrupt(cpu);
+        case 0x33:
+            return mouse_interrupt(cpu);
         default:
             return 0;
     }

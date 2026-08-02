@@ -28,7 +28,11 @@
 #include "pc_speaker_audio.h"
 #include "qemu_frame_dump.h"
 
-#define D2E_CONVENTIONAL_BYTES (UINT32_C(128) * 1024U)
+#define D2E_PRIMARY_CONVENTIONAL_BYTES (UINT32_C(124) * 1024U)
+#define D2E_EXTENDED_CONVENTIONAL_BYTES (UINT32_C(100) * 1024U)
+#define D2E_EXTENDED_PAGE_BYTES UINT32_C(4096)
+#define D2E_EXTENDED_PAGE_COUNT                                               \
+    (D2E_EXTENDED_CONVENTIONAL_BYTES / D2E_EXTENDED_PAGE_BYTES)
 #define D2E_RUN_BUDGET UINT32_C(100000)
 
 #if D2E_ALLEY_CAT
@@ -41,7 +45,8 @@ static d2e_native_program module_stubs[CYD_FLASH_MODULE_CAPACITY];
 static uint8_t package_module_indices[D2E_PACKAGE_CAPACITY];
 static size_t package_count;
 
-static uint8_t conventional_memory[D2E_CONVENTIONAL_BYTES];
+static uint8_t conventional_memory[D2E_PRIMARY_CONVENTIONAL_BYTES];
+static uint32_t *extended_conventional_pages[D2E_EXTENDED_PAGE_COUNT];
 static uint8_t cga_vram[D2E_CGA_VRAM_SIZE];
 static d2e_x86_cpu cpu;
 static d2e_pc_at pc_at;
@@ -59,6 +64,60 @@ static uint8_t boot_button_down;
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
 static cyd_display_t display;
 #endif
+
+static uint8_t read_extended_conventional(void *context, uint32_t offset) {
+    uint32_t **const pages = (uint32_t **)context;
+    const uint32_t page_index = offset / D2E_EXTENDED_PAGE_BYTES;
+    const uint32_t page_offset = offset % D2E_EXTENDED_PAGE_BYTES;
+    const uint32_t *page;
+    if (page_index >= D2E_EXTENDED_PAGE_COUNT) {
+        return UINT8_C(0xff);
+    }
+    page = pages[page_index];
+    if (page == NULL) {
+        return 0U;
+    }
+    return (uint8_t)(page[page_offset >> 2U] >>
+                     ((page_offset & 3U) * 8U));
+}
+
+static int write_extended_conventional(void *context, uint32_t offset,
+                                       uint8_t value) {
+    uint32_t **const pages = (uint32_t **)context;
+    const uint32_t page_index = offset / D2E_EXTENDED_PAGE_BYTES;
+    const uint32_t page_offset = offset % D2E_EXTENDED_PAGE_BYTES;
+    uint32_t *page;
+    unsigned shift;
+    uint32_t mask;
+    if (page_index >= D2E_EXTENDED_PAGE_COUNT) {
+        return 0;
+    }
+    page = pages[page_index];
+    if (page == NULL) {
+        page = heap_caps_calloc(1U, D2E_EXTENDED_PAGE_BYTES,
+                                MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT);
+        if (page == NULL) {
+            return 0;
+        }
+        pages[page_index] = page;
+    }
+    shift = (unsigned)((page_offset & 3U) * 8U);
+    mask = UINT32_C(0xff) << shift;
+    page[page_offset >> 2U] =
+        (page[page_offset >> 2U] & ~mask) | ((uint32_t)value << shift);
+    return 1;
+}
+
+static void clear_extended_conventional(void *context) {
+    uint32_t **const pages = (uint32_t **)context;
+    size_t index;
+    for (index = 0U; index < D2E_EXTENDED_PAGE_COUNT; ++index) {
+        if (pages[index] != NULL) {
+            heap_caps_free(pages[index]);
+            pages[index] = NULL;
+        }
+    }
+}
 
 #if D2E_QEMU_EXIT_AFTER_RETURN
 static __attribute__((noreturn)) void finish(int code) {
@@ -415,6 +474,11 @@ static void run_package(const d2e_package *package) {
         }
         return;
     }
+    d2e_pc_at_prepare_dos(
+        &pc_at,
+        package->program->format == D2E_NATIVE_IMAGE_COM
+            ? package->program->load_segment
+            : (uint16_t)(package->program->load_segment - UINT16_C(0x0010)));
     esp_rom_printf("D2E_SHELL_RUN,command=%s,csip=%04x:%04x,heap=%u\n",
                    package->command, (unsigned)cpu.segments[D2E_X86_CS],
                    (unsigned)cpu.ip,
@@ -477,10 +541,11 @@ static void run_package(const d2e_package *package) {
 
     esp_rom_printf(
         "D2E_SHELL_RETURN,command=%s,source=%s,state=%u,reason=%u,exit=%u,"
-        "instructions=%" PRIu64 "\n",
+        "instructions=%" PRIu64 ",fault=%04x:%04x,address=%08" PRIx32 "\n",
         package->command, return_source, (unsigned)supervisor.state,
         (unsigned)supervisor.last_stop_reason, (unsigned)supervisor.exit_code,
-        cpu.instructions_retired);
+        cpu.instructions_retired, (unsigned)cpu.fault_cs,
+        (unsigned)cpu.fault_ip, cpu.fault_address);
     if (supervisor.state == D2E_SUPERVISOR_EXITED) {
         (void)snprintf(message, sizeof(message), "%s exited, code %u",
                        package->command, (unsigned)supervisor.exit_code);
@@ -559,6 +624,10 @@ void app_main(void) {
     size_t autoexec_runs;
     d2e_x86_cpu_init(&cpu, conventional_memory, sizeof(conventional_memory),
                      NULL);
+    d2e_x86_configure_extended_memory(
+        &cpu, D2E_EXTENDED_CONVENTIONAL_BYTES,
+        extended_conventional_pages, read_extended_conventional,
+        write_extended_conventional, clear_extended_conventional);
     d2e_pc_at_init(&pc_at, cga_vram, sizeof(cga_vram));
     d2e_pc_at_attach(&pc_at, &cpu);
     d2e_supervisor_init(&supervisor, &cpu);
@@ -568,6 +637,7 @@ void app_main(void) {
     drive_a_ready = 1U;
     if (cyd_sd_mount_and_probe() == ESP_OK) {
         drive_c_ready = 1U;
+        d2e_pc_at_set_dos_drive_root(&pc_at, 'C', "/C");
     }
 #if defined(D2E_QEMU_XIP_INSTALL_FILE)
     if (drive_c_ready != 0U && cyd_flash_module_count() == 0U) {

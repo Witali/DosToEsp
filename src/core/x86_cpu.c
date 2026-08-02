@@ -7,6 +7,7 @@ void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory, size_t memory_size,
     memset(cpu, 0, sizeof(*cpu));
     cpu->memory = memory;
     cpu->memory_size = memory_size;
+    cpu->primary_memory_size = memory_size;
     cpu->page_generations = page_generations;
     d2e_x86_cpu_reset(cpu);
 }
@@ -14,6 +15,13 @@ void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory, size_t memory_size,
 void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     uint8_t *const memory = cpu->memory;
     const size_t memory_size = cpu->memory_size;
+    uint8_t *const extended_memory = cpu->extended_memory;
+    const size_t primary_memory_size = cpu->primary_memory_size;
+    const size_t extended_memory_size = cpu->extended_memory_size;
+    void *const extended_memory_context = cpu->extended_memory_context;
+    const d2e_x86_extended_read8_fn extended_read8 = cpu->extended_read8;
+    const d2e_x86_extended_write8_fn extended_write8 = cpu->extended_write8;
+    const d2e_x86_extended_clear_fn extended_clear = cpu->extended_clear;
     uint8_t *const cga_vram = cpu->cga_vram;
     uint32_t *const page_generations = cpu->page_generations;
     void *const port_context = cpu->port_context;
@@ -27,6 +35,13 @@ void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     memset(cpu, 0, sizeof(*cpu));
     cpu->memory = memory;
     cpu->memory_size = memory_size;
+    cpu->extended_memory = extended_memory;
+    cpu->primary_memory_size = primary_memory_size;
+    cpu->extended_memory_size = extended_memory_size;
+    cpu->extended_memory_context = extended_memory_context;
+    cpu->extended_read8 = extended_read8;
+    cpu->extended_write8 = extended_write8;
+    cpu->extended_clear = extended_clear;
     cpu->cga_vram = cga_vram;
     cpu->page_generations = page_generations;
     cpu->port_context = port_context;
@@ -38,6 +53,44 @@ void d2e_x86_cpu_reset(d2e_x86_cpu *cpu) {
     cpu->interrupt = interrupt;
     cpu->flags = D2E_X86_FLAG_FIXED;
     cpu->stop_reason = D2E_X86_RUNNING;
+}
+
+void d2e_x86_map_extended_memory(d2e_x86_cpu *cpu, uint8_t *memory,
+                                 size_t memory_size) {
+    cpu->extended_memory = memory;
+    cpu->extended_memory_size = memory != NULL ? memory_size : 0U;
+    cpu->extended_memory_context = NULL;
+    cpu->extended_read8 = NULL;
+    cpu->extended_write8 = NULL;
+    cpu->extended_clear = NULL;
+    cpu->memory_size = cpu->primary_memory_size + cpu->extended_memory_size;
+}
+
+void d2e_x86_configure_extended_memory(
+    d2e_x86_cpu *cpu, size_t memory_size, void *context,
+    d2e_x86_extended_read8_fn read8, d2e_x86_extended_write8_fn write8,
+    d2e_x86_extended_clear_fn clear) {
+    cpu->extended_memory = NULL;
+    cpu->extended_memory_size = memory_size;
+    cpu->extended_memory_context = context;
+    cpu->extended_read8 = read8;
+    cpu->extended_write8 = write8;
+    cpu->extended_clear = clear;
+    cpu->memory_size = cpu->primary_memory_size + memory_size;
+}
+
+void d2e_x86_clear_memory(d2e_x86_cpu *cpu) {
+    size_t index;
+    memset(cpu->memory, 0, cpu->primary_memory_size);
+    if (cpu->extended_clear != NULL) {
+        cpu->extended_clear(cpu->extended_memory_context);
+    } else if (cpu->extended_memory != NULL) {
+        uint32_t *const words = (uint32_t *)(void *)cpu->extended_memory;
+        const size_t word_count = (cpu->extended_memory_size + 3U) / 4U;
+        for (index = 0U; index < word_count; ++index) {
+            words[index] = 0U;
+        }
+    }
 }
 
 void d2e_x86_map_cga_vram(d2e_x86_cpu *cpu, uint8_t *cga_vram) {

@@ -10,7 +10,7 @@ static const uint8_t *resolve_read(const d2e_x86_cpu *cpu, uint32_t address) {
         wrapped < UINT32_C(0xbc000)) {
         return cpu->cga_vram + (wrapped - UINT32_C(0xb8000));
     }
-    if (wrapped < cpu->memory_size) {
+    if (wrapped < cpu->primary_memory_size) {
         return cpu->memory + wrapped;
     }
     return NULL;
@@ -32,6 +32,16 @@ uint32_t d2e_x86_linear(uint16_t segment, uint16_t offset) {
 }
 
 uint8_t d2e_x86_read8(const d2e_x86_cpu *cpu, uint32_t address) {
+    const uint32_t wrapped = wrap_address(address);
+    if (wrapped >= cpu->primary_memory_size && wrapped < cpu->memory_size) {
+        const uint32_t offset = wrapped - (uint32_t)cpu->primary_memory_size;
+        if (cpu->extended_read8 != NULL) {
+            return cpu->extended_read8(cpu->extended_memory_context, offset);
+        }
+        const uint32_t *const words =
+            (const uint32_t *)(const void *)cpu->extended_memory;
+        return (uint8_t)(words[offset >> 2U] >> ((offset & 3U) * 8U));
+    }
     const uint8_t *const location = resolve_read(cpu, address);
     return location != NULL ? *location : UINT8_C(0xff);
 }
@@ -44,6 +54,26 @@ uint16_t d2e_x86_read16(const d2e_x86_cpu *cpu, uint32_t address) {
 
 void d2e_x86_write8(d2e_x86_cpu *cpu, uint32_t address, uint8_t value) {
     const uint32_t wrapped = wrap_address(address);
+    if (wrapped >= cpu->primary_memory_size && wrapped < cpu->memory_size) {
+        const uint32_t offset = wrapped - (uint32_t)cpu->primary_memory_size;
+        if (cpu->extended_write8 != NULL) {
+            if (cpu->extended_write8(cpu->extended_memory_context, offset,
+                                     value)) {
+                mark_write(cpu, wrapped);
+            } else {
+                cpu->fault_address = wrapped;
+                cpu->stop_reason = D2E_X86_UNMAPPED_MEMORY;
+            }
+            return;
+        }
+        uint32_t *const words = (uint32_t *)(void *)cpu->extended_memory;
+        const unsigned shift = (unsigned)((offset & 3U) * 8U);
+        const uint32_t mask = UINT32_C(0xff) << shift;
+        words[offset >> 2U] =
+            (words[offset >> 2U] & ~mask) | ((uint32_t)value << shift);
+        mark_write(cpu, wrapped);
+        return;
+    }
     uint8_t *const location = resolve_write(cpu, wrapped);
     if (location == NULL) {
         cpu->fault_address = wrapped;

@@ -16,7 +16,7 @@ int d2e_supervisor_launch(d2e_supervisor *supervisor,
         !d2e_package_validate(package)) {
         return 0;
     }
-    memset(supervisor->cpu->memory, 0, supervisor->cpu->memory_size);
+    d2e_x86_clear_memory(supervisor->cpu);
     supervisor->package = package;
     supervisor->exit_code = 0U;
     if (!d2e_native_load(supervisor->cpu, package->program)) {
@@ -57,7 +57,7 @@ void d2e_supervisor_return_to_shell(d2e_supervisor *supervisor) {
     if (supervisor == NULL || supervisor->cpu == NULL) {
         return;
     }
-    memset(supervisor->cpu->memory, 0, supervisor->cpu->memory_size);
+    d2e_x86_clear_memory(supervisor->cpu);
     d2e_x86_cpu_reset(supervisor->cpu);
     supervisor->package = NULL;
     supervisor->state = D2E_SUPERVISOR_IDLE;

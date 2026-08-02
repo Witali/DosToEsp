@@ -72,6 +72,10 @@ struct d2e_x86_cpu;
 typedef int (*d2e_x86_interrupt_fn)(void *context,
                                     struct d2e_x86_cpu *cpu,
                                     uint8_t interrupt_number);
+typedef uint8_t (*d2e_x86_extended_read8_fn)(void *context, uint32_t offset);
+typedef int (*d2e_x86_extended_write8_fn)(void *context, uint32_t offset,
+                                          uint8_t value);
+typedef void (*d2e_x86_extended_clear_fn)(void *context);
 
 typedef struct d2e_x86_cpu {
     uint16_t regs[D2E_X86_REG16_COUNT];
@@ -95,11 +99,25 @@ typedef struct d2e_x86_cpu {
     uint32_t fault_address;
     uint8_t exit_code;
     uint64_t instructions_retired;
+    uint8_t *extended_memory;
+    size_t primary_memory_size;
+    size_t extended_memory_size;
+    void *extended_memory_context;
+    d2e_x86_extended_read8_fn extended_read8;
+    d2e_x86_extended_write8_fn extended_write8;
+    d2e_x86_extended_clear_fn extended_clear;
 } d2e_x86_cpu;
 
 void d2e_x86_cpu_init(d2e_x86_cpu *cpu, uint8_t *memory, size_t memory_size,
                       uint32_t *page_generations);
 void d2e_x86_cpu_reset(d2e_x86_cpu *cpu);
+void d2e_x86_map_extended_memory(d2e_x86_cpu *cpu, uint8_t *memory,
+                                 size_t memory_size);
+void d2e_x86_configure_extended_memory(
+    d2e_x86_cpu *cpu, size_t memory_size, void *context,
+    d2e_x86_extended_read8_fn read8, d2e_x86_extended_write8_fn write8,
+    d2e_x86_extended_clear_fn clear);
+void d2e_x86_clear_memory(d2e_x86_cpu *cpu);
 void d2e_x86_map_cga_vram(d2e_x86_cpu *cpu, uint8_t *cga_vram);
 void d2e_x86_configure_ports(d2e_x86_cpu *cpu, void *context,
                              d2e_x86_port_in8_fn input,
