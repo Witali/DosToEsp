@@ -37,6 +37,8 @@ typedef struct d2e_shell {
 
 void d2e_shell_init(d2e_shell *shell, const d2e_package *packages,
                     size_t package_count);
+const d2e_package *d2e_shell_execute_line(d2e_shell *shell,
+                                          const char *line);
 const d2e_package *d2e_shell_feed(d2e_shell *shell, uint8_t byte);
 void d2e_shell_set_message(d2e_shell *shell, const char *message);
 void d2e_shell_set_drive_available(d2e_shell *shell, char drive,

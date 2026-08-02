@@ -59,6 +59,10 @@ or `-Volume 0..100` as needed. `-AudioCapture path.wav` records the DAC stream
 with QEMU's WAV backend instead of playing it. QEMU snapshot mode keeps both
 source images unchanged.
 
+The first installed module also creates `A:\AUTOEXEC.BAT`. The shell executes
+this file on every boot; installing the Alley Cat module writes `ALLEY`, so the
+game starts automatically without being compiled into the resident firmware.
+
 Verify the production layout, where Alley Cat is absent from the application
 partition and is installed from SD before executing directly from `A:` Flash:
 

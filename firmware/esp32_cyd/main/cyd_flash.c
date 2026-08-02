@@ -22,6 +22,8 @@ static const char k_partition_label[] = "storage";
 static const uint8_t k_superblock_magic[8] = {'D', '2', 'E', 'A', 'X', 'I',
                                               'P', '1'};
 static const uint8_t k_record_magic[8] = {'D', '2', 'E', 'M', 'O', 'D', '1', 0};
+static const uint8_t k_autoexec_magic[8] = {'D', '2', 'E', 'A', 'U', 'T', 'O',
+                                            '1'};
 
 typedef struct cyd_flash_state {
     const esp_partition_t *partition;
@@ -29,6 +31,8 @@ typedef struct cyd_flash_state {
     size_t module_count;
     uint32_t next_module_offset;
     uint32_t next_record_offset;
+    uint32_t autoexec_record_offset;
+    uint8_t autoexec_length;
 } cyd_flash_state;
 
 static cyd_flash_state state;
@@ -191,6 +195,49 @@ static esp_err_t append_catalog_record(const cyd_flash_module *module) {
     return result;
 }
 
+static esp_err_t write_autoexec(const char *contents, size_t length) {
+    uint8_t record[k_record_size];
+    const uint32_t record_offset = state.next_record_offset;
+    esp_err_t result;
+    if (contents == NULL || length == 0U ||
+        length > CYD_FLASH_AUTOEXEC_CAPACITY) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (state.next_record_offset + k_record_size > k_catalog_size) {
+        return ESP_ERR_NO_MEM;
+    }
+    memset(record, 0xff, sizeof(record));
+    memcpy(record, k_autoexec_magic, sizeof(k_autoexec_magic));
+    write_u32(record + 8U, (uint32_t)length);
+    memcpy(record + 12U, contents, length);
+    write_u32(record + 60U,
+              esp_rom_crc32_le(0U, record, k_record_size - 4U));
+    result = esp_partition_write(state.partition, state.next_record_offset,
+                                 record, sizeof(record));
+    if (result == ESP_OK) {
+        state.next_record_offset += k_record_size;
+        state.autoexec_record_offset = record_offset;
+        state.autoexec_length = (uint8_t)length;
+    }
+    return result;
+}
+
+static esp_err_t create_default_autoexec(const cyd_flash_module *module) {
+    char contents[D2E_XIP_COMMAND_SIZE + 2U];
+    const int length = snprintf(contents, sizeof(contents), "%s\r\n",
+                                module->manifest.command);
+    esp_err_t result;
+    if (length <= 0 || (size_t)length >= sizeof(contents)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    result = write_autoexec(contents, (size_t)length);
+    if (result == ESP_OK) {
+        esp_rom_printf("D2E_AUTOEXEC_CREATED,file=A:/AUTOEXEC.BAT,command=%s\n",
+                       module->manifest.command);
+    }
+    return result;
+}
+
 static esp_err_t scan_catalog(void) {
     uint8_t record[k_record_size];
     uint32_t offset;
@@ -209,10 +256,26 @@ static esp_err_t scan_catalog(void) {
             state.next_record_offset = offset;
             return ESP_OK;
         }
-        if (memcmp(record, k_record_magic, sizeof(k_record_magic)) != 0 ||
-            read_u32(record + 60U) !=
-                esp_rom_crc32_le(0U, record, k_record_size - 4U)) {
-            esp_rom_printf("D2E_MODULE_SKIP,reason=catalog,offset=%u\n",
+        if (read_u32(record + 60U) !=
+            esp_rom_crc32_le(0U, record, k_record_size - 4U)) {
+            esp_rom_printf("D2E_CATALOG_SKIP,reason=crc,offset=%u\n",
+                           (unsigned)offset);
+            continue;
+        }
+        if (memcmp(record, k_autoexec_magic, sizeof(k_autoexec_magic)) == 0) {
+            const uint32_t length = read_u32(record + 8U);
+            if (length == 0U || length > CYD_FLASH_AUTOEXEC_CAPACITY) {
+                esp_rom_printf(
+                    "D2E_CATALOG_SKIP,reason=autoexec,offset=%u\n",
+                    (unsigned)offset);
+                continue;
+            }
+            state.autoexec_record_offset = offset;
+            state.autoexec_length = (uint8_t)length;
+            continue;
+        }
+        if (memcmp(record, k_record_magic, sizeof(k_record_magic)) != 0) {
+            esp_rom_printf("D2E_CATALOG_SKIP,reason=magic,offset=%u\n",
                            (unsigned)offset);
             continue;
         }
@@ -295,12 +358,21 @@ esp_err_t cyd_flash_mount(void) {
     }
     result = scan_catalog();
     if (result == ESP_OK) {
+        if (state.autoexec_length == 0U && state.module_count != 0U) {
+            const esp_err_t autoexec_result =
+                create_default_autoexec(&state.modules[0]);
+            if (autoexec_result != ESP_OK) {
+                esp_rom_printf("D2E_AUTOEXEC_CREATE_FAILED,result=%s\n",
+                               esp_err_to_name(autoexec_result));
+            }
+        }
         report_xip_window();
         esp_rom_printf("D2E_DRIVE_READY,drive=A,type=xip,total=%u,used=%u,"
-                       "modules=%u\n",
+                       "modules=%u,autoexec=%u\n",
                        (unsigned)state.partition->size,
                        (unsigned)state.next_module_offset,
-                       (unsigned)state.module_count);
+                       (unsigned)state.module_count,
+                       state.autoexec_length != 0U ? 1U : 0U);
     }
     return result;
 }
@@ -381,6 +453,35 @@ esp_err_t cyd_flash_install_file(const char *path) {
     esp_rom_printf("D2E_MODULE_INSTALLED,command=%s,bytes=%u,offset=%u\n",
                    module.manifest.command, (unsigned)module.module_size,
                    (unsigned)module.partition_offset);
+    if (state.autoexec_length == 0U) {
+        return create_default_autoexec(&module);
+    }
+    return ESP_OK;
+}
+
+esp_err_t cyd_flash_read_autoexec(char *buffer, size_t capacity,
+                                  size_t *length) {
+    if (buffer == NULL || capacity == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (state.autoexec_length == 0U) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (capacity <= state.autoexec_length) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    {
+        const esp_err_t result = esp_partition_read(
+            state.partition, state.autoexec_record_offset + 12U, buffer,
+            state.autoexec_length);
+        if (result != ESP_OK) {
+            return result;
+        }
+    }
+    buffer[state.autoexec_length] = '\0';
+    if (length != NULL) {
+        *length = state.autoexec_length;
+    }
     return ESP_OK;
 }
 

@@ -52,14 +52,20 @@ static int drive_available(const d2e_shell *shell, char drive) {
     return bit != 0U && (shell->drive_mask & bit) != 0U;
 }
 
-static const d2e_package *execute_line(d2e_shell *shell) {
+const d2e_package *d2e_shell_execute_line(d2e_shell *shell,
+                                          const char *line) {
     char command[D2E_SHELL_INPUT_CAPACITY + 1U];
     char *argument;
     char *text;
     const d2e_package *package;
     size_t index;
 
-    memcpy(command, shell->input, shell->input_length + 1U);
+    const size_t line_length = line != NULL ? strlen(line) : 0U;
+    if (line == NULL || line_length > D2E_SHELL_INPUT_CAPACITY) {
+        d2e_shell_set_message(shell, "Command line too long");
+        return NULL;
+    }
+    memcpy(command, line, line_length + 1U);
     text = trim(command);
     if (*text == '\0') {
         d2e_shell_set_message(shell, "");
@@ -90,6 +96,10 @@ static const d2e_package *execute_line(d2e_shell *shell) {
     if (strcmp(text, "HELP") == 0) {
         d2e_shell_set_message(shell,
                               "DIR A: C: RUN <name> INSTALL <file>");
+        return NULL;
+    }
+    if (strcmp(text, "REM") == 0) {
+        d2e_shell_set_message(shell, "");
         return NULL;
     }
     if (strcmp(text, "DIR") == 0) {
@@ -163,7 +173,7 @@ const d2e_package *d2e_shell_feed(d2e_shell *shell, uint8_t byte) {
     if (byte == (uint8_t)'\r' || byte == (uint8_t)'\n') {
         shell->ignore_line_feed = byte == (uint8_t)'\r' ? 1U : 0U;
         shell->input[shell->input_length] = '\0';
-        package = execute_line(shell);
+        package = d2e_shell_execute_line(shell, shell->input);
         shell->input_length = 0U;
         shell->input[0] = '\0';
         shell->dirty = 1U;

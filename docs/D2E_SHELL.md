@@ -45,6 +45,14 @@ Typing a package name directly is equivalent to `RUN <name>`. During a
 program, `Ctrl+]` requests an immediate return to the shell. On the physical
 CYD board, pressing BOOT at the shell starts the first catalog entry.
 
+At boot, the shell reads `A:\AUTOEXEC.BAT` and executes its commands in order.
+Blank lines and `REM` comments are accepted. The custom XIP catalog stores the
+file as an atomic append-only record with a maximum of 48 bytes. Installing the
+first package creates the file automatically with that package's command, so
+installing Alley Cat writes `ALLEY` and subsequent boots start it without user
+input. An existing XIP volume with one or more packages but no startup file is
+migrated in the same way when it is mounted.
+
 Development firmware can still contain a built-in `ALLEY` entry. The production
 layout installs that translation from the FAT-backed `C:` drive into an
 aligned, append-only extent on `A:`. A catalog record is committed only after

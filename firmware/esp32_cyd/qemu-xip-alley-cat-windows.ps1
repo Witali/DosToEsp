@@ -132,6 +132,9 @@ if ($LASTEXITCODE -ne 0) {
 foreach ($expected in @(
     "D2E_QEMU_XIP_INSTALL,file=ALLEY.D2E,result=ESP_OK",
     "D2E_MODULE_INSTALLED,command=ALLEY",
+    "D2E_AUTOEXEC_CREATED,file=A:/AUTOEXEC.BAT,command=ALLEY",
+    "D2E_AUTOEXEC_RUN,file=A:/AUTOEXEC.BAT",
+    "D2E_AUTOEXEC_LINE,line=1,text=ALLEY",
     "D2E_MODULE_ACTIVE,command=ALLEY",
     "D2E_SHELL_RUN,command=ALLEY",
     "D2E_SHELL_RETURN,command=ALLEY,source=harness",

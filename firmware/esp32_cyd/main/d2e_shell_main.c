@@ -213,7 +213,6 @@ static void refresh_package_catalog(void) {
     }
 }
 
-#if !D2E_SHELL_AUTORUN
 static void reset_shell_catalog(const char *message) {
     refresh_package_catalog();
     d2e_shell_init(&shell, packages, package_count);
@@ -221,7 +220,6 @@ static void reset_shell_catalog(const char *message) {
     d2e_shell_set_drive_available(&shell, 'C', drive_c_ready);
     enter_shell(message);
 }
-#endif
 
 static void enter_shell(const char *message) {
     d2e_supervisor_return_to_shell(&supervisor);
@@ -236,7 +234,6 @@ static void enter_shell(const char *message) {
                    message);
 }
 
-#if !D2E_SHELL_AUTORUN
 static void handle_shell_request(void) {
     char argument[D2E_SHELL_INPUT_CAPACITY + 1U];
     const d2e_shell_request request =
@@ -255,7 +252,6 @@ static void handle_shell_request(void) {
         reset_shell_catalog(message);
     }
 }
-#endif
 
 static const d2e_package *wait_for_shell_command(void) {
 #if D2E_SHELL_AUTORUN
@@ -502,7 +498,65 @@ static void run_package(const d2e_package *package) {
     }
 }
 
+static size_t run_autoexec(void) {
+    char script[CYD_FLASH_AUTOEXEC_CAPACITY + 1U];
+    char *cursor;
+    size_t length = 0U;
+    size_t line_number = 0U;
+    size_t launched = 0U;
+    esp_err_t result;
+    if (drive_a_ready == 0U) {
+        return 0U;
+    }
+    result = cyd_flash_read_autoexec(script, sizeof(script), &length);
+    if (result == ESP_ERR_NOT_FOUND) {
+        esp_rom_printf("D2E_AUTOEXEC_MISSING,file=A:/AUTOEXEC.BAT\n");
+        return 0U;
+    }
+    if (result != ESP_OK) {
+        esp_rom_printf("D2E_AUTOEXEC_FAILED,file=A:/AUTOEXEC.BAT,result=%s\n",
+                       esp_err_to_name(result));
+        return 0U;
+    }
+    esp_rom_printf("D2E_AUTOEXEC_RUN,file=A:/AUTOEXEC.BAT,bytes=%u\n",
+                   (unsigned)length);
+    cursor = script;
+    while (*cursor != '\0') {
+        char *const line = cursor;
+        const d2e_package *package;
+        while (*cursor != '\0' && *cursor != '\r' && *cursor != '\n') {
+            ++cursor;
+        }
+        if (*cursor != '\0') {
+            const char terminator = *cursor;
+            *cursor++ = '\0';
+            if (terminator == '\r' && *cursor == '\n') {
+                ++cursor;
+            }
+        }
+        ++line_number;
+        if (*line == '\0') {
+            continue;
+        }
+        esp_rom_printf("D2E_AUTOEXEC_LINE,line=%u,text=%s\n",
+                       (unsigned)line_number, line);
+        package = d2e_shell_execute_line(&shell, line);
+        if (shell.request != D2E_SHELL_REQUEST_NONE) {
+            handle_shell_request();
+        }
+        if (package != NULL) {
+            run_package(package);
+            ++launched;
+        }
+    }
+    if (launched == 0U && shell.dirty != 0U) {
+        render_shell();
+    }
+    return launched;
+}
+
 void app_main(void) {
+    size_t autoexec_runs;
     d2e_x86_cpu_init(&cpu, conventional_memory, sizeof(conventional_memory),
                      NULL);
     d2e_pc_at_init(&pc_at, cga_vram, sizeof(cga_vram));
@@ -535,6 +589,14 @@ void app_main(void) {
 #endif
 
     enter_shell("Type HELP for commands");
+    autoexec_runs = run_autoexec();
+#if D2E_QEMU_EXIT_AFTER_RETURN
+    if (autoexec_runs != 0U) {
+        finish(0);
+    }
+#else
+    (void)autoexec_runs;
+#endif
     for (;;) {
         const d2e_package *const package = wait_for_shell_command();
         run_package(package);

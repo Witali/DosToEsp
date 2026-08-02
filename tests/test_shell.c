@@ -49,6 +49,12 @@ static void test_commands(void) {
     CHECK(feed_text(&shell, "run alley\r\n") == &packages[0]);
     CHECK(shell.input_length == 0U);
     CHECK(feed_text(&shell, "ALLEY\n") == &packages[0]);
+    CHECK(d2e_shell_execute_line(&shell, "run alley") == &packages[0]);
+    CHECK(d2e_shell_execute_line(&shell, "REM Start the game") == NULL);
+    CHECK(strcmp(shell.message, "") == 0);
+    CHECK(d2e_shell_execute_line(
+              &shell, "12345678901234567890123456789012") == NULL);
+    CHECK(strcmp(shell.message, "Command line too long") == 0);
     CHECK(feed_text(&shell, "HELP\r") == NULL);
     CHECK(strcmp(shell.message,
                  "DIR A: C: RUN <name> INSTALL <file>") == 0);
