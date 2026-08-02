@@ -259,6 +259,40 @@ def main() -> int:
         assert ".long 9" in indexed_assembly
         assert ".byte 0x34, 0x12" in indexed_assembly
 
+        byte_fixture = bytes.fromhex(
+            "8a 1e 09 01 88 1e 09 01 f4 7f"
+        )
+        byte_decoded = d2e_translate.discover(byte_fixture, 0x100, 0x100)
+        byte_blocks = d2e_translate.make_blocks(byte_decoded, 0x100)
+        byte_assembly = d2e_xtensa.emit_program(
+            byte_fixture,
+            byte_blocks,
+            "byte_memory",
+            0x1000,
+            0x100,
+        )
+        assert "call8 d2e_native_helper_read8" in byte_assembly
+        assert "call8 d2e_native_helper_write8" in byte_assembly
+        assert "s8i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in byte_assembly
+        assert "l8ui a13, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in byte_assembly
+        assert ".byte 0x7f" in byte_assembly
+
+        high_byte_fixture = bytes.fromhex("b4 12 f4")
+        high_byte_decoded = d2e_translate.discover(
+            high_byte_fixture, 0x100, 0x100
+        )
+        high_byte_blocks = d2e_translate.make_blocks(
+            high_byte_decoded, 0x100
+        )
+        high_byte_assembly = d2e_xtensa.emit_program(
+            high_byte_fixture,
+            high_byte_blocks,
+            "high_byte_register",
+            0x1000,
+            0x100,
+        )
+        assert "s8i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 1" in high_byte_assembly
+
         stack_fixture = bytes.fromhex("bd 07 01 8b 46 00 f4 34 12")
         stack_decoded = d2e_translate.discover(stack_fixture, 0x100, 0x100)
         stack_blocks = d2e_translate.make_blocks(stack_decoded, 0x100)

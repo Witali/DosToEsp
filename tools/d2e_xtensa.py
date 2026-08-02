@@ -24,6 +24,17 @@ REG16_OFFSETS = {
     "di": 14,
 }
 
+REG8_OFFSETS = {
+    "al": 0,
+    "ah": 1,
+    "cl": 2,
+    "ch": 3,
+    "dl": 4,
+    "dh": 5,
+    "bl": 6,
+    "bh": 7,
+}
+
 SEGMENT_INDICES = {
     "es": "D2E_ASM_X86_ES_INDEX",
     "cs": "D2E_ASM_X86_CS_INDEX",
@@ -57,12 +68,16 @@ def _error(instruction: Any, detail: str) -> BackendError:
     )
 
 
-def _memory16(instruction: Any, operand: tuple[Any, Any]) -> Any:
+def _memory_operand(
+    instruction: Any,
+    operand: tuple[Any, Any],
+    width: int,
+) -> Any:
     if operand[0] != "mem":
         raise _error(instruction, "requires a memory operand")
     memory = operand[1]
-    if getattr(memory, "width", 0) != 16:
-        raise _error(instruction, "currently supports only 16-bit memory operands")
+    if getattr(memory, "width", 0) != width:
+        raise _error(instruction, f"requires a {width}-bit memory operand")
     for register in (
         getattr(memory, "base", None),
         getattr(memory, "index", None),
@@ -130,7 +145,7 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
                 f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
             ]
         if source[0] == "mem":
-            memory = _memory16(instruction, source)
+            memory = _memory_operand(instruction, source, 16)
             return [
                 *_emit_memory_arguments(emitter, instruction, memory),
                 "    call8 d2e_native_helper_read16",
@@ -144,16 +159,58 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
             "currently supports only immediate/register/memory MOV sources",
         )
 
+    if destination[0] == "reg" and destination[1] in REG8_OFFSETS:
+        destination_offset = REG8_OFFSETS[str(destination[1])]
+        if source[0] == "imm":
+            literal = emitter.literal(int(source[1]) & 0xFF, "immediate")
+            return [
+                f"    l32r a4, {literal}",
+                f"    s8i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+            ]
+        if source[0] == "reg" and source[1] in REG8_OFFSETS:
+            source_offset = REG8_OFFSETS[str(source[1])]
+            return [
+                f"    l8ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}",
+                f"    s8i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+            ]
+        if source[0] == "mem":
+            memory = _memory_operand(instruction, source, 8)
+            return [
+                *_emit_memory_arguments(emitter, instruction, memory),
+                "    call8 d2e_native_helper_read8",
+                (
+                    "    s8i a10, a2, D2E_ASM_CPU_REGS_OFFSET + "
+                    f"{destination_offset}"
+                ),
+            ]
+        raise _error(
+            instruction,
+            "currently supports only immediate/register/memory byte MOV sources",
+        )
+
     if destination[0] == "mem":
-        memory = _memory16(instruction, destination)
+        width = int(getattr(destination[1], "width", 0))
+        if width not in (8, 16):
+            raise _error(instruction, "currently supports only 8/16-bit MOV stores")
+        memory = _memory_operand(instruction, destination, width)
         lines = _emit_memory_arguments(emitter, instruction, memory)
         if source[0] == "imm":
-            literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
+            mask = 0xFF if width == 8 else 0xFFFF
+            literal = emitter.literal(int(source[1]) & mask, "immediate")
             lines.append(f"    l32r a13, {literal}")
-        elif source[0] == "reg" and source[1] in REG16_OFFSETS:
+        elif (
+            source[0] == "reg"
+            and width == 16
+            and source[1] in REG16_OFFSETS
+        ):
             source_offset = REG16_OFFSETS[str(source[1])]
             lines.append(
                 f"    l16ui a13, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+            )
+        elif source[0] == "reg" and width == 8 and source[1] in REG8_OFFSETS:
+            source_offset = REG8_OFFSETS[str(source[1])]
+            lines.append(
+                f"    l8ui a13, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
             )
         else:
             raise _error(
@@ -163,7 +220,7 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
         completed = emitter.local("memory_write_completed")
         lines.extend(
             [
-                "    call8 d2e_native_helper_write16",
+                f"    call8 d2e_native_helper_write{width}",
                 "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
                 f"    beqz a4, {completed}",
                 "    j .Lprogram_region_finish",
@@ -174,7 +231,7 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
 
     raise _error(
         instruction,
-        "currently supports only 16-bit register/memory MOV destinations",
+        "currently supports only 8/16-bit register/memory MOV destinations",
     )
 
 
@@ -691,7 +748,9 @@ def emit_program(
         "/* Generated by tools/d2e_translate.py --backend xtensa-asm. Do not edit. */",
         '#include "d2e/native_asm_offsets.h"',
         "    .extern d2e_native_helper_mul16",
+        "    .extern d2e_native_helper_read8",
         "    .extern d2e_native_helper_read16",
+        "    .extern d2e_native_helper_write8",
         "    .extern d2e_native_helper_write16",
         "",
         '    .section .literal.program_region,"a",@progbits',
