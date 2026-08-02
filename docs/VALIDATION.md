@@ -452,3 +452,24 @@ D2E_UART_KEY,byte=44
 
 Hex byte `44` is the final `D` in the generated `ESC [ D` left-arrow
 sequence; the parser accepted it and queued PC/AT scan code `4Bh`.
+
+## 2026-08-02: Alley Cat mixed Xtensa assembly translation
+
+The production Alley Cat generator now selects `xtensa-asm`. It emits direct
+Xtensa blocks and partitions 2,684 complex blocks into 11 independently
+compiled CISC helper regions. Statically decoded x86 code and the recovered
+source jump table are omitted; only initialized data fragments are retained.
+Partitioning reduced `game_native.S` from 4.43 MB to 1.14 MB of source and
+avoided Xtensa `L32R` range overflow in the former monolithic helper.
+
+ESP-IDF linked the translated game into a 694,000-byte (`0xA96F0`) application
+image, leaving 34 percent of the one-megabyte application partition free. The
+bounded ESP32 QEMU run rendered CGA mode 4, returned to the resident shell at
+the configured harness budget, and exited cleanly:
+
+```text
+D2E_SHELL_RUN,command=ALLEY,csip=1723:0000,heap=155292
+D2E_FRAME,seq=60,mode=4,dirty=0,fnv1a=0f10eabc
+D2E_SHELL_RETURN,command=ALLEY,source=harness,state=1,reason=8,exit=0,instructions=14118099
+D2E_QEMU_DONE,0
+```

@@ -31,6 +31,7 @@ $adcFlagsAssembly = Join-Path $outputDirectory "native_adc_flags.xtensa.s"
 $mixedDirectory = Join-Path $outputDirectory "mixed"
 $mixedAssemblyObject = Join-Path $outputDirectory "mixed_native.o"
 $mixedCiscObject = Join-Path $outputDirectory "mixed_cisc.o"
+$mixedCiscRegionObject = Join-Path $outputDirectory "mixed_cisc_region.o"
 $runtimeObject = Join-Path $outputDirectory "native_runtime.o"
 
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
@@ -60,6 +61,12 @@ if ($LASTEXITCODE -ne 0) { throw "Generated Xtensa assembly failed to compile" }
     -I (Join-Path $project "include") -c `
     (Join-Path $mixedDirectory "game_cisc.c") -o $mixedCiscObject
 if ($LASTEXITCODE -ne 0) { throw "Generated CISC helpers failed to compile" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -c `
+    (Join-Path $mixedDirectory "game_cisc_region_000.c") `
+    -o $mixedCiscRegionObject
+if ($LASTEXITCODE -ne 0) { throw "Generated CISC region failed to compile" }
 
 & $compiler -std=c99 -O2 -Wall -Wextra -Werror `
     -I (Join-Path $project "include") -c `
@@ -180,6 +187,11 @@ $mixedCiscText = Get-Content -LiteralPath `
 if ($mixedCiscText -notmatch "d2e_generated_cisc_region") {
     throw "Mixed Xtensa source build did not emit its CISC region"
 }
+$mixedRegionText = Get-Content -LiteralPath `
+    (Join-Path $mixedDirectory "game_cisc_region_000.c") -Raw
+if ($mixedRegionText -match "static uint32_t d2e_generated_cisc_region") {
+    throw "Generated CISC region is not visible to its bridge"
+}
 
 $memoryText = Get-Content -LiteralPath $memoryGenerated -Raw
 foreach ($pattern in @(
@@ -216,6 +228,7 @@ if ($text -match "(?m)^block_[0-9a-f]+:") {
 }
 Write-Host `
     "Xtensa native-code audit passed: $mixedAssemblyObject, " `
-    "$mixedCiscObject, $runtimeObject, $assembly, $memoryAssembly, " `
+    "$mixedCiscObject, $mixedCiscRegionObject, $runtimeObject, " `
+    "$assembly, $memoryAssembly, " `
     "$callAssembly, $logicAssembly, $shiftAssembly, $stringAssembly, " `
     "$portAssembly, $rareAssembly, $indirectAssembly, $adcFlagsAssembly"
