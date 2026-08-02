@@ -550,6 +550,75 @@ def _emit_near_return(emitter: _Emitter, instruction: Any) -> list[str]:
     return lines
 
 
+def _emit_stack_push(emitter: _Emitter, instruction: Any) -> list[str]:
+    if len(instruction.operands) != 1:
+        raise _error(instruction, "requires one PUSH operand")
+    source = instruction.operands[0]
+    lines = ["    mov a10, a2"]
+    if source[0] == "reg" and source[1] in REG16_OFFSETS:
+        source_offset = REG16_OFFSETS[str(source[1])]
+        lines.append(
+            f"    l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+        )
+        if source[1] == "sp":
+            lines.extend(
+                [
+                    "    addi a11, a11, -2 /* 8086 PUSH SP value */",
+                    "    extui a11, a11, 0, 16",
+                ]
+            )
+    elif source[0] == "reg" and source[1] in SEGMENT_INDICES:
+        segment_index = SEGMENT_INDICES[str(source[1])]
+        lines.append(
+            "    l16ui a11, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+            f"({segment_index} * 2)"
+        )
+    else:
+        raise _error(
+            instruction,
+            "currently supports only register and segment PUSH operands",
+        )
+    completed = emitter.local("stack_push_completed")
+    lines.extend(
+        [
+            "    call8 d2e_x86_push16",
+            "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+            f"    beqz a4, {completed}",
+            "    j .Lprogram_region_finish",
+            f"{completed}:",
+        ]
+    )
+    return lines
+
+
+def _emit_stack_pop(instruction: Any) -> list[str]:
+    if len(instruction.operands) != 1:
+        raise _error(instruction, "requires one POP operand")
+    destination = instruction.operands[0]
+    lines = ["    mov a10, a2", "    call8 d2e_x86_pop16"]
+    if destination[0] == "reg" and destination[1] in REG16_OFFSETS:
+        destination_offset = REG16_OFFSETS[str(destination[1])]
+        lines.append(
+            f"    s16i a10, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    elif (
+        destination[0] == "reg"
+        and destination[1] in SEGMENT_INDICES
+        and destination[1] != "cs"
+    ):
+        segment_index = SEGMENT_INDICES[str(destination[1])]
+        lines.append(
+            "    s16i a10, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+            f"({segment_index} * 2)"
+        )
+    else:
+        raise _error(
+            instruction,
+            "currently supports only register and segment POP operands",
+        )
+    return lines
+
+
 def _emit_edge(
     emitter: _Emitter,
     target: int,
@@ -791,6 +860,10 @@ def native_block_leaders(
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires RET to end its block")
                     _emit_near_return(emitter, instruction)
+                elif mnemonic == "push":
+                    _emit_stack_push(emitter, instruction)
+                elif mnemonic == "pop":
+                    _emit_stack_pop(instruction)
                 elif mnemonic == "hlt":
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires HLT to end its block")
@@ -1007,6 +1080,10 @@ def emit_program(
                 body.extend(_emit_retired(emitter, len(block)))
                 body.append("    j .Lprogram_region_dispatch")
                 terminated = True
+            elif mnemonic == "push":
+                body.extend(_emit_stack_push(emitter, instruction))
+            elif mnemonic == "pop":
+                body.extend(_emit_stack_pop(instruction))
             elif mnemonic == "hlt":
                 if index != len(block) - 1:
                     raise _error(instruction, "requires HLT to end its block")
@@ -1090,6 +1167,7 @@ def emit_program(
         "    .extern d2e_native_helper_mul16",
         "    .extern d2e_native_helper_push_near_return",
         "    .extern d2e_x86_pop16",
+        "    .extern d2e_x86_push16",
         "    .extern d2e_native_helper_read8",
         "    .extern d2e_native_helper_read16",
         "    .extern d2e_native_helper_write8",

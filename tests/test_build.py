@@ -253,7 +253,7 @@ def main() -> int:
         assert manifest["generated_data"] == []
         assert (output / "game_native.S").read_text(encoding="utf-8") == assembly
 
-        mixed_fixture = bytes.fromhex("50 eb 00 f4")
+        mixed_fixture = bytes.fromhex("ff 36 00 02 eb 00 f4")
         output = pathlib.Path(temporary) / "asm-mixed"
         manifest = d2e_build.build_sources(
             mixed_fixture,
@@ -279,8 +279,8 @@ def main() -> int:
         )
         assert ".extern d2e_generated_cisc_step" in mixed_assembly
         assert "call8 d2e_generated_cisc_step" in mixed_assembly
-        assert "/* 0103: hlt  */" in mixed_assembly
-        assert ".byte 0x50" not in mixed_assembly
+        assert "/* 0106: hlt  */" in mixed_assembly
+        assert ".byte 0xff" not in mixed_assembly
         assert ".byte 0xeb" not in mixed_assembly
         assert ".byte 0xf4" not in mixed_assembly
         assert "d2e_generated_cisc_region_000" in mixed_cisc
@@ -291,8 +291,8 @@ def main() -> int:
         )
         assert "r_sp = (uint16_t)(r_sp - UINT16_C(2));" in mixed_region
         assert "d2e_x86_write16_seg(" in mixed_region
-        assert "r_sp, r_ax);" in mixed_region
-        assert "block_0103:" not in mixed_region
+        assert "d2e_x86_read16_seg" in mixed_region
+        assert "block_0106:" not in mixed_region
         assert "UINT32_C(1)" not in mixed_cisc
         assert "uint32_t step;" not in mixed_cisc
         assert "const uint32_t module_target = cpu->ip;" in mixed_cisc
@@ -305,7 +305,7 @@ def main() -> int:
         assert "srli a7, a4, 1" in mixed_assembly
         assert "extui a10, a4, 0, 1" in mixed_assembly
 
-        fallback_image = bytes([0x50] * 257)
+        fallback_image = bytes([0x27] * 257)
         fallback_decoded = d2e_translate.discover(
             fallback_image, 0x100, 0x100
         )
@@ -373,8 +373,30 @@ def main() -> int:
         assert "0x00000080" in direct_return_assembly
         assert "extui a4, a4, 0, 16" in direct_return_assembly
 
+        direct_stack_fixture = bytes.fromhex("54 5b 1e 07 f4")
+        output = pathlib.Path(temporary) / "asm-direct-stack"
+        manifest = d2e_build.build_sources(
+            direct_stack_fixture,
+            "direct-stack.com",
+            "com",
+            "direct_stack",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_stack_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: push sp */" in direct_stack_assembly
+        assert "addi a11, a11, -2 /* 8086 PUSH SP value */" in direct_stack_assembly
+        assert direct_stack_assembly.count("call8 d2e_x86_push16") == 2
+        assert direct_stack_assembly.count("call8 d2e_x86_pop16") == 2
+        assert "D2E_ASM_X86_DS_INDEX" in direct_stack_assembly
+        assert "D2E_ASM_X86_ES_INDEX" in direct_stack_assembly
+
         dead_cisc_fixture = bytes.fromhex(
-            "50 83 c0 01 d1 e0 f7 e3 f4"
+            "ff 36 00 02 83 c0 01 d1 e0 f7 e3 f4"
         )
         output = pathlib.Path(temporary) / "asm-dead-cisc-flags"
         manifest = d2e_build.build_sources(
@@ -444,7 +466,7 @@ def main() -> int:
         assert ".long 0 /* relocation_count */" in mz_assembly
         assert "0x00001010" in mz_assembly
 
-        mixed_mz_module = bytes.fromhex("50 eb 00 f4")
+        mixed_mz_module = bytes.fromhex("ff 36 08 00 eb 00 f4")
         mixed_mz = bytearray(32 + len(mixed_mz_module))
         mixed_mz[:2] = b"MZ"
         struct.pack_into("<H", mixed_mz, 0x02, len(mixed_mz))
@@ -466,7 +488,7 @@ def main() -> int:
             encoding="utf-8"
         )
         assert "uint32_t next_module_target = UINT32_MAX;" in mixed_mz_region
-        assert "next_module_target = UINT32_C(0x00003);" in mixed_mz_region
+        assert "next_module_target = UINT32_C(0x00006);" in mixed_mz_region
         assert "if (next_module_target != UINT32_MAX)" in mixed_mz_region
         assert mixed_mz_region.count("cpu->ip = (uint16_t)(next_module_target -") == 1
 

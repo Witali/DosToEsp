@@ -50,7 +50,9 @@ bounded QEMU workload.
 - [ ] Expand high-impact direct Xtensa lowerings after dispatch is scalable:
   - [x] direct near `call` with a specialized return-stack helper;
   - [x] near `ret` through the existing wrap-safe stack pop helper;
-  - [ ] stack operations;
+  - [ ] stack operations:
+    - [x] register and segment `push`/`pop`, including 8086 `push sp`;
+    - [ ] memory forms and the flags stack;
   - [ ] memory and byte forms of `cmp`/`sub`;
   - [ ] common logical and increment/decrement instructions.
 
@@ -73,6 +75,7 @@ bounded QEMU workload.
 | Checked hash dispatch (128 buckets, shift 9, maximum load 17) | 541,792 (-16 from hybrid) | 226,493 (+0) | Pass; 41.8 s versus hybrid 41.7 s | Keep: fewer expected dispatch comparisons, normal melody tempo, no measurable QEMU regression |
 | Fresh no-direct-`RET` control after CMake reconfigure | 691,024 | 226,493 | Build control | Compare only with the following row |
 | Direct near `RET` and `RET imm16` | 682,400 (-8,624 from fresh control) | 204,691 (-21,802) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 320 more native blocks, no new C wrapper, and a net size reduction |
+| Direct register/segment `PUSH` and `POP` | 681,424 (-976) | 197,093 (-7,598) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 73 more native blocks, explicit 8086 `PUSH SP`, and no new helper |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
