@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 import d2e_analyze
 import d2e_coverage
 import d2e_translate
+import d2e_xtensa
 
 
 def write_text(path: pathlib.Path, value: str) -> None:
@@ -35,7 +36,12 @@ def remove_previous_generated_files(output: pathlib.Path) -> None:
             pass
     for name in names:
         candidate = pathlib.Path(name)
-        if candidate.name != name or candidate.suffix not in (".c", ".h", ".inc"):
+        if candidate.name != name or candidate.suffix not in (
+            ".c",
+            ".h",
+            ".inc",
+            ".S",
+        ):
             continue
         try:
             (output / candidate).unlink()
@@ -50,7 +56,10 @@ def build_sources(
     name: str,
     load_segment: int,
     output: pathlib.Path,
+    backend: str = "c",
 ) -> dict[str, Any]:
+    if backend not in ("c", "xtensa-asm"):
+        raise ValueError(f"unknown translator backend: {backend}")
     image = d2e_analyze.identify(data, image_format, None, None)
     inventory = d2e_analyze.analyze(image, source_name)
     coverage = d2e_coverage.coverage(inventory)
@@ -127,21 +136,49 @@ def build_sources(
             entry_ip = image.entry
             initial_ss = 0
             initial_sp = 0xFFFE
-        files = d2e_translate.emit_source_files(
-            image.module_bytes,
-            image.relocations if image.format == "mz" else (),
-            blocks,
-            name,
-            image.format,
-            load_segment,
-            entry_cs,
-            entry_ip,
-            initial_ss,
-            initial_sp,
-        )
+        if backend == "c":
+            files = d2e_translate.emit_source_files(
+                image.module_bytes,
+                image.relocations if image.format == "mz" else (),
+                blocks,
+                name,
+                image.format,
+                load_segment,
+                entry_cs,
+                entry_ip,
+                initial_ss,
+                initial_sp,
+            )
+        else:
+            try:
+                assembly = d2e_xtensa.emit_program(
+                    image.module_bytes,
+                    blocks,
+                    name,
+                    load_segment,
+                    image.entry,
+                    image_format=image.format,
+                    entry_cs=entry_cs,
+                    entry_ip=entry_ip,
+                    initial_ss=initial_ss,
+                    initial_sp=initial_sp,
+                    relocations=(
+                        image.relocations if image.format == "mz" else ()
+                    ),
+                )
+            except d2e_xtensa.BackendError as error:
+                files = {}
+                blockers.append(
+                    {
+                        "kind": "xtensa_assembly_backend",
+                        "reason": str(error),
+                    }
+                )
+            else:
+                files = {"game_native.S": assembly}
         for filename, source in files.items():
             write_text(output / filename, source)
-            if filename.endswith(".c"):
+            if filename.endswith((".c", ".S")):
                 generated.append(filename)
             elif filename.endswith(".h"):
                 generated_headers.append(filename)
@@ -158,6 +195,7 @@ def build_sources(
             "size": len(data),
         },
         "load_segment": load_segment,
+        "backend": backend,
         "status": "complete" if not blockers else "blocked",
         "generated_sources": generated,
         "generated_headers": generated_headers,
@@ -174,15 +212,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("input", type=pathlib.Path)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     parser.add_argument("--name")
+    parser.add_argument(
+        "--hex-input",
+        action="store_true",
+        help="read a whitespace-separated hexadecimal test fixture",
+    )
     parser.add_argument("--format", choices=("auto", "com", "mz", "raw"), default="auto")
     parser.add_argument("--load-segment", type=lambda value: int(value, 0), default=0x1000)
+    parser.add_argument(
+        "--backend",
+        choices=("c", "xtensa-asm"),
+        default="c",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        data = args.input.read_bytes()
+        data = (
+            d2e_analyze.read_hex(args.input)
+            if args.hex_input
+            else args.input.read_bytes()
+        )
         manifest = build_sources(
             data,
             args.input.name,
@@ -190,6 +242,7 @@ def main() -> int:
             args.name or args.input.stem,
             args.load_segment,
             args.output,
+            args.backend,
         )
     except (OSError, ValueError, d2e_translate.TranslationError) as error:
         print(f"source build failed: {error}", file=sys.stderr)

@@ -33,9 +33,11 @@ SEGMENT_INDICES = {
 
 
 class _Emitter:
-    def __init__(self) -> None:
+    def __init__(self, image_format: str, load_segment: int) -> None:
         self.literals: list[tuple[str, int]] = []
         self.local_count = 0
+        self.image_format = image_format
+        self.load_segment = load_segment
 
     def literal(self, value: int, purpose: str) -> str:
         label = f".Lprogram_region_{purpose}_{len(self.literals)}"
@@ -369,6 +371,28 @@ def _block_label(address: int) -> str:
     return f".Lprogram_region_block_{address:04x}"
 
 
+def _emit_store_ip(emitter: _Emitter, target: int) -> list[str]:
+    target_literal = emitter.literal(target, "edge_target")
+    lines = [f"    l32r a4, {target_literal}"]
+    if emitter.image_format == "mz":
+        load_literal = emitter.literal(emitter.load_segment, "load_segment")
+        lines.extend(
+            [
+                (
+                    "    l16ui a5, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+                    "(D2E_ASM_X86_CS_INDEX * 2)"
+                ),
+                f"    l32r a8, {load_literal}",
+                "    sub a5, a5, a8",
+                "    extui a5, a5, 0, 16",
+                "    slli a5, a5, 4",
+                "    sub a4, a4, a5",
+            ]
+        )
+    lines.append("    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET")
+    return lines
+
+
 def _emit_edge(
     emitter: _Emitter,
     target: int,
@@ -376,12 +400,7 @@ def _emit_edge(
 ) -> list[str]:
     if target in blocks:
         return [f"    j {_block_label(target)}"]
-    target_literal = emitter.literal(target, "edge_target")
-    return [
-        f"    l32r a4, {target_literal}",
-        "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
-        "    j .Lprogram_region_dispatch",
-    ]
+    return [*_emit_store_ip(emitter, target), "    j .Lprogram_region_dispatch"]
 
 
 def _emit_retired(emitter: _Emitter, count: int) -> list[str]:
@@ -518,15 +537,46 @@ def emit_program(
     name: str,
     load_segment: int,
     entry: int,
+    *,
+    image_format: str = "com",
+    entry_cs: int = 0,
+    entry_ip: int | None = None,
+    initial_ss: int = 0,
+    initial_sp: int = 0xFFFE,
+    relocations: Sequence[tuple[int, int]] = (),
 ) -> str:
-    """Emit a complete Xtensa `.S` unit for the supported COM subset."""
+    """Emit a complete Xtensa `.S` unit for the supported DOS subset."""
+    if image_format not in ("com", "mz"):
+        raise BackendError(f"Xtensa assembly backend does not support {image_format}")
     if entry not in blocks:
         raise BackendError("Xtensa assembly backend has no block at the entry point")
     if any(not sequence for sequence in blocks.values()):
         raise BackendError("Xtensa assembly backend cannot emit an empty block")
 
-    emitter = _Emitter()
-    data_fragments = extract_data_fragments(image, blocks)
+    if entry_ip is None:
+        entry_ip = entry
+    image_base = 0x100 if image_format == "com" else 0
+    emitter = _Emitter(image_format, load_segment)
+    data_fragments = extract_data_fragments(image, blocks, image_base)
+    retained_offsets = {
+        fragment_offset + index
+        for fragment_offset, fragment_data in data_fragments
+        for index in range(len(fragment_data))
+    }
+    retained_relocations: list[tuple[int, int]] = []
+    for offset, segment in relocations:
+        target = segment * 16 + offset
+        retained_bytes = (
+            target in retained_offsets,
+            target + 1 in retained_offsets,
+        )
+        if all(retained_bytes):
+            retained_relocations.append((offset, segment))
+        elif any(retained_bytes):
+            raise BackendError(
+                "Xtensa assembly backend cannot partially retain an MZ relocation"
+            )
+    relocations = tuple(retained_relocations)
     flag_liveness = d2e_flags.analyze(blocks)
     load_literal = emitter.literal(load_segment, "load_segment")
     leader_literals = {
@@ -540,8 +590,7 @@ def emit_program(
             [
                 f"{_block_label(leader)}:",
                 f"    bltu a6, a3, {execute}",
-                f"    l32r a4, {leader_literals[leader]}",
-                "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
+                *_emit_store_ip(emitter, leader),
                 "    j .Lprogram_region_finish",
                 f"{execute}:",
                 "    addi a6, a6, 1",
@@ -577,12 +626,8 @@ def emit_program(
             elif mnemonic == "hlt":
                 if index != len(block) - 1:
                     raise _error(instruction, "requires HLT to end its block")
-                next_ip_literal = emitter.literal(instruction.next_address, "next_ip")
                 body.extend(
-                    [
-                        f"    l32r a4, {next_ip_literal}",
-                        "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
-                    ]
+                    _emit_store_ip(emitter, instruction.next_address)
                 )
                 body.extend(_emit_retired(emitter, len(block)))
                 body.extend(
@@ -654,8 +699,7 @@ def emit_program(
     ]
     for label, value in emitter.literals:
         lines.extend([f"{label}:", f"    .long 0x{value:08x}"])
-    lines.extend(
-        [
+    dispatch = [
             "",
             '    .section .text.program_region,"ax",@progbits',
             "    .align 4",
@@ -666,12 +710,32 @@ def emit_program(
             "    movi a6, 0 /* executed blocks */",
             "    movi a7, 0 /* retired guest instructions */",
             ".Lprogram_region_dispatch:",
+    ]
+    if image_format == "com":
+        dispatch.extend(
+            [
             "    l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + (D2E_ASM_X86_CS_INDEX * 2)",
             f"    l32r a5, {load_literal}",
             "    bne a4, a5, .Lprogram_region_unknown",
             "    l16ui a4, a2, D2E_ASM_CPU_IP_OFFSET",
-        ]
-    )
+            ]
+        )
+    else:
+        dispatch.extend(
+            [
+                (
+                    "    l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+                    "(D2E_ASM_X86_CS_INDEX * 2)"
+                ),
+                f"    l32r a5, {load_literal}",
+                "    sub a4, a4, a5",
+                "    extui a4, a4, 0, 16",
+                "    slli a4, a4, 4",
+                "    l16ui a5, a2, D2E_ASM_CPU_IP_OFFSET",
+                "    add a4, a4, a5 /* module target */",
+            ]
+        )
+    lines.extend(dispatch)
     for leader in sorted(blocks):
         lines.extend(
             [
@@ -738,6 +802,21 @@ def emit_program(
                     f"    .long {len(fragment_data)}",
                 ]
             )
+    if relocations:
+        lines.extend(
+            [
+                '    .section .rodata.d2e_generated_relocations,"a",@progbits',
+                "    .align 2",
+                ".Lprogram_relocations:",
+            ]
+        )
+        for offset, segment in relocations:
+            lines.extend(
+                [
+                    f"    .short 0x{offset & 0xFFFF:04x}",
+                    f"    .short 0x{segment & 0xFFFF:04x}",
+                ]
+            )
     encoded_name = name.encode("ascii")
     lines.extend(
         [
@@ -752,17 +831,25 @@ def emit_program(
             "    .type d2e_generated_program, @object",
             "d2e_generated_program:",
             "    .long .Lprogram_name",
-            "    .long 0 /* D2E_NATIVE_IMAGE_COM */",
+            (
+                "    .long 0 /* D2E_NATIVE_IMAGE_COM */"
+                if image_format == "com"
+                else "    .long 1 /* D2E_NATIVE_IMAGE_MZ */"
+            ),
             f"    .short 0x{load_segment & 0xFFFF:04x}",
-            "    .short 0 /* entry_cs */",
-            f"    .short 0x{entry & 0xFFFF:04x}",
-            "    .short 0 /* initial_ss */",
-            "    .short 0xfffe /* initial_sp */",
+            f"    .short 0x{entry_cs & 0xFFFF:04x} /* entry_cs */",
+            f"    .short 0x{entry_ip & 0xFFFF:04x} /* entry_ip */",
+            f"    .short 0x{initial_ss & 0xFFFF:04x} /* initial_ss */",
+            f"    .short 0x{initial_sp & 0xFFFF:04x} /* initial_sp */",
             "    .short 0 /* pointer alignment */",
             "    .long 0 /* full image omitted */",
             f"    .long {len(image)}",
-            "    .long 0 /* relocations */",
-            "    .long 0 /* relocation_count */",
+            (
+                "    .long .Lprogram_relocations"
+                if relocations
+                else "    .long 0 /* relocations */"
+            ),
+            f"    .long {len(relocations)} /* relocation_count */",
             "    .long 0 /* blocks */",
             "    .long 0 /* block_count */",
             "    .long program_region",

@@ -195,6 +195,50 @@ def main() -> int:
         assert ".byte 0xa1, 0x1d, 0x01" not in assembly
         assert ".long 0 /* full image omitted */" in assembly
 
+        output = pathlib.Path(temporary) / "asm-com"
+        manifest = d2e_build.build_sources(
+            asm_fixture,
+            "native_asm_smoke.com",
+            "com",
+            "native_asm_smoke",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["backend"] == "xtensa-asm"
+        assert manifest["generated_sources"] == ["game_native.S"]
+        assert manifest["generated_data"] == []
+        assert (output / "game_native.S").read_text(encoding="utf-8") == assembly
+
+        asm_mz_module = bytes.fromhex("b8 10 00 f4")
+        asm_mz = bytearray(32 + len(asm_mz_module))
+        asm_mz[:2] = b"MZ"
+        struct.pack_into("<H", asm_mz, 0x02, len(asm_mz))
+        struct.pack_into("<H", asm_mz, 0x04, 1)
+        struct.pack_into("<H", asm_mz, 0x06, 1)
+        struct.pack_into("<H", asm_mz, 0x08, 2)
+        struct.pack_into("<H", asm_mz, 0x18, 0x1C)
+        struct.pack_into("<HH", asm_mz, 0x1C, 1, 0)
+        asm_mz[32:] = asm_mz_module
+        output = pathlib.Path(temporary) / "asm-mz"
+        manifest = d2e_build.build_sources(
+            bytes(asm_mz),
+            "tiny.exe",
+            "auto",
+            "tiny_mz",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        mz_assembly = (output / "game_native.S").read_text(encoding="utf-8")
+        assert ".long 1 /* D2E_NATIVE_IMAGE_MZ */" in mz_assembly
+        assert "add a4, a4, a5 /* module target */" in mz_assembly
+        assert ".Lprogram_relocations" not in mz_assembly
+        assert ".long 0 /* relocation_count */" in mz_assembly
+        assert "0x00001010" in mz_assembly
+
         indexed_fixture = bytes.fromhex(
             "bb 07 01 be 02 00 8b 00 f4 34 12"
         )

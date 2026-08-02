@@ -37,7 +37,7 @@ if(D2E_ALLEY_CAT)
         PROPERTIES COMPILE_OPTIONS "-O2;-mtext-section-literals"
     )
 elseif(D2E_XTENSA_ASM_SMOKE)
-    set(d2e_generated_sources "generated/native_asm_smoke.S")
+    set(d2e_generated_sources "generated/xtensa-asm-smoke/game_native.S")
 else()
     set(d2e_generated_sources "generated/native_smoke.c")
 endif()

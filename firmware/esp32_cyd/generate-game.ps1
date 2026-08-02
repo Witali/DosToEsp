@@ -10,7 +10,7 @@ $repository = [IO.Path]::GetFullPath((Join-Path $project "..\.."))
 $sibling = [IO.Path]::GetFullPath((Join-Path $repository "..\HLV-codec"))
 $python = Join-Path $sibling "local_tools\python\python.exe"
 $output = if ($XtensaAsmSmoke) {
-    Join-Path $project "main\generated\native_asm_smoke.S"
+    Join-Path $project "main\generated\xtensa-asm-smoke"
 } else {
     Join-Path $project "main\generated\native_smoke.c"
 }
@@ -43,12 +43,17 @@ if ($AlleyCat) {
         throw "Alley Cat source generation is not complete"
     }
 } elseif ($XtensaAsmSmoke) {
-    & $python (Join-Path $repository "tools\d2e_translate.py") `
-        --hex-input --name native_asm_smoke --load-segment 0x1000 `
-        --backend xtensa-asm `
-        (Join-Path $repository "tests\fixtures\native_asm_smoke.hex") $output
+    & $python (Join-Path $repository "tools\d2e_build.py") `
+        --hex-input --format com --name native_asm_smoke `
+        --load-segment 0x1000 --backend xtensa-asm --output $output `
+        (Join-Path $repository "tests\fixtures\native_asm_smoke.hex")
     if ($LASTEXITCODE -ne 0) {
         throw "Xtensa assembly smoke translation failed"
+    }
+    $manifest = Get-Content -LiteralPath `
+        (Join-Path $output "manifest.json") -Raw | ConvertFrom-Json
+    if ($manifest.status -ne "complete") {
+        throw "Xtensa assembly smoke source generation is not complete"
     }
 } else {
     & $python (Join-Path $repository "tools\d2e_translate.py") `
