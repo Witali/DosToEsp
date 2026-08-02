@@ -151,20 +151,18 @@ def build_sources(
             )
         else:
             try:
-                assembly = d2e_xtensa.emit_program(
+                files = d2e_translate.emit_xtensa_source_files(
                     image.module_bytes,
+                    image.relocations if image.format == "mz" else (),
                     blocks,
                     name,
+                    image.format,
                     load_segment,
                     image.entry,
-                    image_format=image.format,
-                    entry_cs=entry_cs,
-                    entry_ip=entry_ip,
-                    initial_ss=initial_ss,
-                    initial_sp=initial_sp,
-                    relocations=(
-                        image.relocations if image.format == "mz" else ()
-                    ),
+                    entry_cs,
+                    entry_ip,
+                    initial_ss,
+                    initial_sp,
                 )
             except d2e_xtensa.BackendError as error:
                 files = {}
@@ -174,8 +172,6 @@ def build_sources(
                         "reason": str(error),
                     }
                 )
-            else:
-                files = {"game_native.S": assembly}
         for filename, source in files.items():
             write_text(output / filename, source)
             if filename.endswith((".c", ".S")):

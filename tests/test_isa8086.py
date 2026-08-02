@@ -150,6 +150,20 @@ CASES = (
 # These are verified coverage gaps, not accepted semantics. Each implementation
 # change removes its labels and adds behavioral assertions before committing.
 KNOWN_GAPS: set[str] = set()
+KNOWN_XTENSA_DIRECT = {
+    "hlt",
+    "ja",
+    "jae",
+    "jb",
+    "jbe",
+    "je",
+    "jmp-short",
+    "jne",
+    "mov-memory",
+    "mov-reg",
+    "mul-word",
+    "nop",
+}
 
 
 def decode(case: Case) -> d2e_translate.Instruction:
@@ -172,8 +186,55 @@ def translates(case: Case, instruction: d2e_translate.Instruction) -> bool:
     return True
 
 
+def translates_to_xtensa(
+    case: Case, instruction: d2e_translate.Instruction
+) -> bool:
+    if case.external:
+        return False
+    try:
+        d2e_translate.d2e_xtensa.emit_program(
+            bytes(instruction.next_address - 0x100),
+            {0x100: [instruction]},
+            "isa_probe",
+            0x1000,
+            0x100,
+        )
+    except d2e_translate.d2e_xtensa.BackendError:
+        return False
+    return True
+
+
+def translates_to_mixed_xtensa(
+    case: Case, instruction: d2e_translate.Instruction
+) -> bool:
+    if case.external:
+        return False
+    try:
+        files = d2e_translate.emit_xtensa_source_files(
+            bytes(instruction.next_address - 0x100),
+            (),
+            {0x100: [instruction]},
+            "isa_probe",
+            "com",
+            0x1000,
+            0x100,
+            0,
+            0x100,
+            0,
+            0xfffe,
+        )
+    except (
+        d2e_translate.TranslationError,
+        d2e_translate.d2e_xtensa.BackendError,
+    ):
+        return False
+    return "game_native.S" in files
+
+
 def main() -> int:
     gaps: set[str] = set()
+    xtensa_gaps: set[str] = set()
+    mixed_xtensa_gaps: set[str] = set()
     labels: set[str] = set()
     for case in CASES:
         assert case.label not in labels, case.label
@@ -186,14 +247,29 @@ def main() -> int:
         )
         if not case.external and not translates(case, instruction):
             gaps.add(case.label)
+        if not case.external and not translates_to_xtensa(case, instruction):
+            xtensa_gaps.add(case.label)
+        if not case.external and not translates_to_mixed_xtensa(
+            case, instruction
+        ):
+            mixed_xtensa_gaps.add(case.label)
 
     assert gaps == KNOWN_GAPS, (
         f"8086 translation gap set changed; new={sorted(gaps - KNOWN_GAPS)}, "
         f"implemented={sorted(KNOWN_GAPS - gaps)}"
     )
+    nonexternal = {case.label for case in CASES if not case.external}
+    direct_xtensa = nonexternal - xtensa_gaps
+    assert direct_xtensa == KNOWN_XTENSA_DIRECT, (
+        "Xtensa direct-lowering set changed; "
+        f"new={sorted(direct_xtensa - KNOWN_XTENSA_DIRECT)}, "
+        f"lost={sorted(KNOWN_XTENSA_DIRECT - direct_xtensa)}"
+    )
+    assert not mixed_xtensa_gaps, sorted(mixed_xtensa_gaps)
     print(
         f"8086 ISA audit passed: {len(CASES)} canonical forms, "
-        f"{len(gaps)} tracked translation gaps"
+        f"{len(gaps)} C gaps, {len(xtensa_gaps)} direct Xtensa fallbacks, "
+        f"{len(mixed_xtensa_gaps)} mixed-backend gaps"
     )
     return 0
 

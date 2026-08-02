@@ -582,6 +582,57 @@ def _emit_indirect_jump(
     return lines
 
 
+def native_block_leaders(
+    blocks: Mapping[int, Sequence[Any]],
+    image_format: str,
+    load_segment: int,
+) -> frozenset[int]:
+    """Return blocks fully supported by the direct assembly lowerings."""
+    liveness = d2e_flags.analyze(blocks)
+    supported: set[int] = set()
+    for leader, sequence in blocks.items():
+        emitter = _Emitter(image_format, load_segment)
+        try:
+            for index, instruction in enumerate(sequence):
+                mnemonic = instruction.mnemonic
+                live = liveness.live_defined[instruction.address]
+                if mnemonic in d2e_flags.CONDITION_READS:
+                    if index != len(sequence) - 1:
+                        raise _error(instruction, "requires a branch to end its block")
+                    _emit_condition(emitter, instruction, emitter.local("taken"))
+                    _direct_target(instruction)
+                elif mnemonic == "jmp":
+                    if index != len(sequence) - 1:
+                        raise _error(instruction, "requires JMP to end its block")
+                    if instruction.indirect_targets:
+                        _emit_indirect_jump(emitter, instruction, blocks)
+                    else:
+                        _direct_target(instruction)
+                elif mnemonic == "hlt":
+                    if index != len(sequence) - 1:
+                        raise _error(instruction, "requires HLT to end its block")
+                elif mnemonic == "mov":
+                    _emit_mov(emitter, instruction)
+                elif mnemonic == "add":
+                    _emit_add16(emitter, instruction, live)
+                elif mnemonic == "cmp":
+                    _emit_cmp16(emitter, instruction, live)
+                elif mnemonic == "sub":
+                    _emit_sub16(emitter, instruction, live)
+                elif mnemonic == "shl":
+                    _emit_shl16(instruction, live)
+                elif mnemonic == "mul":
+                    _emit_mul16(emitter, instruction, live)
+                elif mnemonic == "nop" and not instruction.operands:
+                    pass
+                else:
+                    raise _error(instruction, "does not have a direct lowering")
+        except BackendError:
+            continue
+        supported.add(leader)
+    return frozenset(supported)
+
+
 def omitted_image_offsets(
     image: bytes,
     blocks: Mapping[int, Sequence[Any]],
@@ -648,6 +699,8 @@ def emit_program(
     initial_ss: int = 0,
     initial_sp: int = 0xFFFE,
     relocations: Sequence[tuple[int, int]] = (),
+    fallback_blocks: frozenset[int] = frozenset(),
+    fallback_symbol: str | None = None,
 ) -> str:
     """Emit a complete Xtensa `.S` unit for the supported DOS subset."""
     if image_format not in ("com", "mz"):
@@ -656,6 +709,10 @@ def emit_program(
         raise BackendError("Xtensa assembly backend has no block at the entry point")
     if any(not sequence for sequence in blocks.values()):
         raise BackendError("Xtensa assembly backend cannot emit an empty block")
+    if not fallback_blocks.issubset(blocks):
+        raise BackendError("Xtensa fallback block set contains an unknown leader")
+    if fallback_blocks and not fallback_symbol:
+        raise BackendError("Xtensa fallback blocks require a helper symbol")
 
     if entry_ip is None:
         entry_ip = entry
@@ -697,9 +754,24 @@ def emit_program(
                 *_emit_store_ip(emitter, leader),
                 "    j .Lprogram_region_finish",
                 f"{execute}:",
-                "    addi a6, a6, 1",
             ]
         )
+        if leader in fallback_blocks:
+            body.extend(
+                [
+                    *_emit_store_ip(emitter, leader),
+                    "    mov a10, a2",
+                    "    mov a11, a7",
+                    f"    call8 {fallback_symbol}",
+                    "    movi a7, 0",
+                    "    add a6, a6, a10",
+                    "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                    "    bnez a4, .Lprogram_region_finish",
+                    "    j .Lprogram_region_dispatch",
+                ]
+            )
+            continue
+        body.append("    addi a6, a6, 1")
         terminated = False
         for index, instruction in enumerate(block):
             mnemonic = instruction.mnemonic
@@ -803,6 +875,8 @@ def emit_program(
         '    .section .literal.program_region,"a",@progbits',
         "    .align 4",
     ]
+    if fallback_symbol is not None:
+        lines.insert(7, f"    .extern {fallback_symbol}")
     for label, value in emitter.literals:
         lines.extend([f"{label}:", f"    .long 0x{value:08x}"])
     dispatch = [

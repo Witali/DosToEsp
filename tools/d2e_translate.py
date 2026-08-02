@@ -2085,6 +2085,78 @@ def emit_source_files(
     return files
 
 
+def emit_xtensa_source_files(
+    image: bytes,
+    relocations: tuple[tuple[int, int], ...],
+    blocks: dict[int, list[Instruction]],
+    name: str,
+    image_format: str,
+    load_segment: int,
+    entry: int,
+    entry_cs: int,
+    entry_ip: int,
+    initial_ss: int,
+    initial_sp: int,
+) -> dict[str, str]:
+    """Emit direct Xtensa assembly plus CISC helper blocks compiled as Xtensa."""
+    native = d2e_xtensa.native_block_leaders(
+        blocks, image_format, load_segment
+    )
+    fallback = frozenset(blocks) - native
+    fallback_symbol = "d2e_generated_cisc_step" if fallback else None
+    assembly = d2e_xtensa.emit_program(
+        image,
+        blocks,
+        name,
+        load_segment,
+        entry,
+        image_format=image_format,
+        entry_cs=entry_cs,
+        entry_ip=entry_ip,
+        initial_ss=initial_ss,
+        initial_sp=initial_sp,
+        relocations=relocations,
+        fallback_blocks=fallback,
+        fallback_symbol=fallback_symbol,
+    )
+    files = {"game_native.S": assembly}
+    if not fallback:
+        return files
+
+    fallback_blocks = {
+        leader: blocks[leader] for leader in sorted(fallback)
+    }
+    lines = [
+        "/* Generated CISC helpers compiled by ESP-IDF as Xtensa code. */",
+        '#include "d2e/native_patterns.h"',
+        '#include "d2e/native_runtime.h"',
+        '#include "d2e/x86_alu.h"',
+        "",
+    ]
+    lines.extend(
+        emit_region(
+            fallback_blocks,
+            load_segment,
+            image_format,
+            "d2e_generated_cisc_region",
+            handoff_on_unknown=True,
+            storage="static ",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "uint32_t d2e_generated_cisc_step(d2e_x86_cpu *cpu, uint32_t retired) {",
+            "    cpu->instructions_retired += retired;",
+            "    return d2e_generated_cisc_region(cpu, UINT32_C(1));",
+            "}",
+            "",
+        ]
+    )
+    files["game_cisc.c"] = "\n".join(lines)
+    return files
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Translate statically reachable 8086 DOS blocks to a native backend"

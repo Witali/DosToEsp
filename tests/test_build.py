@@ -211,6 +211,39 @@ def main() -> int:
         assert manifest["generated_data"] == []
         assert (output / "game_native.S").read_text(encoding="utf-8") == assembly
 
+        mixed_fixture = bytes.fromhex("50 eb 00 f4")
+        output = pathlib.Path(temporary) / "asm-mixed"
+        manifest = d2e_build.build_sources(
+            mixed_fixture,
+            "mixed.com",
+            "com",
+            "mixed",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == [
+            "game_native.S",
+            "game_cisc.c",
+        ]
+        mixed_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        mixed_cisc = (output / "game_cisc.c").read_text(encoding="utf-8")
+        assert ".extern d2e_generated_cisc_step" in mixed_assembly
+        assert "call8 d2e_generated_cisc_step" in mixed_assembly
+        assert "/* 0103: hlt  */" in mixed_assembly
+        assert ".byte 0x50" not in mixed_assembly
+        assert ".byte 0xeb" not in mixed_assembly
+        assert ".byte 0xf4" not in mixed_assembly
+        assert "static uint32_t d2e_generated_cisc_region" in mixed_cisc
+        assert "r_sp = (uint16_t)(r_sp - UINT16_C(2));" in mixed_cisc
+        assert "d2e_x86_write16_seg(" in mixed_cisc
+        assert "r_sp, r_ax);" in mixed_cisc
+        assert "block_0103:" not in mixed_cisc
+        assert "UINT32_C(1)" in mixed_cisc
+
         asm_mz_module = bytes.fromhex("b8 10 00 f4")
         asm_mz = bytearray(32 + len(asm_mz_module))
         asm_mz[:2] = b"MZ"
