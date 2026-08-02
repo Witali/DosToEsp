@@ -178,7 +178,11 @@ def main() -> int:
         assert "call8 d2e_native_helper_mul16" in assembly
         assert "l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in assembly
         assert "movi a12, 0 /* no MUL flags are live */" in assembly
-        assert "add a4, a4, a5" in assembly
+        assert (
+            "/* Register cache: AX=a4; estimated saving 1 instructions, "
+            "0 CPU accesses. */"
+        ) in assembly
+        assert "addi a4, a4, 1" in assembly
         assert "does not yet materialize live ADD flags" not in assembly
         assert ".Lprogram_region_block_0100:" in assembly
         assert ".Lprogram_region_block_010b:" in assembly
@@ -230,6 +234,86 @@ def main() -> int:
         assert repeated_assembly.count("    .long 0x00001234") == 1
         assert repeated_assembly.count("    movi a4, 7") == 2
         assert "    .long 0x00000007" not in repeated_assembly
+
+        cached_fixture = bytes.fromhex(
+            "01 d8 01 c8 89 c2 f4"
+        )  # add ax,bx; add ax,cx; mov dx,ax; hlt
+        cached_decoded = d2e_translate.discover(cached_fixture, 0x100, 0x100)
+        cached_blocks = d2e_translate.make_blocks(cached_decoded, 0x100)
+        cached_assembly = d2e_xtensa.emit_program(
+            cached_fixture,
+            cached_blocks,
+            "cached_registers",
+            0x1000,
+            0x100,
+        )
+        assert (
+            "/* Register-cache selection: 1 runs, estimated 2 Xtensa "
+            "instructions and 3 CPU accesses saved. */"
+        ) in cached_assembly
+        assert (
+            "/* Register cache: AX=a4, BX=a5, CX=a8, DX=a9; estimated "
+            "saving 2 instructions, 3 CPU accesses. */"
+        ) in cached_assembly
+        assert "l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in cached_assembly
+        assert "l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in cached_assembly
+        assert "l16ui a8, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in cached_assembly
+        assert "add a4, a4, a5" in cached_assembly
+        assert "add a4, a4, a8" in cached_assembly
+        assert "mov a9, a4" in cached_assembly
+        assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in cached_assembly
+        assert "s16i a9, a2, D2E_ASM_CPU_REGS_OFFSET + 4" in cached_assembly
+
+        uncached_fixture = bytes.fromhex("89 d8 f4")  # mov ax,bx; hlt
+        uncached_decoded = d2e_translate.discover(
+            uncached_fixture, 0x100, 0x100
+        )
+        uncached_blocks = d2e_translate.make_blocks(uncached_decoded, 0x100)
+        uncached_assembly = d2e_xtensa.emit_program(
+            uncached_fixture,
+            uncached_blocks,
+            "uncached_registers",
+            0x1000,
+            0x100,
+        )
+        assert (
+            "/* Register-cache selection: 0 runs, estimated 0 Xtensa "
+            "instructions and 0 CPU accesses saved. */"
+        ) in uncached_assembly
+        assert "/* Register cache:" not in uncached_assembly
+
+        live_add_fixture = bytes.fromhex(
+            "01 d8 74 01 f4 f4"
+        )  # add ax,bx; jz taken
+        live_add_decoded = d2e_translate.discover(
+            live_add_fixture, 0x100, 0x100
+        )
+        live_add_blocks = d2e_translate.make_blocks(live_add_decoded, 0x100)
+        live_add_assembly = d2e_xtensa.emit_program(
+            live_add_fixture,
+            live_add_blocks,
+            "live_add_registers",
+            0x1000,
+            0x100,
+        )
+        assert "/* Register cache:" not in live_add_assembly
+        assert "s16i a5, a2, D2E_ASM_CPU_FLAGS_OFFSET" in live_add_assembly
+
+        pressure_fixture = bytes.fromhex(
+            "01 d8 01 c8 01 d0 01 f0 f4"
+        )  # four ADDs touch five x86 registers
+        pressure_decoded = d2e_translate.discover(
+            pressure_fixture, 0x100, 0x100
+        )
+        pressure_blocks = d2e_translate.make_blocks(pressure_decoded, 0x100)
+        pressure_block = list(pressure_blocks[0x100])
+        pressure_liveness = d2e_flags.analyze(pressure_blocks)
+        pressure_runs, pressure_score = d2e_xtensa._plan_cached_register_runs(
+            pressure_block, pressure_liveness.live_defined
+        )
+        assert pressure_score == (4, 4)
+        assert set(pressure_runs) == {1}
+        assert pressure_runs[1][0] == 4
 
         dispatch_probe_emitter = d2e_xtensa._Emitter("com", 0x1000)
         dispatch_probe_leaders = tuple(range(0x100, 0x111))

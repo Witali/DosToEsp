@@ -93,6 +93,14 @@ Shared helpers use the normal ESP-IDF Xtensa windowed C ABI. The generated
 assembly must not reserve ABI-owned `a0`/`a1`, and it must treat caller-saved
 registers as clobbered across helper calls.
 
+The current backend automatically selects helper-free, block-local runs for
+register caching. It binds at most four 16-bit x86 registers to Xtensa
+`a4`/`a5`/`a8`/`a9`, loads only live-in values, and spills only dirty values.
+A dynamic-programming cost model compares estimated instruction count first
+and CPU-state memory traffic second; an equal or worse candidate remains on the
+ordinary per-instruction path. Cached state never crosses a helper, block edge
+or supervisor boundary in this stage.
+
 ## Instruction lowering policy
 
 Inline lowering is intended for compact, common operations:

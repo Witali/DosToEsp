@@ -1356,6 +1356,269 @@ def _emit_indirect_jump(
     return lines
 
 
+_CACHED_XTENSA_REGISTERS = ("a4", "a5", "a8", "a9")
+
+
+def _cached_register_operation(
+    instruction: Any,
+    live_flags: int,
+) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """Return register reads/writes for a cacheable helper-free operation."""
+    operands = instruction.operands
+    mnemonic = instruction.mnemonic
+    if mnemonic == "mov":
+        if (
+            len(operands) != 2
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+        ):
+            return None
+        destination = str(operands[0][1])
+        source = operands[1]
+        if source[0] == "reg" and source[1] in REG16_OFFSETS:
+            return (str(source[1]),), (destination,)
+        if source[0] == "imm" and (int(source[1]) & 0xFFFF) <= 2047:
+            return (), (destination,)
+        return None
+
+    if mnemonic in ("add", "sub", "and", "or", "xor"):
+        if (
+            live_flags != 0
+            or len(operands) != 2
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+        ):
+            return None
+        destination = str(operands[0][1])
+        source = operands[1]
+        if source[0] == "reg" and source[1] in REG16_OFFSETS:
+            return (destination, str(source[1])), (destination,)
+        if source[0] != "imm":
+            return None
+        value = int(source[1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        addi_value = signed if mnemonic == "add" else -signed
+        if value <= 2047 or (
+            mnemonic in ("add", "sub") and -128 <= addi_value <= 127
+        ):
+            return (destination,), (destination,)
+        return None
+
+    if mnemonic in ("inc", "dec", "not"):
+        if (
+            len(operands) != 1
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+            or (mnemonic in ("inc", "dec") and live_flags != 0)
+        ):
+            return None
+        destination = str(operands[0][1])
+        return (destination,), (destination,)
+    return None
+
+
+def _cached_baseline_instruction_count(instruction: Any) -> int:
+    """Estimate existing direct-lowering instructions for a cacheable op."""
+    if instruction.mnemonic == "mov":
+        return 2
+    if instruction.mnemonic in ("add", "sub", "and", "or", "xor", "not"):
+        return 5
+    if instruction.mnemonic in ("inc", "dec"):
+        return 4
+    raise AssertionError(f"unexpected cached operation: {instruction.mnemonic}")
+
+
+def _cached_baseline_memory_access_count(instruction: Any) -> int:
+    """Count CPU-register loads/stores in the existing direct lowering."""
+    if instruction.mnemonic == "mov":
+        return 1 if instruction.operands[1][0] == "imm" else 2
+    if instruction.mnemonic in ("add", "sub", "and", "or", "xor"):
+        return 2 if instruction.operands[1][0] == "imm" else 3
+    if instruction.mnemonic in ("inc", "dec", "not"):
+        return 2
+    raise AssertionError(f"unexpected cached operation: {instruction.mnemonic}")
+
+
+def _emit_cached_register_operation(
+    instruction: Any,
+    registers: Mapping[str, str],
+) -> list[str]:
+    mnemonic = instruction.mnemonic
+    operands = instruction.operands
+    destination = str(operands[0][1])
+    target = registers[destination]
+    if mnemonic == "mov":
+        source = operands[1]
+        if source[0] == "reg":
+            source_register = registers[str(source[1])]
+            if source_register == target:
+                return []
+            return [f"    mov {target}, {source_register}"]
+        return [f"    movi {target}, {int(source[1]) & 0xFFFF}"]
+
+    if mnemonic in ("inc", "dec"):
+        delta = 1 if mnemonic == "inc" else -1
+        return [
+            f"    addi {target}, {target}, {delta}",
+            f"    extui {target}, {target}, 0, 16",
+        ]
+    if mnemonic == "not":
+        return [
+            "    movi a10, -1",
+            f"    xor {target}, {target}, a10",
+            f"    extui {target}, {target}, 0, 16",
+        ]
+
+    source = operands[1]
+    operation = mnemonic
+    lines: list[str] = []
+    if source[0] == "reg":
+        source_register = registers[str(source[1])]
+    else:
+        value = int(source[1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        addi_value = signed if mnemonic == "add" else -signed
+        if mnemonic in ("add", "sub") and -128 <= addi_value <= 127:
+            return [
+                f"    addi {target}, {target}, {addi_value}",
+                f"    extui {target}, {target}, 0, 16",
+            ]
+        lines.append(f"    movi a10, {value}")
+        source_register = "a10"
+    lines.append(f"    {operation} {target}, {target}, {source_register}")
+    if mnemonic in ("add", "sub"):
+        lines.append(f"    extui {target}, {target}, 0, 16")
+    return lines
+
+
+def _build_cached_register_run(
+    instructions: Sequence[Any],
+    live_flags: Mapping[int, int],
+) -> tuple[list[str], tuple[int, int]] | None:
+    """Build a run and return lines plus instruction/memory-access savings."""
+    touched: list[str] = []
+    live_in: list[str] = []
+    dirty: list[str] = []
+    written: set[str] = set()
+    baseline_count = 0
+    baseline_memory_accesses = 0
+    for instruction in instructions:
+        shape = _cached_register_operation(
+            instruction, live_flags[instruction.address]
+        )
+        if shape is None:
+            return None
+        reads, writes = shape
+        baseline_count += _cached_baseline_instruction_count(instruction)
+        baseline_memory_accesses += _cached_baseline_memory_access_count(
+            instruction
+        )
+        for register in (*reads, *writes):
+            if register not in touched:
+                touched.append(register)
+        for register in reads:
+            if register not in written and register not in live_in:
+                live_in.append(register)
+        for register in writes:
+            written.add(register)
+            if register not in dirty:
+                dirty.append(register)
+    if len(touched) > len(_CACHED_XTENSA_REGISTERS):
+        return None
+
+    registers = dict(zip(touched, _CACHED_XTENSA_REGISTERS, strict=False))
+    lines: list[str] = []
+    for register in live_in:
+        lines.append(
+            f"    l16ui {registers[register]}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS[register]}"
+        )
+    for instruction in instructions:
+        lines.append(
+            f"    /* {instruction.address:04x}: {instruction.mnemonic} "
+            f"{instruction.op_str} */"
+        )
+        lines.extend(_emit_cached_register_operation(instruction, registers))
+    for register in dirty:
+        lines.append(
+            f"    s16i {registers[register]}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS[register]}"
+        )
+
+    candidate_count = sum(
+        line.startswith("    ") and not line.startswith("    /*")
+        for line in lines
+    )
+    saving = (
+        baseline_count - candidate_count,
+        baseline_memory_accesses - len(live_in) - len(dirty),
+    )
+    if saving <= (0, 0):
+        return None
+    bindings = ", ".join(
+        f"{register.upper()}={registers[register]}" for register in touched
+    )
+    lines.insert(
+        0,
+        (
+            f"    /* Register cache: {bindings}; estimated saving "
+            f"{saving[0]} instructions, {saving[1]} CPU accesses. */"
+        ),
+    )
+    return lines, saving
+
+
+def _plan_cached_register_runs(
+    instructions: Sequence[Any],
+    live_flags: Mapping[int, int],
+) -> tuple[dict[int, tuple[int, list[str]]], tuple[int, int]]:
+    """Choose non-overlapping cached runs with maximum estimated saving."""
+    candidates: dict[int, list[tuple[int, list[str], tuple[int, int]]]] = {}
+    for start in range(len(instructions)):
+        touched: set[str] = set()
+        for end in range(start + 1, len(instructions) + 1):
+            instruction = instructions[end - 1]
+            shape = _cached_register_operation(
+                instruction, live_flags[instruction.address]
+            )
+            if shape is None:
+                break
+            touched.update((*shape[0], *shape[1]))
+            if len(touched) > len(_CACHED_XTENSA_REGISTERS):
+                break
+            candidate = _build_cached_register_run(
+                instructions[start:end], live_flags
+            )
+            if candidate is not None:
+                lines, score = candidate
+                candidates.setdefault(start, []).append((end, lines, score))
+
+    best_score = [(0, 0)] * (len(instructions) + 1)
+    best_runs: list[list[tuple[int, int, list[str], tuple[int, int]]]] = [
+        [] for _ in range(len(instructions) + 1)
+    ]
+    for start in range(len(instructions) - 1, -1, -1):
+        best_score[start] = best_score[start + 1]
+        best_runs[start] = best_runs[start + 1]
+        for end, lines, score in candidates.get(start, []):
+            total = (
+                score[0] + best_score[end][0],
+                score[1] + best_score[end][1],
+            )
+            if total > best_score[start]:
+                best_score[start] = total
+                best_runs[start] = [
+                    (start, end, lines, score),
+                    *best_runs[end],
+                ]
+
+    selected = {
+        start: (end, lines)
+        for start, end, lines, _ in best_runs[0]
+    }
+    return selected, best_score[0]
+
+
 def native_block_leaders(
     blocks: Mapping[int, Sequence[Any]],
     image_format: str,
@@ -1552,8 +1815,17 @@ def emit_program(
         for leader in sorted(native_blocks)
     }
     body: list[str] = []
+    cached_run_count = 0
+    cached_instruction_saving = 0
+    cached_memory_saving = 0
     for leader in sorted(native_blocks):
         block = list(blocks[leader])
+        cached_runs, block_cached_score = _plan_cached_register_runs(
+            block, flag_liveness.live_defined
+        )
+        cached_run_count += len(cached_runs)
+        cached_instruction_saving += block_cached_score[0]
+        cached_memory_saving += block_cached_score[1]
         execute = emitter.local("execute_block")
         body.extend(
             [
@@ -1566,7 +1838,15 @@ def emit_program(
         )
         body.append("    addi a6, a6, 1")
         terminated = False
+        cached_until = 0
         for index, instruction in enumerate(block):
+            if index < cached_until:
+                continue
+            cached = cached_runs.get(index)
+            if cached is not None:
+                cached_until, cached_lines = cached
+                body.extend(cached_lines)
+                continue
             mnemonic = instruction.mnemonic
             body.append(
                 f"    /* {instruction.address:04x}: {mnemonic} {instruction.op_str} */"
@@ -1742,6 +2022,11 @@ def emit_program(
 
     lines = [
         "/* Generated by tools/d2e_translate.py --backend xtensa-asm. Do not edit. */",
+        (
+            f"/* Register-cache selection: {cached_run_count} runs, "
+            f"estimated {cached_instruction_saving} Xtensa instructions and "
+            f"{cached_memory_saving} CPU accesses saved. */"
+        ),
         '#include "d2e/native_asm_offsets.h"',
         "    .extern d2e_native_helper_mul16",
         "    .extern d2e_native_helper_push_near_return",

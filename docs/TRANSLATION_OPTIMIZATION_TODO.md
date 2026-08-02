@@ -83,16 +83,24 @@ bounded workload.
 
 ## 4. Trace-level intermediate representation
 
+- [x] Add a block-local dynamic-programming planner that chooses non-overlapping
+  register-cached runs by estimated Xtensa instruction count and CPU-register
+  memory traffic. Equal instruction counts prefer fewer CPU accesses.
+- [x] Cache up to four 16-bit x86 registers in `a4`, `a5`, `a8` and `a9` for
+  helper-free `MOV`, dead-flag `ADD`/`SUB`/logical operations, `INC`, `DEC` and
+  `NOT`. Use `a10` only as a temporary inside a run that cannot call a helper.
+- [x] Load only values read before their first write and spill only dirty x86
+  registers at the selected run boundary.
 - [ ] Introduce a backend-neutral micro-operation IR for one basic block before
   extending it across control-flow edges.
 - [ ] Add constant propagation, redundant load/store removal, dead guest-register
   store elimination and address-expression reuse.
 - [ ] Form short traces from fall-through and single-predecessor edges, guided
   by physical-board profiles when available.
-- [ ] Cache hot x86 registers and segment bases in Xtensa registers within a
-  helper-free trace.
-- [ ] Spill dirty architectural state before helpers, supervisor exits,
-  unresolved edges and joins with incompatible cached state.
+- [ ] Extend register caching across basic-block edges and include segment bases
+  after the trace IR can reconcile cached state at joins.
+- [ ] Spill dirty architectural state before helpers, supervisor exits and
+  unresolved edges once cached runs are allowed to cross block boundaries.
 - [ ] Hoist the retired-instruction budget check to trace boundaries while
   preserving exact accounting and bounded supervisor response time.
 
@@ -168,3 +176,4 @@ bounded workload.
 |---|---:|---:|---:|---:|---:|---|
 | Audit checkpoint | 302,088 | 31,420 | 424,636 | 382 | Not measured | Baseline |
 | Intern literals and select `movi` | 299,924 | 31,420 | 424,636 | 382 | Not measured | Keep: IROM -2,164; 60-frame QEMU run passed at 259 Hz |
+| Automatic block-local register cache | 299,512 | 31,420 | 424,636 | 382 | Not measured | Keep: 126 runs, IROM -412, 133 instructions and 101 CPU accesses removed; QEMU passed at 259 Hz |
