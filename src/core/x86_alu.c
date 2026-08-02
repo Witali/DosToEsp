@@ -475,3 +475,85 @@ uint16_t d2e_x86_aaa(d2e_x86_cpu *cpu, uint16_t ax) {
     }
     return ax & UINT16_C(0xff0f);
 }
+
+uint16_t d2e_x86_aas(d2e_x86_cpu *cpu, uint16_t ax) {
+    if ((ax & UINT16_C(0x000f)) > UINT16_C(9) ||
+        (cpu->flags & D2E_X86_FLAG_AF) != 0U) {
+        ax = (uint16_t)(ax - UINT16_C(0x0106));
+        cpu->flags = (uint16_t)(cpu->flags | D2E_X86_FLAG_AF |
+                                D2E_X86_FLAG_CF | D2E_X86_FLAG_FIXED);
+    } else {
+        cpu->flags = (uint16_t)(
+            cpu->flags & (uint16_t)~(D2E_X86_FLAG_AF | D2E_X86_FLAG_CF));
+        cpu->flags |= D2E_X86_FLAG_FIXED;
+    }
+    return ax & UINT16_C(0xff0f);
+}
+
+static void replace_decimal_flags(d2e_x86_cpu *cpu, uint8_t result,
+                                  uint16_t adjust_flags) {
+    const uint16_t mask = D2E_X86_FLAG_CF | D2E_X86_FLAG_PF |
+                          D2E_X86_FLAG_AF | D2E_X86_FLAG_ZF |
+                          D2E_X86_FLAG_SF;
+    cpu->flags = (uint16_t)((cpu->flags & (uint16_t)~mask) |
+                            common_flags8(result) | adjust_flags |
+                            D2E_X86_FLAG_FIXED);
+}
+
+uint16_t d2e_x86_daa(d2e_x86_cpu *cpu, uint16_t ax) {
+    const uint8_t original = (uint8_t)ax;
+    const int original_carry = (cpu->flags & D2E_X86_FLAG_CF) != 0U;
+    uint8_t result = original;
+    uint16_t flags = 0;
+    if ((original & UINT8_C(0x0f)) > UINT8_C(9) ||
+        (cpu->flags & D2E_X86_FLAG_AF) != 0U) {
+        result = (uint8_t)(result + UINT8_C(6));
+        flags |= D2E_X86_FLAG_AF;
+    }
+    if (original > UINT8_C(0x99) || original_carry) {
+        result = (uint8_t)(result + UINT8_C(0x60));
+        flags |= D2E_X86_FLAG_CF;
+    }
+    replace_decimal_flags(cpu, result, flags);
+    return (uint16_t)((ax & UINT16_C(0xff00)) | result);
+}
+
+uint16_t d2e_x86_das(d2e_x86_cpu *cpu, uint16_t ax) {
+    const uint8_t original = (uint8_t)ax;
+    const int original_carry = (cpu->flags & D2E_X86_FLAG_CF) != 0U;
+    uint8_t result = original;
+    uint16_t flags = 0;
+    if ((original & UINT8_C(0x0f)) > UINT8_C(9) ||
+        (cpu->flags & D2E_X86_FLAG_AF) != 0U) {
+        result = (uint8_t)(result - UINT8_C(6));
+        flags |= D2E_X86_FLAG_AF;
+    }
+    if (original > UINT8_C(0x99) || original_carry) {
+        result = (uint8_t)(result - UINT8_C(0x60));
+        flags |= D2E_X86_FLAG_CF;
+    }
+    replace_decimal_flags(cpu, result, flags);
+    return (uint16_t)((ax & UINT16_C(0xff00)) | result);
+}
+
+static void replace_aam_aad_flags(d2e_x86_cpu *cpu, uint8_t result) {
+    const uint16_t mask =
+        D2E_X86_FLAG_PF | D2E_X86_FLAG_ZF | D2E_X86_FLAG_SF;
+    cpu->flags = (uint16_t)((cpu->flags & (uint16_t)~mask) |
+                            common_flags8(result) | D2E_X86_FLAG_FIXED);
+}
+
+uint16_t d2e_x86_aam(d2e_x86_cpu *cpu, uint16_t ax) {
+    const uint8_t value = (uint8_t)ax;
+    const uint8_t low = (uint8_t)(value % UINT8_C(10));
+    const uint8_t high = (uint8_t)(value / UINT8_C(10));
+    replace_aam_aad_flags(cpu, low);
+    return (uint16_t)(((uint16_t)high << 8U) | low);
+}
+
+uint16_t d2e_x86_aad(d2e_x86_cpu *cpu, uint16_t ax) {
+    const uint8_t low = (uint8_t)((uint8_t)ax +
+                                  (uint8_t)(ax >> 8U) * UINT8_C(10));
+    replace_aam_aad_flags(cpu, low);
+    return low;
+}

@@ -185,6 +185,29 @@ static void test_multiply_and_adjust(d2e_x86_cpu *cpu) {
     cpu->flags = D2E_X86_FLAG_FIXED;
     CHECK(d2e_x86_aaa(cpu, UINT16_C(0x0203)) == UINT16_C(0x0203));
     CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF)) == 0U);
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_AF;
+    CHECK(d2e_x86_aas(cpu, UINT16_C(0x0303)) == UINT16_C(0x010d));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF));
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_daa(cpu, UINT16_C(0x009b)) == UINT16_C(0x0001));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF));
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_das(cpu, UINT16_C(0x009b)) == UINT16_C(0x0035));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF));
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF;
+    CHECK(d2e_x86_aam(cpu, UINT16_C(0x002a)) == UINT16_C(0x0402));
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_PF) == 0U);
+
+    CHECK(d2e_x86_aad(cpu, UINT16_C(0x0402)) == UINT16_C(0x002a));
+    CHECK((cpu->flags & D2E_X86_FLAG_PF) == 0U);
 }
 
 static void test_add_with_carry(d2e_x86_cpu *cpu) {

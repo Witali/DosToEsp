@@ -38,6 +38,11 @@ uint16_t d2e_x86_rcr16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count);
 uint16_t d2e_x86_mul8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right);
 uint32_t d2e_x86_mul16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right);
 uint16_t d2e_x86_aaa(d2e_x86_cpu *cpu, uint16_t ax);
+uint16_t d2e_x86_aas(d2e_x86_cpu *cpu, uint16_t ax);
+uint16_t d2e_x86_daa(d2e_x86_cpu *cpu, uint16_t ax);
+uint16_t d2e_x86_das(d2e_x86_cpu *cpu, uint16_t ax);
+uint16_t d2e_x86_aam(d2e_x86_cpu *cpu, uint16_t ax);
+uint16_t d2e_x86_aad(d2e_x86_cpu *cpu, uint16_t ax);
 
 #ifdef __cplusplus
 }

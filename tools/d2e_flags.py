@@ -91,6 +91,12 @@ def effects(instruction: Any) -> FlagEffects:
         return FlagEffects(defines=CF | OF)
     if mnemonic == "aaa":
         return FlagEffects(reads=AF, defines=AF | CF)
+    if mnemonic == "aas":
+        return FlagEffects(reads=AF, defines=AF | CF)
+    if mnemonic in ("daa", "das"):
+        return FlagEffects(reads=AF | CF, defines=CF | PF | AF | ZF | SF)
+    if mnemonic in ("aam", "aad"):
+        return FlagEffects(defines=PF | ZF | SF)
     if mnemonic in ("clc", "cmc", "stc"):
         return FlagEffects(defines=CF)
     if mnemonic in ("cld", "std"):

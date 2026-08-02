@@ -952,6 +952,14 @@ def translate_data_instruction(
         raise TranslationError(f"unsupported MUL width {width}")
     if mnemonic == "aaa" and not operands:
         return ["r_ax = d2e_x86_aaa(cpu, r_ax);"]
+    if mnemonic == "aas" and not operands:
+        return ["r_ax = d2e_x86_aas(cpu, r_ax);"]
+    if mnemonic in ("daa", "das") and not operands:
+        return [f"r_ax = d2e_x86_{mnemonic}(cpu, r_ax);"]
+    if mnemonic in ("aam", "aad") and (
+        not operands or operands == (("imm", 10),)
+    ):
+        return [f"r_ax = d2e_x86_{mnemonic}(cpu, r_ax);"]
     if mnemonic == "cbw" and not operands:
         return ["r_ax = (uint16_t)(int16_t)(int8_t)(uint8_t)r_ax;"]
     if mnemonic == "cwd" and not operands:
@@ -1021,7 +1029,15 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 used.update(("ax", "dx"))
             if instruction.mnemonic.startswith(("rep ", "repne ", "repe ")):
                 used.add("cx")
-            if instruction.mnemonic in ("mul", "aaa"):
+            if instruction.mnemonic in (
+                "mul",
+                "aaa",
+                "aas",
+                "daa",
+                "das",
+                "aam",
+                "aad",
+            ):
                 used.add("ax")
             if instruction.mnemonic == "mul" and operand_width(
                 instruction.operands[0], True

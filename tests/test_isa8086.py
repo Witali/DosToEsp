@@ -144,15 +144,10 @@ CASES = (
 # These are verified coverage gaps, not accepted semantics. Each implementation
 # change removes its labels and adds behavioral assertions before committing.
 KNOWN_GAPS = {
-    "aad",
-    "aam",
-    "aas",
     "call-far",
     "call-indirect",
     "cmpsb",
     "cmpsw",
-    "daa",
-    "das",
     "div-byte",
     "div-word",
     "idiv-byte",
