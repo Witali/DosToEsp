@@ -24,12 +24,15 @@ bounded workload.
 
 ## 0. Measurement infrastructure
 
-- [ ] Add an optional ESP32 profiling build that reads Xtensa cycle counters at
-  trace, fallback and helper boundaries.
-- [ ] Count calls and cycles by native block, CISC region and shared helper.
+- [x] Add an optional ESP32 profiling build that reads the Xtensa cycle counter
+  around each bounded translated supervisor step and reports calls, total,
+  minimum and maximum cycles plus cycles per 1,000 retired guest instructions.
+- [ ] Extend cycle attribution to native blocks, CISC regions and shared
+  helpers after the region-level counter identifies a regression.
 - [ ] Report mixed-backend crossings, memory-helper traffic, interrupt and port
   calls, string operations and budget exits.
-- [ ] Keep all profiling tables and instrumentation out of release builds.
+- [x] Keep profiling instrumentation out of release builds unless
+  `D2E_TRANSLATION_PROFILE` is explicitly enabled.
 - [ ] Define a repeatable physical-board workload in addition to the bounded
   QEMU correctness run.
 
@@ -177,3 +180,4 @@ bounded workload.
 | Audit checkpoint | 302,088 | 31,420 | 424,636 | 382 | Not measured | Baseline |
 | Intern literals and select `movi` | 299,924 | 31,420 | 424,636 | 382 | Not measured | Keep: IROM -2,164; 60-frame QEMU run passed at 259 Hz |
 | Automatic block-local register cache | 299,512 | 31,420 | 424,636 | 382 | Not measured | Keep: 126 runs, IROM -412, 133 instructions and 101 CPU accesses removed; QEMU passed at 259 Hz |
+| Optional supervisor-step cycle profile | 299,512 | 31,420 | 424,636 | 382 | 70,358 cycles/1K instructions | Keep: opt-in instrumentation; 60-frame QEMU control retired 12,882,251 guest instructions at 259 Hz |

@@ -6,6 +6,9 @@
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_err.h"
+#if D2E_TRANSLATION_PROFILE
+#include "esp_cpu.h"
+#endif
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_system.h"
@@ -382,6 +385,12 @@ static void run_package(const d2e_package *package) {
     char message[D2E_SHELL_COLUMNS + 1U];
     d2e_package external_package;
     int external_active = 0;
+#if D2E_TRANSLATION_PROFILE
+    uint64_t translation_cycles = 0U;
+    uint32_t translation_calls = 0U;
+    uint32_t translation_min_cycles = UINT32_MAX;
+    uint32_t translation_max_cycles = 0U;
+#endif
 
     if (package->storage == D2E_PACKAGE_EXTERNAL_MODULE) {
         const size_t package_index = (size_t)(package - packages);
@@ -424,7 +433,24 @@ static void run_package(const d2e_package *package) {
         uint32_t hash = UINT32_C(2166136261);
         size_t index;
         int report_frame;
+#if D2E_TRANSLATION_PROFILE
+        const uint32_t cycles_before = (uint32_t)esp_cpu_get_cycle_count();
+#endif
         (void)d2e_supervisor_step(&supervisor, D2E_RUN_BUDGET);
+#if D2E_TRANSLATION_PROFILE
+        {
+            const uint32_t call_cycles =
+                (uint32_t)esp_cpu_get_cycle_count() - cycles_before;
+            translation_cycles += call_cycles;
+            ++translation_calls;
+            if (call_cycles < translation_min_cycles) {
+                translation_min_cycles = call_cycles;
+            }
+            if (call_cycles > translation_max_cycles) {
+                translation_max_cycles = call_cycles;
+            }
+        }
+#endif
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
         ESP_ERROR_CHECK(render_pc_frame());
 #endif
@@ -481,6 +507,19 @@ static void run_package(const d2e_package *package) {
         package->command, return_source, (unsigned)supervisor.state,
         (unsigned)supervisor.last_stop_reason, (unsigned)supervisor.exit_code,
         cpu.instructions_retired);
+#if D2E_TRANSLATION_PROFILE
+    esp_rom_printf(
+        "D2E_TRANSLATION_PROFILE,calls=%" PRIu32 ",cycles=%" PRIu64
+        ",min=%" PRIu32 ",max=%" PRIu32 ",instructions=%" PRIu64
+        ",cycles_per_kinstruction=%" PRIu64 "\n",
+        translation_calls, translation_cycles,
+        translation_calls != 0U ? translation_min_cycles : 0U,
+        translation_max_cycles, cpu.instructions_retired,
+        cpu.instructions_retired != 0U
+            ? translation_cycles * UINT64_C(1000) /
+                  cpu.instructions_retired
+            : 0U);
+#endif
     if (supervisor.state == D2E_SUPERVISOR_EXITED) {
         (void)snprintf(message, sizeof(message), "%s exited, code %u",
                        package->command, (unsigned)supervisor.exit_code);
