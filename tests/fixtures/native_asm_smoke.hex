@@ -1,2 +1,2 @@
-# mov ax,1234h; mov bx,ax; mov cx,2; mul cx; hlt
-b8 34 12 89 c3 b9 02 00 f7 e1 f4
+# mov ax,1234h; add ax,1; mov bx,ax; mov cx,2; mul cx; hlt
+b8 34 12 83 c0 01 89 c3 b9 02 00 f7 e1 f4

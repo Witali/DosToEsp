@@ -411,11 +411,11 @@ void app_main(void) {
     reason = d2e_native_run(&cpu, &d2e_generated_program, 100U);
 #if D2E_XTENSA_ASM_SMOKE
     if (reason != D2E_X86_EXITED || cpu.exit_code != 0U ||
-        cpu.regs[D2E_X86_AX] != UINT16_C(0x2468) ||
-        cpu.regs[D2E_X86_BX] != UINT16_C(0x1234) ||
+        cpu.regs[D2E_X86_AX] != UINT16_C(0x246a) ||
+        cpu.regs[D2E_X86_BX] != UINT16_C(0x1235) ||
         cpu.regs[D2E_X86_CX] != UINT16_C(2) ||
         cpu.regs[D2E_X86_DX] != 0U ||
-        cpu.instructions_retired != UINT64_C(5)) {
+        cpu.instructions_retired != UINT64_C(6)) {
         esp_rom_printf(
             "D2E_XTENSA_ASM_FAIL,run,reason=%u,exit=%u,ax=%04x,bx=%04x,"
             "instructions=%" PRIu64 ",target=%04x:%04x,address=%08x\n",

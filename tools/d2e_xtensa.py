@@ -6,6 +6,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import d2e_flags
+
 
 class BackendError(RuntimeError):
     """The decoded program is outside the current Xtensa backend subset."""
@@ -63,7 +65,7 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
     raise _error(instruction, "currently supports only immediate/register MOV sources")
 
 
-def _emit_mul16(instruction: Any) -> list[str]:
+def _emit_mul16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[str]:
     if (
         len(instruction.operands) != 1
         or instruction.operands[0][0] != "reg"
@@ -71,11 +73,50 @@ def _emit_mul16(instruction: Any) -> list[str]:
     ):
         raise _error(instruction, "currently supports only 16-bit register MUL operands")
     operand_offset = REG16_OFFSETS[str(instruction.operands[0][1])]
-    return [
+    lines = [
         "    mov a10, a2",
         f"    l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + {operand_offset}",
-        "    call8 d2e_native_helper_mul16",
     ]
+    if live_flags == 0:
+        lines.append("    movi a12, 0 /* no MUL flags are live */")
+    else:
+        live_literal = emitter.literal(live_flags, "live_flags")
+        lines.append(f"    l32r a12, {live_literal}")
+    lines.append("    call8 d2e_native_helper_mul16")
+    return lines
+
+
+def _emit_add16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[str]:
+    if len(instruction.operands) != 2:
+        raise _error(instruction, "requires a two-operand ADD")
+    destination, source = instruction.operands
+    if destination[0] != "reg" or destination[1] not in REG16_OFFSETS:
+        raise _error(instruction, "currently supports only 16-bit register ADD destinations")
+    if live_flags != 0:
+        raise _error(instruction, "does not yet materialize live ADD flags")
+
+    destination_offset = REG16_OFFSETS[str(destination[1])]
+    lines = [
+        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+    ]
+    if source[0] == "imm":
+        source_literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
+        lines.append(f"    l32r a5, {source_literal}")
+    elif source[0] == "reg" and source[1] in REG16_OFFSETS:
+        source_offset = REG16_OFFSETS[str(source[1])]
+        lines.append(
+            f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+        )
+    else:
+        raise _error(instruction, "currently supports only immediate/register ADD sources")
+    lines.extend(
+        [
+            "    add a4, a4, a5",
+            "    extui a4, a4, 0, 16",
+            f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+        ]
+    )
+    return lines
 
 
 def omitted_image_offsets(
@@ -151,6 +192,7 @@ def emit_program(
 
     emitter = _Emitter()
     data_fragments = extract_data_fragments(image, blocks)
+    flag_liveness = d2e_flags.analyze(blocks)
     load_literal = emitter.literal(load_segment, "load_segment")
     entry_literal = emitter.literal(entry, "entry")
     next_ip_literal = emitter.literal(block[-1].next_address, "next_ip")
@@ -161,8 +203,22 @@ def emit_program(
         )
         if instruction.mnemonic == "mov":
             body.extend(_emit_mov(emitter, instruction))
+        elif instruction.mnemonic == "add":
+            body.extend(
+                _emit_add16(
+                    emitter,
+                    instruction,
+                    flag_liveness.live_defined[instruction.address],
+                )
+            )
         elif instruction.mnemonic == "mul":
-            body.extend(_emit_mul16(instruction))
+            body.extend(
+                _emit_mul16(
+                    emitter,
+                    instruction,
+                    flag_liveness.live_defined[instruction.address],
+                )
+            )
         elif instruction.mnemonic == "nop" and not instruction.operands:
             body.append("    nop")
         elif instruction.mnemonic == "hlt" and index == len(block) - 1:

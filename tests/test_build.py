@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import d2e_analyze
 import d2e_build
+import d2e_flags
 import d2e_translate
 import d2e_xtensa
 
@@ -174,6 +175,9 @@ def main() -> int:
         assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in assembly
         assert "call8 d2e_native_helper_mul16" in assembly
         assert "l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in assembly
+        assert "movi a12, 0 /* no MUL flags are live */" in assembly
+        assert "add a4, a4, a5" in assembly
+        assert "does not yet materialize live ADD flags" not in assembly
         assert ".Lprogram_image" not in assembly
         assert ".Lprogram_fragments" not in assembly
         assert ".byte 0xb8, 0x34, 0x12, 0x89, 0xc3" not in assembly
@@ -212,6 +216,34 @@ def main() -> int:
                     offset not in retained_offsets
                     for offset in range(table_offset, table_offset + table_size)
                 )
+
+        dead_flags = bytes.fromhex("83 c0 01 f4")
+        dead_decoded = d2e_translate.discover(dead_flags, 0x100, 0x100)
+        dead_blocks = d2e_translate.make_blocks(dead_decoded, 0x100)
+        dead_liveness = d2e_flags.analyze(dead_blocks)
+        assert dead_liveness.live_defined[0x100] == 0
+
+        carry_chain = bytes.fromhex("83 c0 01 83 d3 00 f4")
+        carry_decoded = d2e_translate.discover(carry_chain, 0x100, 0x100)
+        carry_blocks = d2e_translate.make_blocks(carry_decoded, 0x100)
+        carry_liveness = d2e_flags.analyze(carry_blocks)
+        assert carry_liveness.live_defined[0x100] == d2e_flags.CF
+        assert carry_liveness.live_defined[0x103] == 0
+
+        zero_branch = bytes.fromhex("83 f8 01 74 03 bb 01 00 f4")
+        zero_decoded = d2e_translate.discover(zero_branch, 0x100, 0x100)
+        zero_blocks = d2e_translate.make_blocks(zero_decoded, 0x100)
+        zero_liveness = d2e_flags.analyze(zero_blocks)
+        assert zero_liveness.live_defined[0x100] == d2e_flags.ZF
+
+        observed_flags = bytes.fromhex("83 c0 01 9c f4")
+        observed_decoded = d2e_translate.discover(observed_flags, 0x100, 0x100)
+        observed_blocks = d2e_translate.make_blocks(observed_decoded, 0x100)
+        observed_liveness = d2e_flags.analyze(observed_blocks)
+        assert (
+            observed_liveness.live_defined[0x100]
+            == d2e_flags.ARITHMETIC
+        )
     print("unified source build tests passed")
     return 0
 
