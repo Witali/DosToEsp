@@ -8,6 +8,12 @@ ABI and supervisor lifecycle. Lower common x86 instructions directly to compact
 Xtensa sequences and call shared C helpers for operations whose inline lowering
 would be large or fragile.
 
+The generated guest image must retain only data ranges needed at runtime. Bytes
+classified exclusively as translated executable code are not copied into flash
+or guest RAM. Recognized source jump tables are lowered into native control flow
+and are also omitted unless ordinary data reads make their original contents
+observable.
+
 The C backend remains available as the semantic reference and fallback until the
 assembly backend passes the same host, ESP-IDF and QEMU validation gates.
 
@@ -30,6 +36,8 @@ partition table, Alley Cat input binary and QEMU frame workload.
 MZ/COM input
   -> existing x86 decoder and CFG discovery
   -> backend-neutral basic blocks
+  -> code/data and recognized jump-table range classification
+  -> sparse runtime data image
   -> flag liveness and lowering decisions
   -> C backend (reference) or Xtensa assembly backend
   -> ESP-IDF assembler and linker
@@ -39,6 +47,27 @@ MZ/COM input
 The first assembly backend generates `.S` source rather than raw instruction
 bytes. This delegates instruction encoding, literal pools, symbol relocation,
 call-range handling, alignment and debug symbols to the Espressif toolchain.
+
+## Guest image compaction
+
+The input module is classified conservatively before source emission:
+
+- every byte belonging to a decoded instruction is a translated-code byte;
+- every byte belonging exclusively to a recognized indirect-jump table is a
+  translated-control-flow byte;
+- all remaining initialized module ranges are data and are emitted as sparse
+  `(guest offset, size, bytes)` fragments;
+- relocations needed by a lowered instruction become native constants rather
+  than forcing the original instruction bytes to remain in the image;
+- a relocation or ordinary memory access that makes a code/table byte
+  observable keeps the required range as data or fails translation when that
+  observability cannot be represented safely.
+
+The loader zero-initializes the module range and copies only sparse data
+fragments. It does not reconstruct omitted code or jump tables in RAM. Programs
+that read, checksum, modify or execute their original code require an explicit
+compatibility decision; the optimized backend must not silently return zeros in
+place of observable bytes.
 
 ## Execution ABI
 
@@ -123,7 +152,24 @@ identical descriptors or materialize before the edge.
 Exit gate: the assembly unit links into ESP-IDF and produces the same final CPU
 state as the C backend for its supported instructions.
 
-### Stage 2: helper ABI
+### Stage 2: sparse guest data image
+
+Before expanding instruction coverage, add sparse guest-image generation and
+loading:
+
+- record decoded code ranges and recognized source jump-table ranges;
+- emit only non-code data fragments in the assembly program descriptor;
+- lower recognized jump targets into the native dispatcher rather than
+  retaining the original table words;
+- verify that the loader leaves omitted ranges zero and copies all data ranges
+  at their original guest offsets;
+- reject or explicitly retain ranges when code-as-data behavior is detected.
+
+Exit gate: the assembly smoke program contains no original executable bytes,
+and a jump-table fixture contains neither its source code bytes nor its original
+address table while preserving final CPU state.
+
+### Stage 3: helper ABI
 
 - Define assembly-safe helper entry points with explicit argument and clobber
   contracts.
@@ -133,7 +179,7 @@ state as the C backend for its supported instructions.
 Exit gate: helper calls preserve all required guest state and satisfy stack
 alignment and windowed-ABI requirements.
 
-### Stage 3: flag analysis
+### Stage 4: flag analysis
 
 - Add per-mnemonic read/define flag masks.
 - Implement CFG-wide backward liveness.
@@ -144,7 +190,7 @@ alignment and windowed-ABI requirements.
 Exit gate: flag-intensive host fixtures match the C backend, and dead flag
 calculations are absent from generated assembly golden files.
 
-### Stage 4: registers and guest memory
+### Stage 5: registers and guest memory
 
 - Lower the remaining common register forms.
 - Introduce checked direct RAM access and explicit slow helpers for unaligned or
@@ -153,18 +199,19 @@ calculations are absent from generated assembly golden files.
 
 Exit gate: native memory, string, stack/call and rare-instruction fixtures pass.
 
-### Stage 5: control flow and MZ regions
+### Stage 6: control flow and MZ regions
 
 - Emit direct edges within a region.
-- Replace large generated-C `switch` dispatchers with compact address tables or
-  a shared lookup helper for indirect and cross-region edges.
+- Replace large generated-C `switch` dispatchers with compact native address
+  tables or a shared lookup helper for indirect and cross-region edges. Native
+  tables contain Xtensa labels, never the original x86 IP table.
 - Generate split `.S` regions for Alley Cat and retain source-to-guest-address
   symbols for debugging.
 
 Exit gate: every discovered Alley Cat block is reachable through the assembly
 dispatcher and no C-generated execution region is linked in assembly mode.
 
-### Stage 6: validation and optimization
+### Stage 7: validation and optimization
 
 - Run the complete host test suite against both backends.
 - Run bounded and board-device QEMU workloads.
