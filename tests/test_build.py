@@ -361,6 +361,32 @@ def main() -> int:
         assert ".long 0 /* relocation_count */" in mz_assembly
         assert "0x00001010" in mz_assembly
 
+        mixed_mz_module = bytes.fromhex("50 eb 00 f4")
+        mixed_mz = bytearray(32 + len(mixed_mz_module))
+        mixed_mz[:2] = b"MZ"
+        struct.pack_into("<H", mixed_mz, 0x02, len(mixed_mz))
+        struct.pack_into("<H", mixed_mz, 0x04, 1)
+        struct.pack_into("<H", mixed_mz, 0x08, 2)
+        mixed_mz[32:] = mixed_mz_module
+        output = pathlib.Path(temporary) / "asm-mixed-mz"
+        manifest = d2e_build.build_sources(
+            bytes(mixed_mz),
+            "mixed.exe",
+            "auto",
+            "mixed_mz",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        mixed_mz_region = (output / "game_cisc_region_000.c").read_text(
+            encoding="utf-8"
+        )
+        assert "uint32_t next_module_target = UINT32_MAX;" in mixed_mz_region
+        assert "next_module_target = UINT32_C(0x00003);" in mixed_mz_region
+        assert "if (next_module_target != UINT32_MAX)" in mixed_mz_region
+        assert mixed_mz_region.count("cpu->ip = (uint16_t)(next_module_target -") == 1
+
         indexed_fixture = bytes.fromhex(
             "bb 07 01 be 02 00 8b 00 f4 34 12"
         )

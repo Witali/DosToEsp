@@ -1213,9 +1213,14 @@ def emit_native_target(
     single_step: bool = False,
 ) -> None:
     if single_step:
-        lines.append(
-            f"{indent}cpu->ip = {guest_ip_expression(target, image_format, load_segment)};"
-        )
+        if image_format == "mz":
+            lines.append(
+                f"{indent}next_module_target = UINT32_C(0x{target:05x});"
+            )
+        else:
+            lines.append(
+                f"{indent}cpu->ip = {guest_ip_expression(target, image_format, load_segment)};"
+            )
         lines.append(f"{indent}goto finish;")
         return
     if target in blocks:
@@ -1268,6 +1273,8 @@ def emit_region(
     ]
     if image_format == "mz":
         lines.append("    uint32_t module_target;")
+        if single_step:
+            lines.append("    uint32_t next_module_target = UINT32_MAX;")
     if any(
         instruction.mnemonic in ("pop", "popf")
         for block in blocks.values()
@@ -1749,6 +1756,15 @@ def emit_region(
         lines.append("")
 
     lines.append("finish:")
+    if single_step and image_format == "mz":
+        lines.extend(
+            [
+                "    if (next_module_target != UINT32_MAX) {",
+                "        cpu->ip = (uint16_t)(next_module_target -",
+                f"            ((uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - UINT16_C(0x{load_segment:04x})) << 4U));",
+                "    }",
+            ]
+        )
     lines.extend(emit_cached_store(registers))
     if single_step:
         lines.extend(
