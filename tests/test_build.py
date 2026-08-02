@@ -195,6 +195,38 @@ def main() -> int:
         assert ".byte 0xa1, 0x1d, 0x01" not in assembly
         assert ".long 0 /* full image omitted */" in assembly
 
+        indexed_fixture = bytes.fromhex(
+            "bb 07 01 be 02 00 8b 00 f4 34 12"
+        )
+        indexed_decoded = d2e_translate.discover(indexed_fixture, 0x100, 0x100)
+        indexed_blocks = d2e_translate.make_blocks(indexed_decoded, 0x100)
+        indexed_assembly = d2e_xtensa.emit_program(
+            indexed_fixture,
+            indexed_blocks,
+            "indexed_memory",
+            0x1000,
+            0x100,
+        )
+        assert "D2E_ASM_CPU_REGS_OFFSET + 6" in indexed_assembly
+        assert "D2E_ASM_CPU_REGS_OFFSET + 12" in indexed_assembly
+        assert indexed_assembly.count("add a12, a12, a4") == 2
+        assert "extui a12, a12, 0, 16" in indexed_assembly
+        assert "(D2E_ASM_X86_DS_INDEX * 2)" in indexed_assembly
+        assert ".long 9" in indexed_assembly
+        assert ".byte 0x34, 0x12" in indexed_assembly
+
+        stack_fixture = bytes.fromhex("bd 07 01 8b 46 00 f4 34 12")
+        stack_decoded = d2e_translate.discover(stack_fixture, 0x100, 0x100)
+        stack_blocks = d2e_translate.make_blocks(stack_decoded, 0x100)
+        stack_assembly = d2e_xtensa.emit_program(
+            stack_fixture,
+            stack_blocks,
+            "stack_memory",
+            0x1000,
+            0x100,
+        )
+        assert "(D2E_ASM_X86_SS_INDEX * 2)" in stack_assembly
+
         c_default = d2e_translate.emit_program(
             asm_fixture, blocks, "native_asm_smoke", 0x1000, 0x100
         )

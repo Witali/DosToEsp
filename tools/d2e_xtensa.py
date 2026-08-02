@@ -55,19 +55,18 @@ def _error(instruction: Any, detail: str) -> BackendError:
     )
 
 
-def _absolute_memory(instruction: Any, operand: tuple[Any, Any]) -> Any:
+def _memory16(instruction: Any, operand: tuple[Any, Any]) -> Any:
     if operand[0] != "mem":
         raise _error(instruction, "requires a memory operand")
     memory = operand[1]
-    if (
-        getattr(memory, "width", 0) != 16
-        or getattr(memory, "base", None) is not None
-        or getattr(memory, "index", None) is not None
+    if getattr(memory, "width", 0) != 16:
+        raise _error(instruction, "currently supports only 16-bit memory operands")
+    for register in (
+        getattr(memory, "base", None),
+        getattr(memory, "index", None),
     ):
-        raise _error(
-            instruction,
-            "currently supports only absolute 16-bit memory operands",
-        )
+        if register is not None and register not in REG16_OFFSETS:
+            raise _error(instruction, "uses an unsupported address register")
     return memory
 
 
@@ -76,14 +75,17 @@ def _emit_memory_arguments(
     instruction: Any,
     memory: Any,
 ) -> list[str]:
-    segment = getattr(memory, "segment", None) or "ds"
+    base = getattr(memory, "base", None)
+    index = getattr(memory, "index", None)
+    default_segment = "ss" if "bp" in (base, index) else "ds"
+    segment = getattr(memory, "segment", None) or default_segment
     if segment not in SEGMENT_INDICES:
         raise _error(instruction, "uses an unsupported memory segment")
     offset_literal = emitter.literal(
         int(getattr(memory, "displacement", 0)) & 0xFFFF,
         "memory_offset",
     )
-    return [
+    lines = [
         "    mov a10, a2",
         (
             "    l16ui a11, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
@@ -91,6 +93,20 @@ def _emit_memory_arguments(
         ),
         f"    l32r a12, {offset_literal}",
     ]
+    for register in (base, index):
+        if register is not None:
+            lines.extend(
+                [
+                    (
+                        "    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + "
+                        f"{REG16_OFFSETS[register]}"
+                    ),
+                    "    add a12, a12, a4",
+                ]
+            )
+    if base is not None or index is not None:
+        lines.append("    extui a12, a12, 0, 16")
+    return lines
 
 
 def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
@@ -112,7 +128,7 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
                 f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
             ]
         if source[0] == "mem":
-            memory = _absolute_memory(instruction, source)
+            memory = _memory16(instruction, source)
             return [
                 *_emit_memory_arguments(emitter, instruction, memory),
                 "    call8 d2e_native_helper_read16",
@@ -123,11 +139,11 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
             ]
         raise _error(
             instruction,
-            "currently supports only immediate/register/absolute-memory MOV sources",
+            "currently supports only immediate/register/memory MOV sources",
         )
 
     if destination[0] == "mem":
-        memory = _absolute_memory(instruction, destination)
+        memory = _memory16(instruction, destination)
         lines = _emit_memory_arguments(emitter, instruction, memory)
         if source[0] == "imm":
             literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
