@@ -619,6 +619,38 @@ def _emit_stack_pop(instruction: Any) -> list[str]:
     return lines
 
 
+def _emit_push_flags(emitter: _Emitter, instruction: Any) -> list[str]:
+    if instruction.operands:
+        raise _error(instruction, "requires operand-free PUSHF")
+    completed = emitter.local("push_flags_completed")
+    return [
+        "    mov a10, a2",
+        "    l16ui a11, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+        "    movi a4, D2E_ASM_X86_FLAG_FIXED",
+        "    or a11, a11, a4",
+        "    call8 d2e_x86_push16",
+        "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+        f"    beqz a4, {completed}",
+        "    j .Lprogram_region_finish",
+        f"{completed}:",
+    ]
+
+
+def _emit_pop_flags(emitter: _Emitter, instruction: Any) -> list[str]:
+    if instruction.operands:
+        raise _error(instruction, "requires operand-free POPF")
+    mask_literal = emitter.literal(0x0FD5, "pop_flags_mask")
+    return [
+        "    mov a10, a2",
+        "    call8 d2e_x86_pop16",
+        f"    l32r a4, {mask_literal}",
+        "    and a10, a10, a4",
+        "    movi a4, D2E_ASM_X86_FLAG_FIXED",
+        "    or a10, a10, a4",
+        "    s16i a10, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+    ]
+
+
 def _emit_edge(
     emitter: _Emitter,
     target: int,
@@ -864,6 +896,10 @@ def native_block_leaders(
                     _emit_stack_push(emitter, instruction)
                 elif mnemonic == "pop":
                     _emit_stack_pop(instruction)
+                elif mnemonic == "pushf":
+                    _emit_push_flags(emitter, instruction)
+                elif mnemonic == "popf":
+                    _emit_pop_flags(emitter, instruction)
                 elif mnemonic == "hlt":
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires HLT to end its block")
@@ -1084,6 +1120,10 @@ def emit_program(
                 body.extend(_emit_stack_push(emitter, instruction))
             elif mnemonic == "pop":
                 body.extend(_emit_stack_pop(instruction))
+            elif mnemonic == "pushf":
+                body.extend(_emit_push_flags(emitter, instruction))
+            elif mnemonic == "popf":
+                body.extend(_emit_pop_flags(emitter, instruction))
             elif mnemonic == "hlt":
                 if index != len(block) - 1:
                     raise _error(instruction, "requires HLT to end its block")

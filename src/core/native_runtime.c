@@ -28,6 +28,8 @@ D2E_ASM_ABI_ASSERT(cpu_fault_ip,
 D2E_ASM_ABI_ASSERT(cpu_instructions_retired,
                    offsetof(d2e_x86_cpu, instructions_retired) ==
                        D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET);
+D2E_ASM_ABI_ASSERT(x86_flag_fixed,
+                   D2E_X86_FLAG_FIXED == D2E_ASM_X86_FLAG_FIXED);
 D2E_ASM_ABI_ASSERT(program_image,
                    offsetof(d2e_native_program, image) == 20);
 D2E_ASM_ABI_ASSERT(program_region,

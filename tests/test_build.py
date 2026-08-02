@@ -395,6 +395,28 @@ def main() -> int:
         assert "D2E_ASM_X86_DS_INDEX" in direct_stack_assembly
         assert "D2E_ASM_X86_ES_INDEX" in direct_stack_assembly
 
+        direct_flags_stack_fixture = bytes.fromhex("9c 9d f4")
+        output = pathlib.Path(temporary) / "asm-direct-flags-stack"
+        manifest = d2e_build.build_sources(
+            direct_flags_stack_fixture,
+            "direct-flags-stack.com",
+            "com",
+            "direct_flags_stack",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_flags_stack_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: pushf  */" in direct_flags_stack_assembly
+        assert "/* 0101: popf  */" in direct_flags_stack_assembly
+        assert "D2E_ASM_X86_FLAG_FIXED" in direct_flags_stack_assembly
+        assert "0x00000fd5" in direct_flags_stack_assembly
+        assert direct_flags_stack_assembly.count("call8 d2e_x86_push16") == 1
+        assert direct_flags_stack_assembly.count("call8 d2e_x86_pop16") == 1
+
         dead_cisc_fixture = bytes.fromhex(
             "ff 36 00 02 83 c0 01 d1 e0 f7 e3 f4"
         )

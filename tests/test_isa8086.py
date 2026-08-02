@@ -165,7 +165,9 @@ KNOWN_XTENSA_DIRECT = {
     "mul-word",
     "nop",
     "pop",
+    "popf",
     "push",
+    "pushf",
     "ret",
     "ret-immediate",
 }
