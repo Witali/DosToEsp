@@ -183,8 +183,8 @@ def main() -> int:
         assert ".Lprogram_region_block_0100:" in assembly
         assert ".Lprogram_region_block_010b:" in assembly
         assert ".Lprogram_region_block_0119:" in assembly
-        assert "movi a9, -65" in assembly
-        assert "beqz a4, .Lprogram_region_branch_taken_" in assembly
+        assert "fused with preceding CMP" in assembly
+        assert "bne a4, a5, .Lprogram_region_fused_branch_taken_" in assembly
         assert assembly.count(".Lprogram_region_budget_finish:") == 1
         assert assembly.count("j .Lprogram_region_budget_finish") == len(blocks)
         assert assembly.count(".Lprogram_region_untranslated:") == 1
@@ -381,6 +381,84 @@ def main() -> int:
         )
         assert "/* Register cache:" not in live_add_assembly
         assert "s16i a8, a2, D2E_ASM_CPU_FLAGS_OFFSET" in live_add_assembly
+
+        fused_compare_fixture = bytes.fromhex("39 d8 72 01 f4 f4")
+        fused_compare_decoded = d2e_translate.discover(
+            fused_compare_fixture, 0x100, 0x100
+        )
+        fused_compare_blocks = d2e_translate.make_blocks(
+            fused_compare_decoded, 0x100
+        )
+        fused_compare_assembly = d2e_xtensa.emit_program(
+            fused_compare_fixture,
+            fused_compare_blocks,
+            "fused_compare_branch",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: jb 0x105; fused with preceding CMP. */" in (
+            fused_compare_assembly
+        )
+        assert "bltu a4, a5, .Lprogram_region_fused_branch_taken_" in (
+            fused_compare_assembly
+        )
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" not in fused_compare_assembly
+
+        fused_test_fixture = bytes.fromhex("85 d8 74 01 f4 f4")
+        fused_test_decoded = d2e_translate.discover(
+            fused_test_fixture, 0x100, 0x100
+        )
+        fused_test_blocks = d2e_translate.make_blocks(
+            fused_test_decoded, 0x100
+        )
+        fused_test_assembly = d2e_xtensa.emit_program(
+            fused_test_fixture,
+            fused_test_blocks,
+            "fused_test_branch",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: je 0x105; fused with preceding TEST. */" in (
+            fused_test_assembly
+        )
+        assert "and a4, a4, a5" in fused_test_assembly
+        assert "beqz a4, .Lprogram_region_fused_branch_taken_" in (
+            fused_test_assembly
+        )
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" not in fused_test_assembly
+
+        for opcode, expected in ((0x76, "bgeu a5, a4"), (0x77, "bltu a5, a4")):
+            fixture = bytes((0x39, 0xD8, opcode, 0x01, 0xF4, 0xF4))
+            decoded = d2e_translate.discover(fixture, 0x100, 0x100)
+            blocks = d2e_translate.make_blocks(decoded, 0x100)
+            order_assembly = d2e_xtensa.emit_program(
+                fixture,
+                blocks,
+                "fused_order_branch",
+                0x1000,
+                0x100,
+            )
+            assert expected in order_assembly
+            assert "D2E_ASM_CPU_FLAGS_OFFSET" not in order_assembly
+
+        live_compare_flags_fixture = bytes.fromhex(
+            "39 d8 74 02 9c f4 9c f4"
+        )
+        live_compare_flags_decoded = d2e_translate.discover(
+            live_compare_flags_fixture, 0x100, 0x100
+        )
+        live_compare_flags_blocks = d2e_translate.make_blocks(
+            live_compare_flags_decoded, 0x100
+        )
+        live_compare_flags_assembly = d2e_xtensa.emit_program(
+            live_compare_flags_fixture,
+            live_compare_flags_blocks,
+            "live_compare_flags",
+            0x1000,
+            0x100,
+        )
+        assert "fused with preceding CMP" not in live_compare_flags_assembly
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" in live_compare_flags_assembly
 
         live_immediate_add_fixture = bytes.fromhex(
             "83 c0 01 74 01 f4 f4"

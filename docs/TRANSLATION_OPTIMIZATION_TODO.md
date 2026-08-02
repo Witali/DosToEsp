@@ -93,6 +93,11 @@ bounded workload.
 
 ## 3. Flag materialization
 
+- [x] Fuse terminal register/immediate `CMP` or `TEST` with unsigned/equality
+  `Jcc` consumers. Branch directly on the operands, but reject fusion if any
+  producer-defined flag remains live on either outgoing edge. Alley Cat fused
+  134 pairs, reduced IROM by 4,372 bytes and improved the three-run QEMU median
+  by 6.8%.
 - [ ] Extend CISC lowering from all-or-none dead-flag elimination to an exact
   required-flag mask.
 - [ ] Represent a pending flag result as operation, width, operands and result
@@ -212,3 +217,4 @@ bounded workload.
 | Direct all-form `IN`/`OUT` | 277,322 | 31,420 | 424,636 | 89 | 58,238 cycles/1K instructions | Keep: IROM -4,652 and fallback -43; median of three direct QEMU runs is below the surrounding 58,565-cycle control median; physical profile pending |
 | `SUB immediate` via `ADDI` | 277,302 | 31,420 | 424,636 | 89 | 55,974 cycles/1K instructions | Keep: IROM -20; 60-frame QEMU run passed with 12,881,855 retired guest instructions and 259 Hz audio; virtual-counter variance requires physical confirmation |
 | Cached three-address `MOV` fusion | 276,794 | 31,420 | 424,636 | 89 | 58,758 cycles/1K instructions | Keep: IROM -508; median of three identical-build QEMU runs (60,052, 57,811, 58,758) is within the build's 3.9% virtual-counter spread; all 60-frame runs returned cleanly with 259 Hz audio; physical confirmation pending |
+| Terminal `CMP`/`TEST` plus `Jcc` fusion | 272,422 | 31,420 | 424,636 | 89 | 54,740 cycles/1K instructions | Keep: 134 fused pairs, IROM -4,372 and QEMU median -6.8%; three 60-frame runs (53,727, 54,740, 55,277) returned cleanly with 259 Hz audio; physical confirmation pending |

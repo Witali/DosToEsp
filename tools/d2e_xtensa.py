@@ -1529,6 +1529,72 @@ def _emit_condition(emitter: _Emitter, instruction: Any, taken: str) -> list[str
     ]
 
 
+def _can_fuse_compare_branch(
+    producer: Any,
+    branch: Any,
+    flag_liveness: d2e_flags.FlagLiveness,
+) -> bool:
+    """Return whether a CMP/TEST result can feed one terminal branch directly."""
+    if producer.mnemonic not in ("cmp", "test"):
+        return False
+    zero_conditions = {"je", "jz", "jne", "jnz"}
+    compare_conditions = {
+        "jb",
+        "jc",
+        "jnae",
+        "jae",
+        "jnb",
+        "jnc",
+        *zero_conditions,
+        "jbe",
+        "jna",
+        "ja",
+        "jnbe",
+    }
+    supported = zero_conditions if producer.mnemonic == "test" else compare_conditions
+    if branch.mnemonic not in supported:
+        return False
+    if len(producer.operands) != 2 or any(
+        operand[0] == "mem" for operand in producer.operands
+    ):
+        return False
+    defined = d2e_flags.effects(producer).defines
+    return (flag_liveness.live_after[branch.address] & defined) == 0
+
+
+def _emit_compare_branch(
+    emitter: _Emitter,
+    producer: Any,
+    branch: Any,
+    taken: str,
+) -> list[str]:
+    """Branch directly on CMP/TEST operands without materializing x86 FLAGS."""
+    left, right = producer.operands
+    width = _binary_operand_width(producer, left)
+    lines = _emit_binary_values(emitter, producer, left, right, width)
+    if producer.mnemonic == "test":
+        lines.append("    and a4, a4, a5")
+        operation = "beqz" if branch.mnemonic in ("je", "jz") else "bnez"
+        lines.append(f"    {operation} a4, {taken}")
+        return lines
+
+    if branch.mnemonic in ("je", "jz"):
+        lines.append(f"    beq a4, a5, {taken}")
+    elif branch.mnemonic in ("jne", "jnz"):
+        lines.append(f"    bne a4, a5, {taken}")
+    elif branch.mnemonic in ("jb", "jc", "jnae"):
+        lines.append(f"    bltu a4, a5, {taken}")
+    elif branch.mnemonic in ("jae", "jnb", "jnc"):
+        lines.append(f"    bgeu a4, a5, {taken}")
+    elif branch.mnemonic in ("jbe", "jna"):
+        lines.append(f"    bgeu a5, a4, {taken}")
+    elif branch.mnemonic in ("ja", "jnbe"):
+        lines.append(f"    bltu a5, a4, {taken}")
+    else:
+        raise _error(branch, "does not support direct compare fusion")
+    return lines
+
+
 def _emit_indirect_jump(
     emitter: _Emitter,
     instruction: Any,
@@ -2130,6 +2196,11 @@ def emit_program(
         body.append("    addi a6, a6, 1")
         terminated = False
         cached_until = 0
+        fused_compare_index: int | None = None
+        if len(block) >= 2 and _can_fuse_compare_branch(
+            block[-2], block[-1], flag_liveness
+        ):
+            fused_compare_index = len(block) - 2
         for index, instruction in enumerate(block):
             if index < cached_until:
                 continue
@@ -2142,6 +2213,30 @@ def emit_program(
             body.append(
                 f"    /* {instruction.address:04x}: {mnemonic} {instruction.op_str} */"
             )
+            if index == fused_compare_index:
+                branch = block[index + 1]
+                body.append(
+                    f"    /* {branch.address:04x}: {branch.mnemonic} "
+                    f"{branch.op_str}; fused with preceding {mnemonic.upper()}. */"
+                )
+                taken = emitter.local("fused_branch_taken")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(
+                    _emit_compare_branch(
+                        emitter, instruction, branch, taken
+                    )
+                )
+                body.extend(
+                    _emit_edge(emitter, branch.next_address, native_blocks)
+                )
+                body.append(f"{taken}:")
+                body.extend(
+                    _emit_edge(
+                        emitter, _direct_target(branch), native_blocks
+                    )
+                )
+                terminated = True
+                break
             if mnemonic in d2e_flags.CONDITION_READS:
                 if index != len(block) - 1:
                     raise _error(instruction, "requires a conditional branch to end its block")

@@ -163,7 +163,8 @@ the result and avoid a FLAGS load/store entirely.
 
 1. Expand adjacent copy/ALU fusion from cached 16-bit runs to proven 8-bit and
    trace-level operations.
-2. Add `CMP`/`TEST` plus `Jcc` fusion before expanding flag materialization.
+2. Extend terminal `CMP`/`TEST` plus `Jcc` fusion to signed conditions and
+   pending ALU results after exact 8/16-bit canonicalization is available.
 3. Add direct `CBW`, `CWD` and `NEG` sequences.
 4. Replace word and byte multiply helpers with `MUL16U`/`MUL16S` sequences.
 5. Select `ADDX2/4/8`, `ADDMI` and reusable address expressions for `LEA` and
