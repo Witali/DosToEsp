@@ -43,6 +43,8 @@ if ($LASTEXITCODE -ne 0) { throw "Static inventory tests failed" }
 if ($LASTEXITCODE -ne 0) { throw "Reference trace tests failed" }
 & $python (Join-Path $project "tests\test_coverage.py")
 if ($LASTEXITCODE -ne 0) { throw "Translator coverage tests failed" }
+& $python (Join-Path $project "tests\test_isa8086.py")
+if ($LASTEXITCODE -ne 0) { throw "8086 ISA audit tests failed" }
 & $python (Join-Path $project "tests\test_build.py")
 if ($LASTEXITCODE -ne 0) { throw "Unified source build tests failed" }
 & $python (Join-Path $project "tests\test_qemu_frame.py")
