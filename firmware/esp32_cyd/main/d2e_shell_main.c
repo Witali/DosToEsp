@@ -31,12 +31,15 @@
 #define D2E_CONVENTIONAL_BYTES (UINT32_C(128) * 1024U)
 #define D2E_RUN_BUDGET UINT32_C(100000)
 
+#if D2E_ALLEY_CAT
 extern const d2e_native_program d2e_generated_program;
+#endif
 
-static const d2e_package packages[] = {
-    {D2E_PACKAGE_ABI_VERSION, "ALLEY", "Alley Cat",
-     D2E_PACKAGE_BUILTIN_FLASH, &d2e_generated_program},
-};
+enum { D2E_PACKAGE_CAPACITY = 1 + CYD_FLASH_MODULE_CAPACITY };
+static d2e_package packages[D2E_PACKAGE_CAPACITY];
+static d2e_native_program module_stubs[CYD_FLASH_MODULE_CAPACITY];
+static uint8_t package_module_indices[D2E_PACKAGE_CAPACITY];
+static size_t package_count;
 
 static uint8_t conventional_memory[D2E_CONVENTIONAL_BYTES];
 static uint8_t cga_vram[D2E_CGA_VRAM_SIZE];
@@ -46,6 +49,9 @@ static d2e_pc_input pc_input;
 static d2e_supervisor supervisor;
 static d2e_shell shell;
 static uint64_t last_clock_day;
+static uint16_t active_load_segment;
+static uint8_t drive_a_ready;
+static uint8_t drive_c_ready;
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
 static uint8_t boot_button_down;
 #endif
@@ -176,6 +182,47 @@ static void render_shell(void) {
 #endif
 }
 
+static void enter_shell(const char *message);
+
+static void refresh_package_catalog(void) {
+    size_t module_index;
+    package_count = 0U;
+    memset(packages, 0, sizeof(packages));
+    memset(module_stubs, 0, sizeof(module_stubs));
+#if D2E_ALLEY_CAT
+    packages[package_count] = (d2e_package){
+        D2E_PACKAGE_ABI_VERSION, "ALLEY", "Alley Cat",
+        D2E_PACKAGE_BUILTIN_FLASH, &d2e_generated_program};
+    package_module_indices[package_count++] = UINT8_MAX;
+#endif
+    for (module_index = 0U;
+         module_index < cyd_flash_module_count() &&
+         package_count < D2E_PACKAGE_CAPACITY;
+         ++module_index) {
+        const cyd_flash_module *const module =
+            cyd_flash_module_at(module_index);
+        if (module == NULL) {
+            continue;
+        }
+        module_stubs[module_index].name = module->manifest.name;
+        packages[package_count] = (d2e_package){
+            D2E_PACKAGE_ABI_VERSION, module->manifest.command,
+            module->manifest.title, D2E_PACKAGE_EXTERNAL_MODULE,
+            &module_stubs[module_index]};
+        package_module_indices[package_count++] = (uint8_t)module_index;
+    }
+}
+
+#if !D2E_SHELL_AUTORUN
+static void reset_shell_catalog(const char *message) {
+    refresh_package_catalog();
+    d2e_shell_init(&shell, packages, package_count);
+    d2e_shell_set_drive_available(&shell, 'A', drive_a_ready);
+    d2e_shell_set_drive_available(&shell, 'C', drive_c_ready);
+    enter_shell(message);
+}
+#endif
+
 static void enter_shell(const char *message) {
     d2e_supervisor_return_to_shell(&supervisor);
     d2e_pc_at_reset(&pc_at);
@@ -185,9 +232,30 @@ static void enter_shell(const char *message) {
     d2e_shell_set_message(&shell, message);
     render_shell();
     esp_rom_printf("D2E_SHELL_READY,packages=%u,message=%s\n",
-                   (unsigned)(sizeof(packages) / sizeof(packages[0])),
+                   (unsigned)package_count,
                    message);
 }
+
+#if !D2E_SHELL_AUTORUN
+static void handle_shell_request(void) {
+    char argument[D2E_SHELL_INPUT_CAPACITY + 1U];
+    const d2e_shell_request request =
+        d2e_shell_take_request(&shell, argument, sizeof(argument));
+    if (request == D2E_SHELL_REQUEST_INSTALL) {
+        char message[D2E_SHELL_COLUMNS + 1U];
+        const esp_err_t result = cyd_flash_install_file(argument);
+        if (result == ESP_OK) {
+            (void)snprintf(message, sizeof(message), "Installed %.29s",
+                           argument);
+        } else {
+            (void)snprintf(message, sizeof(message),
+                           "Install failed: %.22s",
+                           esp_err_to_name(result));
+        }
+        reset_shell_catalog(message);
+    }
+}
+#endif
 
 static const d2e_package *wait_for_shell_command(void) {
 #if D2E_SHELL_AUTORUN
@@ -204,13 +272,18 @@ static const d2e_package *wait_for_shell_command(void) {
                 return selected;
             }
         }
+        if (shell.request != D2E_SHELL_REQUEST_NONE) {
+            handle_shell_request();
+        }
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
         {
             const uint8_t button_down =
                 gpio_get_level(BOARD_BOOT_BUTTON) == 0 ? 1U : 0U;
             if (button_down != 0U && boot_button_down == 0U) {
                 boot_button_down = button_down;
-                return &packages[0];
+                if (package_count != 0U) {
+                    return &packages[0];
+                }
             }
             boot_button_down = button_down;
         }
@@ -249,11 +322,11 @@ static void feed_scripted_input(uint64_t frame) {
 
     if (setup_index < sizeof(setup) / sizeof(setup[0])) {
         uint32_t target;
-        if (cpu.segments[D2E_X86_CS] < d2e_generated_program.load_segment) {
+        if (cpu.segments[D2E_X86_CS] < active_load_segment) {
             return;
         }
         target = ((uint32_t)(uint16_t)(cpu.segments[D2E_X86_CS] -
-                                       d2e_generated_program.load_segment)
+                                       active_load_segment)
                   << 4U) +
                  cpu.ip;
         if (target == setup[setup_index].target &&
@@ -311,6 +384,29 @@ static void run_package(const d2e_package *package) {
     uint32_t previous_hash = 0U;
     const char *return_source = "program";
     char message[D2E_SHELL_COLUMNS + 1U];
+    d2e_package external_package;
+    int external_active = 0;
+
+    if (package->storage == D2E_PACKAGE_EXTERNAL_MODULE) {
+        const size_t package_index = (size_t)(package - packages);
+        esp_err_t result;
+        if (package_index >= package_count ||
+            package_module_indices[package_index] == UINT8_MAX) {
+            enter_shell("Invalid external package");
+            return;
+        }
+        result = cyd_flash_activate_module(
+            package_module_indices[package_index], &external_package);
+        if (result != ESP_OK) {
+            (void)snprintf(message, sizeof(message), "XIP load failed: %.20s",
+                           esp_err_to_name(result));
+            enter_shell(message);
+            return;
+        }
+        package = &external_package;
+        external_active = 1;
+    }
+    active_load_segment = package->program->load_segment;
 
     d2e_pc_at_reset(&pc_at);
     d2e_pc_input_init(&pc_input);
@@ -318,6 +414,9 @@ static void run_package(const d2e_package *package) {
         (void)snprintf(message, sizeof(message), "%s load failed",
                        package->command);
         enter_shell(message);
+        if (external_active) {
+            cyd_flash_deactivate_module();
+        }
         return;
     }
     esp_rom_printf("D2E_SHELL_RUN,command=%s,csip=%04x:%04x,heap=%u\n",
@@ -398,6 +497,9 @@ static void run_package(const d2e_package *package) {
                        package->command, return_source);
     }
     enter_shell(message);
+    if (external_active) {
+        cyd_flash_deactivate_module();
+    }
 }
 
 void app_main(void) {
@@ -406,16 +508,27 @@ void app_main(void) {
     d2e_pc_at_init(&pc_at, cga_vram, sizeof(cga_vram));
     d2e_pc_at_attach(&pc_at, &cpu);
     d2e_supervisor_init(&supervisor, &cpu);
-    d2e_shell_init(&shell, packages,
-                   sizeof(packages) / sizeof(packages[0]));
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     ESP_ERROR_CHECK(cyd_display_init(&display));
     ESP_ERROR_CHECK(cyd_flash_mount());
-    d2e_shell_set_drive_available(&shell, 'A', 1);
+    drive_a_ready = 1U;
     if (cyd_sd_mount_and_probe() == ESP_OK) {
-        d2e_shell_set_drive_available(&shell, 'C', 1);
+        drive_c_ready = 1U;
+    }
+#if defined(D2E_QEMU_XIP_INSTALL_FILE)
+    if (drive_c_ready != 0U && cyd_flash_module_count() == 0U) {
+        const esp_err_t install_result =
+            cyd_flash_install_file(D2E_QEMU_XIP_INSTALL_FILE);
+        esp_rom_printf("D2E_QEMU_XIP_INSTALL,file=%s,result=%s\n",
+                       D2E_QEMU_XIP_INSTALL_FILE,
+                       esp_err_to_name(install_result));
     }
 #endif
+#endif
+    refresh_package_catalog();
+    d2e_shell_init(&shell, packages, package_count);
+    d2e_shell_set_drive_available(&shell, 'A', drive_a_ready);
+    d2e_shell_set_drive_available(&shell, 'C', drive_c_ready);
     ESP_ERROR_CHECK(init_input());
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     ESP_ERROR_CHECK(pc_speaker_audio_init(&pc_at));

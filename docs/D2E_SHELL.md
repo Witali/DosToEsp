@@ -50,3 +50,11 @@ layout installs that translation from the FAT-backed `C:` drive into an
 aligned, append-only extent on `A:`. A catalog record is committed only after
 the complete module passes structural validation, so an interrupted copy is
 ignored on the next boot.
+
+At launch, the platform maps only the selected module. The Xtensa linker has
+already resolved instruction-relative relocations; the Flash installer patches
+the retained aligned absolute references to the actual IROM/DROM windows and
+resolves import indexes through the resident shell ABI. Mapping handles and the
+small RAM-native fragment table are released when the session returns to the
+prompt. Programs on `C:` must be installed first because SD storage is not part
+of the ESP32 instruction mmap address space.

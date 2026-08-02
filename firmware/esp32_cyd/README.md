@@ -59,6 +59,13 @@ or `-Volume 0..100` as needed. `-AudioCapture path.wav` records the DAC stream
 with QEMU's WAV backend instead of playing it. QEMU snapshot mode keeps both
 source images unchanged.
 
+Verify the production layout, where Alley Cat is absent from the application
+partition and is installed from SD before executing directly from `A:` Flash:
+
+```powershell
+.\qemu-xip-alley-cat-windows.ps1 -FrameLimit 60
+```
+
 Flash and verify the physical CYD2USB board (COM8 by default):
 
 ```powershell
