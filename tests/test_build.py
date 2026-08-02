@@ -515,6 +515,53 @@ def main() -> int:
         assert "addi a4, a4, 1" in direct_increment_assembly
         assert ".byte 0xff" in direct_increment_assembly
 
+        direct_logical_fixture = bytes.fromhex(
+            "80 26 06 01 0f f4 ff"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-logical"
+        manifest = d2e_build.build_sources(
+            direct_logical_fixture,
+            "direct-logical.com",
+            "com",
+            "direct_logical",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_logical_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: and byte ptr [0x106], 0xf */" in direct_logical_assembly
+        assert "call8 d2e_native_helper_read8" in direct_logical_assembly
+        assert "call8 d2e_native_helper_write8" in direct_logical_assembly
+        assert "call8 d2e_x86_logic8" not in direct_logical_assembly
+        assert "movi a5, 15" in direct_logical_assembly
+        assert ".byte 0xff" in direct_logical_assembly
+
+        direct_test_fixture = bytes.fromhex(
+            "f6 06 09 01 01 74 01 f4 f4 00"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-test"
+        manifest = d2e_build.build_sources(
+            direct_test_fixture,
+            "direct-test.com",
+            "com",
+            "direct_test",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_test_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: test byte ptr [0x109], 1 */" in direct_test_assembly
+        assert "call8 d2e_native_helper_read8" in direct_test_assembly
+        assert "call8 d2e_x86_logic8" not in direct_test_assembly
+        assert "and a4, a4, a5" in direct_test_assembly
+        assert "movi a9, -65" in direct_test_assembly
+
         dead_cisc_fixture = bytes.fromhex(
             "27 83 c0 01 d1 e0 f7 e3 f4"
         )

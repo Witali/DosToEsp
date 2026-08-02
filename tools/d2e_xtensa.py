@@ -600,6 +600,108 @@ def _emit_inc_dec(
     return lines
 
 
+def _emit_logic_flags(
+    emitter: _Emitter,
+    result_register: str,
+    live_flags: int,
+) -> list[str]:
+    zero_done = emitter.local("logic_zero_done")
+    lines = [
+        "    l16ui a8, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+    ]
+    clear_mask = -1 - live_flags
+    if clear_mask >= -2048:
+        lines.append(f"    movi a9, {clear_mask}")
+    else:
+        mask_literal = emitter.literal(clear_mask, "logic_flags_mask")
+        lines.append(f"    l32r a9, {mask_literal}")
+    lines.append("    and a8, a8, a9")
+    if live_flags & d2e_flags.ZF:
+        lines.extend(
+            [
+                f"    bnez {result_register}, {zero_done}",
+                f"    movi a9, {d2e_flags.ZF}",
+                "    or a8, a8, a9",
+                f"{zero_done}:",
+            ]
+        )
+    lines.append("    s16i a8, a2, D2E_ASM_CPU_FLAGS_OFFSET")
+    return lines
+
+
+def _emit_logical(
+    emitter: _Emitter,
+    instruction: Any,
+    live_flags: int,
+) -> list[str]:
+    if len(instruction.operands) != 2:
+        raise _error(instruction, "requires a two-operand logical instruction")
+    destination, source = instruction.operands
+    width = _binary_operand_width(instruction, destination)
+    if live_flags == 0 and instruction.mnemonic == "test":
+        return ["    /* TEST result and all flags are dead. */"]
+
+    lines = _emit_binary_values(
+        emitter, instruction, destination, source, width
+    )
+    operation = {
+        "and": "and",
+        "or": "or",
+        "xor": "xor",
+        "test": "and",
+    }[instruction.mnemonic]
+    lines.extend(
+        [
+            f"    {operation} a4, a4, a5",
+            f"    extui a4, a4, 0, {width}",
+        ]
+    )
+    direct_mask = d2e_flags.CF | d2e_flags.ZF | d2e_flags.OF
+    if (live_flags & ~direct_mask) == 0:
+        if live_flags:
+            lines.extend(_emit_logic_flags(emitter, "a4", live_flags))
+        result_register = "a4"
+    else:
+        lines.extend(
+            [
+                "    mov a10, a2",
+                "    mov a11, a4",
+                f"    call8 d2e_x86_logic{width}",
+            ]
+        )
+        result_register = "a10"
+
+    if instruction.mnemonic == "test":
+        return lines
+    if destination[0] == "reg":
+        register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+        if destination[1] not in register_offsets:
+            raise _error(instruction, "uses a mismatched logical destination")
+        destination_offset = register_offsets[str(destination[1])]
+        store = "s8i" if width == 8 else "s16i"
+        lines.append(
+            f"    {store} {result_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, width)
+        completed = emitter.local("logical_write_completed")
+        lines.extend(
+            [
+                f"    mov a13, {result_register}",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_write{width}",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
+        )
+    else:
+        raise _error(instruction, "requires a register or memory logical destination")
+    return lines
+
+
 def _emit_shl16(instruction: Any, live_flags: int) -> list[str]:
     if (
         len(instruction.operands) != 2
@@ -1089,6 +1191,8 @@ def native_block_leaders(
                     _emit_sub16(emitter, instruction, live)
                 elif mnemonic in ("inc", "dec"):
                     _emit_inc_dec(emitter, instruction, live)
+                elif mnemonic in ("and", "or", "xor", "test"):
+                    _emit_logical(emitter, instruction, live)
                 elif mnemonic == "shl":
                     _emit_shl16(instruction, live)
                 elif mnemonic == "mul":
@@ -1351,6 +1455,14 @@ def emit_program(
                         flag_liveness.live_defined[instruction.address],
                     )
                 )
+            elif mnemonic in ("and", "or", "xor", "test"):
+                body.extend(
+                    _emit_logical(
+                        emitter,
+                        instruction,
+                        flag_liveness.live_defined[instruction.address],
+                    )
+                )
             elif mnemonic == "shl":
                 body.extend(
                     _emit_shl16(
@@ -1400,6 +1512,8 @@ def emit_program(
         "    .extern d2e_x86_inc16",
         "    .extern d2e_x86_dec8",
         "    .extern d2e_x86_dec16",
+        "    .extern d2e_x86_logic8",
+        "    .extern d2e_x86_logic16",
         "    .extern d2e_native_helper_read8",
         "    .extern d2e_native_helper_read16",
         "    .extern d2e_native_helper_write8",
