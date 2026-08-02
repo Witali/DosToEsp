@@ -1,0 +1,49 @@
+# CISC helper optimization TODO
+
+This backlog tracks size reductions for the mixed Xtensa assembly backend.
+Every item must preserve 8086 behavior, must not reduce execution speed, and
+must be evaluated against the same Alley Cat input, ESP-IDF configuration and
+bounded QEMU workload.
+
+## Baseline
+
+- Application image: 694,000 bytes (`0xA96F0`).
+- Eleven generated CISC regions: 427,537 bytes of linked flash code.
+- CISC fallback: 2,684 basic blocks.
+- Direct Xtensa path: 548 basic blocks and 58,961 bytes of linked flash code.
+- Retained Alley Cat data and descriptors: 30,903 bytes.
+- Bounded QEMU result: CGA mode 4, 14,118,099 retired guest instructions,
+  clean shell return, and `D2E_QEMU_DONE,0`.
+
+## Work items
+
+- [ ] Route a translated target directly to its CISC region and local block;
+  remove sequential probing of up to eleven region functions.
+- [ ] Replace sparse module-address switches with compact dense block IDs.
+- [ ] Let a CISC region execute connected blocks until it reaches an assembly
+  handoff, a runtime boundary, or the shared block budget.
+- [ ] Remove mixed-backend single-block budget scaffolding and redundant full
+  CPU register synchronization.
+- [ ] Apply whole-program flag liveness to CISC lowering. Emit plain arithmetic
+  when no produced flag is live and materialize only required flags otherwise.
+- [ ] Use a bounded 32-bit retired-instruction delta and materialize the 64-bit
+  counter only at synchronization points.
+- [ ] Share cold budget-exhaustion and guest-PC materialization paths instead
+  of repeating them in every block.
+- [ ] Remove stop-reason checks only after translator-backed proof that the
+  preceding operation cannot fault.
+- [ ] Partition CISC blocks by CFG locality and estimated linked byte size,
+  rather than fixed address-ordered groups of 256 blocks.
+- [ ] Expand high-impact direct Xtensa lowerings after dispatch is scalable:
+  near `call`/`ret`, stack operations, memory and byte forms of `cmp`/`sub`,
+  then common logical and increment/decrement instructions.
+
+## Evaluation log
+
+| Change | App bytes | CISC bytes | QEMU result | Decision |
+|---|---:|---:|---|---|
+| Baseline | 694,000 | 427,537 | Pass | Keep |
+
+Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
+semantics are not default solutions because they can trade execution speed for
+size. They may be reconsidered only with measured QEMU evidence.
