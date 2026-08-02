@@ -51,6 +51,7 @@ bounded QEMU workload.
 | Direct region range routing | 694,016 (+16) | 427,537 (+0) | Pass | Keep: size-neutral, removes failed region calls |
 | Mixed single-step specialization | 631,872 (-62,144) | 365,577 (-61,960) | Pass | Keep: removes unreachable multi-block machinery |
 | Elide dead CISC status flags | 622,832 (-9,040) | 356,695 (-8,882) | Pass | Keep: plain wrapping arithmetic replaces unused flag helpers |
+| Shared ZF-only result helper | 622,880 (+48) | 356,695 (+0) | Not run | Revert: call sites do not shrink and the helper adds flash code |
 
 Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
 semantics are not default solutions because they can trade execution speed for
