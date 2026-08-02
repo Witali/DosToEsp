@@ -285,6 +285,49 @@ def main() -> int:
         assert fallback_bridge.count("d2e_generated_cisc_region_000(") == 2
         assert fallback_bridge.count("d2e_generated_cisc_region_001(") == 2
 
+        dead_cisc_fixture = bytes.fromhex(
+            "50 83 c0 01 d1 e0 f7 e3 f4"
+        )
+        output = pathlib.Path(temporary) / "asm-dead-cisc-flags"
+        manifest = d2e_build.build_sources(
+            dead_cisc_fixture,
+            "dead-cisc-flags.com",
+            "com",
+            "dead_cisc_flags",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        dead_cisc_region = (output / "game_cisc_region_000.c").read_text(
+            encoding="utf-8"
+        )
+        assert "d2e_x86_add16(" not in dead_cisc_region
+        assert "d2e_x86_shl16(" not in dead_cisc_region
+        assert "d2e_x86_mul16(" not in dead_cisc_region
+        assert "(uint16_t)(r_ax) + (uint16_t)(UINT16_C(0x0001))" in dead_cisc_region
+        assert "(uint16_t)(r_ax) << 1U" in dead_cisc_region
+        assert "(uint32_t)(uint16_t)r_ax" in dead_cisc_region
+
+        live_carry_fixture = bytes.fromhex("50 83 c0 01 83 d3 00 f4")
+        output = pathlib.Path(temporary) / "asm-live-cisc-carry"
+        manifest = d2e_build.build_sources(
+            live_carry_fixture,
+            "live-cisc-carry.com",
+            "com",
+            "live_cisc_carry",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        live_cisc_region = (output / "game_cisc_region_000.c").read_text(
+            encoding="utf-8"
+        )
+        assert "d2e_x86_add16(" in live_cisc_region
+        assert "d2e_x86_adc16(" not in live_cisc_region
+        assert "D2E_X86_FLAG_CF" in live_cisc_region
+
         asm_mz_module = bytes.fromhex("b8 10 00 f4")
         asm_mz = bytearray(32 + len(asm_mz_module))
         asm_mz[:2] = b"MZ"

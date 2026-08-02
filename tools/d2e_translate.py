@@ -15,6 +15,7 @@ LOCAL_PACKAGES = PROJECT_ROOT / "local_tools" / "python_packages"
 sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 sys.path.insert(0, str(LOCAL_PACKAGES))
 
+import d2e_flags
 import d2e_xtensa
 
 try:
@@ -811,8 +812,36 @@ def port_expression(operand: tuple[str, OperandValue], cached: bool) -> str:
     return value
 
 
+def plain_binary_expression(
+    mnemonic: str, width: int, left: str, right: str
+) -> str:
+    """Return wrapping x86 arithmetic without materializing dead flags."""
+    left_value = f"(uint{width}_t)({left})"
+    right_value = f"(uint{width}_t)({right})"
+    carry = "((cpu->flags & D2E_X86_FLAG_CF) != 0U ? 1U : 0U)"
+    if mnemonic == "add":
+        operation = f"{left_value} + {right_value}"
+    elif mnemonic == "adc":
+        operation = f"{left_value} + {right_value} + {carry}"
+    elif mnemonic in ("sub", "cmp"):
+        operation = f"{left_value} - {right_value}"
+    elif mnemonic == "sbb":
+        operation = f"{left_value} - {right_value} - {carry}"
+    elif mnemonic in ("and", "test"):
+        operation = f"{left_value} & {right_value}"
+    elif mnemonic == "or":
+        operation = f"{left_value} | {right_value}"
+    elif mnemonic == "xor":
+        operation = f"{left_value} ^ {right_value}"
+    else:
+        raise TranslationError(f"no plain arithmetic form for {mnemonic}")
+    return f"(uint{width}_t)({operation})"
+
+
 def translate_data_instruction(
-    instruction: Instruction, cached: bool = False
+    instruction: Instruction,
+    cached: bool = False,
+    live_flags: int | None = None,
 ) -> list[str]:
     mnemonic = instruction.mnemonic
     operands = instruction.operands
@@ -922,7 +951,9 @@ def translate_data_instruction(
         width = operand_width(operands[0], cached)
         left = value_expression(operands[0], width, cached)
         right = value_expression(operands[1], width, cached)
-        if mnemonic in ("xor", "and", "or", "test"):
+        if live_flags == 0:
+            expression = plain_binary_expression(mnemonic, width, left, right)
+        elif mnemonic in ("xor", "and", "or", "test"):
             operator = {"xor": "^", "and": "&", "or": "|", "test": "&"}[mnemonic]
             expression = (
                 f"d2e_x86_logic{width}(cpu, "
@@ -937,6 +968,13 @@ def translate_data_instruction(
     if mnemonic in ("inc", "dec") and len(operands) == 1:
         width = operand_width(operands[0], cached)
         value = value_expression(operands[0], width, cached)
+        if live_flags == 0:
+            operator = "+" if mnemonic == "inc" else "-"
+            return write_operand(
+                operands[0],
+                f"(uint{width}_t)((uint{width}_t)({value}) {operator} 1U)",
+                cached,
+            )
         return write_operand(
             operands[0],
             f"d2e_x86_{mnemonic}{width}(cpu, {value})",
@@ -951,6 +989,12 @@ def translate_data_instruction(
     if mnemonic == "neg" and len(operands) == 1:
         width = operand_width(operands[0], cached)
         value = value_expression(operands[0], width, cached)
+        if live_flags == 0:
+            return write_operand(
+                operands[0],
+                f"(uint{width}_t)(0U - (uint{width}_t)({value}))",
+                cached,
+            )
         return write_operand(
             operands[0],
             f"d2e_x86_sub{width}(cpu, (uint{width}_t)0, {value})",
@@ -968,6 +1012,17 @@ def translate_data_instruction(
         width = operand_width(operands[0], cached)
         value = value_expression(operands[0], width, cached)
         count = value_expression(operands[1], 8, cached)
+        if (
+            live_flags == 0
+            and mnemonic in ("shl", "shr")
+            and operands[1] == ("imm", 1)
+        ):
+            operator = "<<" if mnemonic == "shl" else ">>"
+            return write_operand(
+                operands[0],
+                f"(uint{width}_t)((uint{width}_t)({value}) {operator} 1U)",
+                cached,
+            )
         return write_operand(
             operands[0],
             f"d2e_x86_{mnemonic}{width}(cpu, {value}, (uint8_t)({count}))",
@@ -990,6 +1045,22 @@ def translate_data_instruction(
     if mnemonic in ("mul", "imul") and len(operands) == 1:
         width = operand_width(operands[0], cached)
         value = value_expression(operands[0], width, cached)
+        if live_flags == 0:
+            signed_type = f"int{width}_t"
+            product_type = "int32_t" if mnemonic == "imul" else "uint32_t"
+            operand_type = signed_type if mnemonic == "imul" else f"uint{width}_t"
+            product = (
+                f"({product_type})({operand_type})r_ax * "
+                f"({product_type})({operand_type})({value})"
+            )
+            if width == 8:
+                return [f"r_ax = (uint16_t)({product});"]
+            if width == 16:
+                return [
+                    f"multiply_value = (uint32_t)({product});",
+                    "r_ax = (uint16_t)multiply_value;",
+                    "r_dx = (uint16_t)(multiply_value >> 16U);",
+                ]
         if width == 8:
             return [
                 f"r_ax = d2e_x86_{mnemonic}8(cpu, (uint8_t)r_ax, "
@@ -1174,6 +1245,7 @@ def emit_region(
     handoff_on_unknown: bool = False,
     storage: str = "static ",
     single_step: bool = False,
+    live_defined_flags: dict[int, int] | None = None,
 ) -> list[str]:
     registers = cached_registers(blocks)
     post_block_handoff = (
@@ -1654,7 +1726,14 @@ def emit_region(
                 )
                 terminated = True
             else:
-                for statement in translate_data_instruction(instruction, cached=True):
+                instruction_live_flags = (
+                    None
+                    if live_defined_flags is None
+                    else live_defined_flags.get(instruction.address, d2e_flags.ALL)
+                )
+                for statement in translate_data_instruction(
+                    instruction, cached=True, live_flags=instruction_live_flags
+                ):
                     lines.append(f"    {statement}")
             if terminated:
                 break
@@ -2131,6 +2210,7 @@ def emit_xtensa_source_files(
     initial_sp: int,
 ) -> dict[str, str]:
     """Emit direct Xtensa assembly plus CISC helper blocks compiled as Xtensa."""
+    flag_liveness = d2e_flags.analyze(blocks)
     native = d2e_xtensa.native_block_leaders(
         blocks, image_format, load_segment
     )
@@ -2229,6 +2309,7 @@ def emit_xtensa_source_files(
                 handoff_on_unknown=True,
                 storage="",
                 single_step=True,
+                live_defined_flags=flag_liveness.live_defined,
             )
         )
         region.append("")
