@@ -16,6 +16,11 @@ enum {
     D2E_SHELL_INPUT_CAPACITY = 31,
 };
 
+typedef enum d2e_shell_request {
+    D2E_SHELL_REQUEST_NONE = 0,
+    D2E_SHELL_REQUEST_INSTALL = 1,
+} d2e_shell_request;
+
 typedef struct d2e_shell {
     const d2e_package *packages;
     size_t package_count;
@@ -26,6 +31,8 @@ typedef struct d2e_shell {
     uint8_t ignore_line_feed;
     uint8_t drive_mask;
     char current_drive;
+    d2e_shell_request request;
+    char request_argument[D2E_SHELL_INPUT_CAPACITY + 1U];
 } d2e_shell;
 
 void d2e_shell_init(d2e_shell *shell, const d2e_package *packages,
@@ -34,6 +41,8 @@ const d2e_package *d2e_shell_feed(d2e_shell *shell, uint8_t byte);
 void d2e_shell_set_message(d2e_shell *shell, const char *message);
 void d2e_shell_set_drive_available(d2e_shell *shell, char drive,
                                    int available);
+d2e_shell_request d2e_shell_take_request(d2e_shell *shell, char *argument,
+                                         size_t argument_capacity);
 void d2e_shell_render(d2e_shell *shell, uint8_t *text_vram,
                       size_t vram_size);
 

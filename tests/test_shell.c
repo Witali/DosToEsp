@@ -42,6 +42,7 @@ static const d2e_package *feed_text(d2e_shell *shell, const char *text) {
 
 static void test_commands(void) {
     d2e_shell shell;
+    char request_argument[D2E_SHELL_INPUT_CAPACITY + 1U];
     d2e_shell_init(&shell, packages, 1U);
     d2e_shell_set_drive_available(&shell, 'A', 1);
     d2e_shell_set_drive_available(&shell, 'C', 1);
@@ -49,7 +50,8 @@ static void test_commands(void) {
     CHECK(shell.input_length == 0U);
     CHECK(feed_text(&shell, "ALLEY\n") == &packages[0]);
     CHECK(feed_text(&shell, "HELP\r") == NULL);
-    CHECK(strcmp(shell.message, "DIR  A:  C:  RUN <name>  HELP") == 0);
+    CHECK(strcmp(shell.message,
+                 "DIR A: C: RUN <name> INSTALL <file>") == 0);
     CHECK(feed_text(&shell, "C:\r") == NULL);
     CHECK(shell.current_drive == 'C');
     CHECK(strcmp(shell.message, "Current drive is C:") == 0);
@@ -64,6 +66,17 @@ static void test_commands(void) {
     CHECK(feed_text(&shell, "RUN\r") == NULL);
     CHECK(strcmp(shell.message, "Usage: RUN <name>") == 0);
     CHECK(feed_text(&shell, "ALLEZ\bY\r") == &packages[0]);
+    CHECK(feed_text(&shell, "install Games/Alley.d2e\r") == NULL);
+    CHECK(d2e_shell_take_request(&shell, request_argument,
+                                 sizeof(request_argument)) ==
+          D2E_SHELL_REQUEST_INSTALL);
+    CHECK(strcmp(request_argument, "Games/Alley.d2e") == 0);
+    CHECK(d2e_shell_take_request(&shell, request_argument,
+                                 sizeof(request_argument)) ==
+          D2E_SHELL_REQUEST_NONE);
+    CHECK(request_argument[0] == '\0');
+    CHECK(feed_text(&shell, "INSTALL\r") == NULL);
+    CHECK(strcmp(shell.message, "Usage: INSTALL <file>") == 0);
 }
 
 static void test_render(void) {

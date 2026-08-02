@@ -61,9 +61,6 @@ static const d2e_package *execute_line(d2e_shell *shell) {
 
     memcpy(command, shell->input, shell->input_length + 1U);
     text = trim(command);
-    for (index = 0U; text[index] != '\0'; ++index) {
-        text[index] = (char)toupper((unsigned char)text[index]);
-    }
     if (*text == '\0') {
         d2e_shell_set_message(shell, "");
         return NULL;
@@ -72,6 +69,9 @@ static const d2e_package *execute_line(d2e_shell *shell) {
     if (argument != NULL) {
         *argument++ = '\0';
         argument = trim(argument);
+    }
+    for (index = 0U; text[index] != '\0'; ++index) {
+        text[index] = (char)toupper((unsigned char)text[index]);
     }
     if (text[0] != '\0' && text[1] == ':' && text[2] == '\0' &&
         argument == NULL) {
@@ -88,7 +88,8 @@ static const d2e_package *execute_line(d2e_shell *shell) {
         return NULL;
     }
     if (strcmp(text, "HELP") == 0) {
-        d2e_shell_set_message(shell, "DIR  A:  C:  RUN <name>  HELP");
+        d2e_shell_set_message(shell,
+                              "DIR A: C: RUN <name> INSTALL <file>");
         return NULL;
     }
     if (strcmp(text, "DIR") == 0) {
@@ -105,6 +106,22 @@ static const d2e_package *execute_line(d2e_shell *shell) {
         }
         package = d2e_package_find(shell->packages, shell->package_count,
                                    argument);
+    } else if (strcmp(text, "INSTALL") == 0) {
+        if (argument == NULL || *argument == '\0') {
+            d2e_shell_set_message(shell, "Usage: INSTALL <file>");
+            return NULL;
+        }
+        if (!drive_available(shell, 'C')) {
+            d2e_shell_set_message(shell, "C: drive not ready");
+            return NULL;
+        }
+        shell->request = D2E_SHELL_REQUEST_INSTALL;
+        (void)snprintf(shell->request_argument,
+                       sizeof(shell->request_argument), "%s", argument);
+        (void)snprintf(shell->message, sizeof(shell->message),
+                       "Installing %.28s", argument);
+        shell->dirty = 1U;
+        return NULL;
     } else {
         package = d2e_package_find(shell->packages, shell->package_count,
                                    text);
@@ -113,6 +130,18 @@ static const d2e_package *execute_line(d2e_shell *shell) {
         d2e_shell_set_message(shell, "Bad command or package name");
     }
     return package;
+}
+
+d2e_shell_request d2e_shell_take_request(d2e_shell *shell, char *argument,
+                                         size_t argument_capacity) {
+    const d2e_shell_request request = shell->request;
+    if (argument != NULL && argument_capacity != 0U) {
+        (void)snprintf(argument, argument_capacity, "%s",
+                       shell->request_argument);
+    }
+    shell->request = D2E_SHELL_REQUEST_NONE;
+    shell->request_argument[0] = '\0';
+    return request;
 }
 
 void d2e_shell_init(d2e_shell *shell, const d2e_package *packages,
@@ -189,13 +218,13 @@ void d2e_shell_render(d2e_shell *shell, uint8_t *vram, size_t vram_size) {
     write_text(vram, vram_size, 0U, 0U, "D2E DOS 0.1", k_heading_attribute);
     write_text(vram, vram_size, 1U, 0U,
                "Ahead-of-time translated programs", k_default_attribute);
-    write_text(vram, vram_size, 2U, 0U, "A: LittleFS",
+    write_text(vram, vram_size, 2U, 0U, "A: XIP Flash",
                drive_available(shell, 'A') ? k_package_attribute
                                            : k_default_attribute);
     write_text(vram, vram_size, 2U, 16U, "C: SD card",
                drive_available(shell, 'C') ? k_package_attribute
                                            : k_default_attribute);
-    write_text(vram, vram_size, 3U, 0U, "Resident programs:",
+    write_text(vram, vram_size, 3U, 0U, "Installed programs:",
                k_heading_attribute);
     for (index = 0U; index < shell->package_count && index < 14U; ++index) {
         (void)snprintf(package_line, sizeof(package_line), "%-8s %s",
