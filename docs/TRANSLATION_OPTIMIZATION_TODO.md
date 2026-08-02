@@ -1,0 +1,163 @@
+# Translation Optimization TODO
+
+This backlog records the next improvements identified by the 2026-08-02
+translator audit. Work items are ordered by expected benefit and dependency.
+Every change must preserve 8086 behavior, keep reusable x86 semantics in the
+DOS shell, and be evaluated with the same input, build configuration and
+bounded workload.
+
+## Audit checkpoint
+
+- Alley Cat contains 3,232 discovered blocks and 8,480 decoded instructions.
+- The current split is 2,850 direct Xtensa blocks and 382 CISC fallback blocks.
+- The external XIP module is 424,636 bytes: 302,088 bytes of IROM and 31,420
+  bytes of DROM, plus metadata and section-alignment gaps.
+- Generated assembly contains 9,256 literal slots but only 4,132 distinct
+  values. Literal interning has a measured upper bound of 20,496 bytes before
+  accounting for instruction-range and relocation constraints.
+- Static generated code contains about 4,292 CPU-register references, 3,102
+  segment references and 2,482 guest-memory helper calls.
+- Checked hash dispatch already bounds direct-address lookup. The bounded QEMU
+  comparison, 41.8 seconds versus 41.7 seconds for hybrid dispatch, showed no
+  measurable speed difference; further dispatch tuning is not a priority
+  without target-cycle profiles.
+
+## 0. Measurement infrastructure
+
+- [ ] Add an optional ESP32 profiling build that reads Xtensa cycle counters at
+  trace, fallback and helper boundaries.
+- [ ] Count calls and cycles by native block, CISC region and shared helper.
+- [ ] Report mixed-backend crossings, memory-helper traffic, interrupt and port
+  calls, string operations and budget exits.
+- [ ] Keep all profiling tables and instrumentation out of release builds.
+- [ ] Define a repeatable physical-board workload in addition to the bounded
+  QEMU correctness run.
+
+## 1. Literal and immediate compaction
+
+- [ ] Intern assembly literals by value, relocation kind and required reach.
+- [ ] Reuse common constants such as the load segment instead of emitting one
+  literal per instruction.
+- [ ] Select `movi`, `addi` and compact Xtensa encodings when their immediate
+  range is sufficient.
+- [ ] Measure native text, literal bytes, total module bytes and execution time
+  separately.
+- [ ] Target a 15-20 KiB reduction, treating 20,496 bytes as an upper bound and
+  not as a guaranteed result.
+
+## 2. Remove high-volume CISC fallback
+
+- [ ] Lower the remaining byte, memory-source and live-flags forms of `ADD`.
+  The audit attributes 142 fallback blocks to these forms.
+- [ ] Lower `INT` as a direct call to the program-independent interrupt helper.
+  The audit found 111 blocks, primarily `INT 1Ah` and `INT 10h`.
+- [ ] Lower `IN` and `OUT` as direct calls to the shared port helpers. The audit
+  found 44 fallback blocks.
+- [ ] Lower variable-count shifts directly or through shared ALU helpers. The
+  audit found 33 fallback blocks.
+- [ ] Route `MOVS`, `STOS`, `LODS` and `SCAS`, including `REP` forms, to common
+  string helpers without generating game-private implementations.
+- [ ] Cover the remaining rare forms: byte `MUL`, `ADC`, `XCHG`, `LAHF`,
+  `SAHF`, `IRET`, far `RET` and far `JMP`.
+- [ ] Recount fallback blocks after every focused lowering and retain a change
+  only when total size and target performance do not regress unexpectedly.
+
+## 3. Flag materialization
+
+- [ ] Extend CISC lowering from all-or-none dead-flag elimination to an exact
+  required-flag mask.
+- [ ] Represent a pending flag result as operation, width, operands and result
+  across safe block edges.
+- [ ] Materialize architectural flags only at a real consumer such as `Jcc`,
+  `PUSHF`, `LAHF`, an interrupt, a helper boundary or an unresolved edge.
+- [ ] Preserve instruction-specific unaffected and undefined flags; in
+  particular, keep `CF` unchanged for `INC` and `DEC`.
+- [ ] Add differential tests for every live-flag subset used by direct and CISC
+  lowering.
+
+## 4. Trace-level intermediate representation
+
+- [ ] Introduce a backend-neutral micro-operation IR for one basic block before
+  extending it across control-flow edges.
+- [ ] Add constant propagation, redundant load/store removal, dead guest-register
+  store elimination and address-expression reuse.
+- [ ] Form short traces from fall-through and single-predecessor edges, guided
+  by physical-board profiles when available.
+- [ ] Cache hot x86 registers and segment bases in Xtensa registers within a
+  helper-free trace.
+- [ ] Spill dirty architectural state before helpers, supervisor exits,
+  unresolved edges and joins with incompatible cached state.
+- [ ] Hoist the retired-instruction budget check to trace boundaries while
+  preserving exact accounting and bounded supervisor response time.
+
+## 5. Guest-memory fast paths
+
+- [ ] Profile memory-helper call counts and cycles before selecting operations
+  to inline.
+- [ ] Add a guarded conventional-RAM fast path with a shared slow path.
+- [ ] Preserve 20-bit physical wrapping, 16-bit segment-offset wrapping between
+  the two bytes of a word, unaligned accesses, CGA mapping and unmapped-memory
+  behavior.
+- [ ] Keep word accesses byte-accurate when the first byte is at offset
+  `FFFFh`; do not replace them with an unconditional aligned Xtensa word load.
+- [ ] Add boundary tests for RAM limits, CGA limits, segment wrapping and odd
+  addresses.
+
+## 6. CISC region and boundary cleanup
+
+- [ ] Re-evaluate dense block IDs after the high-volume direct lowerings reduce
+  the fallback set.
+- [ ] Let connected fallback blocks execute inside one CISC region until an
+  assembly handoff, runtime boundary or shared budget exit.
+- [ ] Synchronize only live or dirty CPU fields at mixed-backend boundaries.
+- [ ] Partition remaining CISC blocks by CFG locality and measured linked size
+  instead of fixed address ranges.
+
+## 7. XIP module format v2
+
+- [ ] Design a layout that does not require a mostly empty 64 KiB prefix before
+  IROM and minimizes padding before DROM.
+- [ ] Keep code executable directly from mapped flash and retain stable import
+  relocations into the DOS shell.
+- [ ] Measure file-size savings separately from translated-code savings.
+- [ ] Evaluate optional compression only for data fragments; decompression must
+  remain a common shell service and must not affect direct code execution.
+- [ ] Retain backward loading support or reject old/new module versions with a
+  clear English diagnostic.
+
+## 8. Program discovery and compatibility
+
+- [ ] Add abstract interpretation for constant segment/register values and
+  indirect control targets.
+- [ ] Recognize relocation-backed pointer tables and convert proven targets to
+  native labels or dense IDs without retaining the original address table when
+  it is not observable as data.
+- [ ] Add interprocedural call/return summaries and code/data conflict checks.
+- [ ] Detect writes to translated code pages and choose an explicit policy:
+  invalidate and interpret, preserve code bytes in compatibility mode, or
+  reject the program during translation.
+- [ ] Add a hybrid interpreter path for runtime-generated code, overlays and
+  self-decompressing programs.
+- [ ] Never silently return zero-filled bytes for original code that the guest
+  can read, checksum or modify.
+
+## Correctness gates
+
+- [ ] Use Intel's instruction reference as the primary semantic source and the
+  AMD Architecture Programmer's Manual as an independent cross-check.
+- [ ] Keep the configured CPU model explicit in tests. Do not import later x86
+  shift-count, flag or stack behavior into the 8086 backend.
+- [ ] Run exhaustive or boundary-focused host tests for each newly lowered
+  instruction form.
+- [ ] Run translated-versus-reference differential tests for registers, flags,
+  memory, I/O events and stop reasons.
+- [ ] Require the bounded Alley Cat QEMU run to render the expected frames,
+  preserve normal speaker timing and return cleanly to the shell.
+- [ ] Record before/after IROM, DROM, total module bytes, fallback-block count,
+  helper calls and target cycles in the evaluation log.
+
+## Evaluation log
+
+| Change | IROM bytes | DROM bytes | Module bytes | Fallback blocks | Target cycles | Decision |
+|---|---:|---:|---:|---:|---:|---|
+| Audit checkpoint | 302,088 | 31,420 | 424,636 | 382 | Not measured | Baseline |
