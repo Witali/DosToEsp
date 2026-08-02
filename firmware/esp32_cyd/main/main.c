@@ -409,6 +409,30 @@ void app_main(void) {
     finish(0);
 #else
     reason = d2e_native_run(&cpu, &d2e_generated_program, 100U);
+#if D2E_XTENSA_ASM_SMOKE
+    if (reason != D2E_X86_EXITED || cpu.exit_code != 0U ||
+        cpu.regs[D2E_X86_AX] != UINT16_C(0x1234) ||
+        cpu.regs[D2E_X86_BX] != UINT16_C(0x1234) ||
+        cpu.instructions_retired != UINT64_C(3)) {
+        esp_rom_printf(
+            "D2E_XTENSA_ASM_FAIL,run,reason=%u,exit=%u,ax=%04x,bx=%04x,"
+            "instructions=%" PRIu64 ",target=%04x:%04x,address=%08x\n",
+            (unsigned)reason, (unsigned)cpu.exit_code,
+            (unsigned)cpu.regs[D2E_X86_AX],
+            (unsigned)cpu.regs[D2E_X86_BX], cpu.instructions_retired,
+            (unsigned)cpu.fault_cs, (unsigned)cpu.fault_ip,
+            (unsigned)cpu.fault_address);
+        finish(2);
+    }
+
+    esp_rom_printf(
+        "D2E_XTENSA_ASM_OK,ax=%04x,bx=%04x,instructions=%" PRIu64
+        ",heap=%u,largest=%u\n",
+        (unsigned)cpu.regs[D2E_X86_AX],
+        (unsigned)cpu.regs[D2E_X86_BX], cpu.instructions_retired,
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#else
     if (reason != D2E_X86_EXITED || cpu.exit_code != 42U ||
         cpu.regs[D2E_X86_AX] != UINT16_C(0x4c2a) ||
         cpu.regs[D2E_X86_CX] != 0U ||
@@ -431,6 +455,7 @@ void app_main(void) {
         (unsigned)cpu.regs[D2E_X86_CX], cpu.instructions_retired,
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#endif
     finish(0);
 #endif
 }

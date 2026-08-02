@@ -12,7 +12,10 @@ from collections import deque
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 LOCAL_PACKAGES = PROJECT_ROOT / "local_tools" / "python_packages"
+sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 sys.path.insert(0, str(LOCAL_PACKAGES))
+
+import d2e_xtensa
 
 try:
     from capstone import CS_ARCH_X86, CS_MODE_16, Cs
@@ -1801,7 +1804,7 @@ def emit_source_files(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Translate statically reachable 8086 DOS blocks to native C"
+        description="Translate statically reachable 8086 DOS blocks to a native backend"
     )
     parser.add_argument("input", type=pathlib.Path)
     parser.add_argument("output", type=pathlib.Path)
@@ -1809,6 +1812,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--name")
     parser.add_argument("--load-segment", type=lambda value: int(value, 0), default=0x1000)
     parser.add_argument("--entry", type=lambda value: int(value, 0), default=0x100)
+    parser.add_argument(
+        "--backend",
+        choices=("c", "xtensa-asm"),
+        default="c",
+        help="code generation backend (default: c)",
+    )
     return parser.parse_args()
 
 
@@ -1819,14 +1828,24 @@ def main() -> int:
     try:
         decoded = discover(image, 0x100, args.entry)
         blocks = make_blocks(decoded, args.entry)
-        output = emit_program(image, blocks, name, args.load_segment, args.entry)
-    except TranslationError as error:
+        if args.backend == "c":
+            output = emit_program(image, blocks, name, args.load_segment, args.entry)
+        else:
+            output = d2e_xtensa.emit_program(
+                image,
+                blocks,
+                c_identifier(name),
+                args.load_segment,
+                args.entry,
+            )
+    except (TranslationError, d2e_xtensa.BackendError) as error:
         print(f"translation failed: {error}", file=sys.stderr)
         return 1
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(output, encoding="utf-8", newline="\n")
     print(
-        f"translated {len(decoded)} instructions into {len(blocks)} native blocks: {args.output}"
+        f"translated {len(decoded)} instructions into {len(blocks)} "
+        f"{args.backend} native blocks: {args.output}"
     )
     return 0
 

@@ -1,6 +1,38 @@
 #include "d2e/native_runtime.h"
+#include "d2e/native_asm_offsets.h"
 
+#include <stddef.h>
 #include <string.h>
+
+#if UINTPTR_MAX == UINT32_MAX
+#define D2E_ASM_ABI_ASSERT(name, expression) \
+    typedef char d2e_asm_abi_##name[(expression) ? 1 : -1]
+D2E_ASM_ABI_ASSERT(cpu_regs,
+                   offsetof(d2e_x86_cpu, regs) == D2E_ASM_CPU_REGS_OFFSET);
+D2E_ASM_ABI_ASSERT(cpu_segments,
+                   offsetof(d2e_x86_cpu, segments) ==
+                       D2E_ASM_CPU_SEGMENTS_OFFSET);
+D2E_ASM_ABI_ASSERT(cpu_ip,
+                   offsetof(d2e_x86_cpu, ip) == D2E_ASM_CPU_IP_OFFSET);
+D2E_ASM_ABI_ASSERT(cpu_stop_reason,
+                   offsetof(d2e_x86_cpu, stop_reason) ==
+                       D2E_ASM_CPU_STOP_REASON_OFFSET);
+D2E_ASM_ABI_ASSERT(cpu_fault_cs,
+                   offsetof(d2e_x86_cpu, fault_cs) ==
+                       D2E_ASM_CPU_FAULT_CS_OFFSET);
+D2E_ASM_ABI_ASSERT(cpu_fault_ip,
+                   offsetof(d2e_x86_cpu, fault_ip) ==
+                       D2E_ASM_CPU_FAULT_IP_OFFSET);
+D2E_ASM_ABI_ASSERT(cpu_instructions_retired,
+                   offsetof(d2e_x86_cpu, instructions_retired) ==
+                       D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET);
+D2E_ASM_ABI_ASSERT(program_image,
+                   offsetof(d2e_native_program, image) == 20);
+D2E_ASM_ABI_ASSERT(program_region,
+                   offsetof(d2e_native_program, region) == 44);
+D2E_ASM_ABI_ASSERT(program_size, sizeof(d2e_native_program) == 48);
+#undef D2E_ASM_ABI_ASSERT
+#endif
 
 static const d2e_native_block *find_block(const d2e_native_program *program,
                                           uint16_t ip) {

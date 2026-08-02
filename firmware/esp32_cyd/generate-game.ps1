@@ -1,12 +1,23 @@
 [CmdletBinding()]
-param([switch]$AlleyCat)
+param(
+    [switch]$AlleyCat,
+    [switch]$XtensaAsmSmoke
+)
 
 $ErrorActionPreference = "Stop"
 $project = $PSScriptRoot
 $repository = [IO.Path]::GetFullPath((Join-Path $project "..\.."))
 $sibling = [IO.Path]::GetFullPath((Join-Path $repository "..\HLV-codec"))
 $python = Join-Path $sibling "local_tools\python\python.exe"
-$output = Join-Path $project "main\generated\native_smoke.c"
+$output = if ($XtensaAsmSmoke) {
+    Join-Path $project "main\generated\native_asm_smoke.S"
+} else {
+    Join-Path $project "main\generated\native_smoke.c"
+}
+
+if ($AlleyCat -and $XtensaAsmSmoke) {
+    throw "AlleyCat and XtensaAsmSmoke cannot be generated together"
+}
 
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Python from the sibling HLV-codec project was not found: $python"
@@ -30,6 +41,14 @@ if ($AlleyCat) {
         (Join-Path $outputDirectory "manifest.json") -Raw | ConvertFrom-Json
     if ($manifest.status -ne "complete") {
         throw "Alley Cat source generation is not complete"
+    }
+} elseif ($XtensaAsmSmoke) {
+    & $python (Join-Path $repository "tools\d2e_translate.py") `
+        --hex-input --name native_asm_smoke --load-segment 0x1000 `
+        --backend xtensa-asm `
+        (Join-Path $repository "tests\fixtures\native_asm_smoke.hex") $output
+    if ($LASTEXITCODE -ne 0) {
+        throw "Xtensa assembly smoke translation failed"
     }
 } else {
     & $python (Join-Path $repository "tools\d2e_translate.py") `

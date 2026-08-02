@@ -1,0 +1,2 @@
+# mov ax,1234h; mov bx,ax; hlt
+b8 34 12 89 c3 f4
