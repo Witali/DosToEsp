@@ -28,7 +28,8 @@ endif()
 
 if(D2E_ALLEY_CAT)
     file(GLOB d2e_generated_sources CONFIGURE_DEPENDS
-        "generated/alley-cat/*.c")
+        "generated/alley-cat/*.c"
+        "generated/alley-cat/*.S")
     if(NOT d2e_generated_sources)
         message(FATAL_ERROR "Generate Alley Cat sources before configuring")
     endif()

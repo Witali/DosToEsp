@@ -33,7 +33,8 @@ if ($AlleyCat) {
         "games\Alley-Cat_DOS_EN\alley-cat\CAT.EXE"
     $outputDirectory = Join-Path $project "main\generated\alley-cat"
     & (Join-Path $repository "scripts\translate-game.ps1") `
-        -InputPath $input -Name alley-cat -OutputDirectory $outputDirectory
+        -InputPath $input -Name alley-cat -OutputDirectory $outputDirectory `
+        -Backend xtensa-asm
     if ($LASTEXITCODE -ne 0) {
         throw "Alley Cat source generation failed"
     }
@@ -41,6 +42,9 @@ if ($AlleyCat) {
         (Join-Path $outputDirectory "manifest.json") -Raw | ConvertFrom-Json
     if ($manifest.status -ne "complete") {
         throw "Alley Cat source generation is not complete"
+    }
+    if ($manifest.backend -ne "xtensa-asm") {
+        throw "Alley Cat was not generated with the Xtensa assembly backend"
     }
 } elseif ($XtensaAsmSmoke) {
     & $python (Join-Path $repository "tools\d2e_build.py") `

@@ -3,7 +3,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$InputPath,
     [string]$Name = "game",
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [ValidateSet("c", "xtensa-asm")]
+    [string]$Backend = "c"
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +33,7 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 }
 
 & $python (Join-Path $project "tools\d2e_build.py") $input `
-    --name $Name --output $output
+    --name $Name --backend $Backend --output $output
 if ($LASTEXITCODE -eq 2) {
     Write-Warning "Source generation is blocked; inspect $output\manifest.json"
     return
