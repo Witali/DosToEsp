@@ -36,6 +36,14 @@ def main() -> None:
     assert imports["d2e_x86_port_in16"] == 55
     assert imports["d2e_x86_port_out16"] == 56
     assert d2e_pack_xip.align_up(0x10001, 0x10000) == 0x20000
+    assert d2e_pack_xip.XTENSA_COMPILER_CALL_FLAGS == (
+        "-mno-longcalls",
+        "-Wa,--longcalls",
+    )
+    assert d2e_pack_xip.XTENSA_LINKER_RELAXATION_FLAGS == (
+        "--relax",
+        "--size-opt",
+    )
     with tempfile.TemporaryDirectory() as directory:
         temporary = pathlib.Path(directory)
         try:

@@ -87,3 +87,14 @@ python tools/d2e_build.py CAT.EXE --name alley-cat --backend xtensa-asm `
 The packer reads post-relaxation words for internal absolute references. This
 is required because Xtensa relaxation can merge literal pools and change final
 target offsets after input relocations were emitted.
+
+Native C module builds use automatic call sizing. GCC emits normal direct
+calls, GNU `as --longcalls` expands calls whose destination is not yet known to
+be reachable, and the final `ld --relax --size-opt` pass restores a direct call
+when final placement permits it. This retains full-range calls for unresolved
+resident-shell imports without forcing every known internal call to remain in
+the long-call form.
+
+The staged plan for compact relocation streams, relative native references,
+and zero-relocation modules is documented in
+[`XIP_RELOCATION_OPTIMIZATION_PLAN.md`](XIP_RELOCATION_OPTIMIZATION_PLAN.md).

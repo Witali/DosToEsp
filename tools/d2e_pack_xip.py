@@ -21,6 +21,8 @@ DROM_LINK_ADDRESS = 0x10000000
 R_XTENSA_32 = 1
 SHT_SYMTAB = 2
 SHT_RELA = 4
+XTENSA_COMPILER_CALL_FLAGS = ("-mno-longcalls", "-Wa,--longcalls")
+XTENSA_LINKER_RELAXATION_FLAGS = ("--relax", "--size-opt")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -372,7 +374,7 @@ def build_xip_module(
                 "-std=gnu17",
                 "-O2",
                 "-mtext-section-literals",
-                "-mlongcalls",
+                *XTENSA_COMPILER_CALL_FLAGS,
                 "-fno-builtin-memcpy",
                 "-fno-builtin-memset",
                 "-fno-builtin-bzero",
@@ -387,6 +389,7 @@ def build_xip_module(
         subprocess.run(
             [
                 str(linker),
+                *XTENSA_LINKER_RELAXATION_FLAGS,
                 "--emit-relocs",
                 "--unresolved-symbols=ignore-all",
                 "-T",
