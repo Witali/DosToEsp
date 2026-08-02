@@ -2126,34 +2126,62 @@ def emit_xtensa_source_files(
     fallback_blocks = {
         leader: blocks[leader] for leader in sorted(fallback)
     }
-    lines = [
+    partitions = partition_blocks(fallback_blocks)
+    bridge = [
         "/* Generated CISC helpers compiled by ESP-IDF as Xtensa code. */",
-        '#include "d2e/native_patterns.h"',
         '#include "d2e/native_runtime.h"',
-        '#include "d2e/x86_alu.h"',
         "",
     ]
-    lines.extend(
-        emit_region(
-            fallback_blocks,
-            load_segment,
-            image_format,
-            "d2e_generated_cisc_region",
-            handoff_on_unknown=True,
-            storage="static ",
+    region_symbols = [
+        f"d2e_generated_cisc_region_{index:03d}"
+        for index in range(len(partitions))
+    ]
+    for symbol in region_symbols:
+        bridge.extend(
+            [
+                f"uint32_t {symbol}(d2e_x86_cpu *cpu, uint32_t block_budget);",
+            ]
         )
-    )
-    lines.extend(
+    bridge.extend(
         [
             "",
             "uint32_t d2e_generated_cisc_step(d2e_x86_cpu *cpu, uint32_t retired) {",
+            "    uint32_t step;",
             "    cpu->instructions_retired += retired;",
-            "    return d2e_generated_cisc_region(cpu, UINT32_C(1));",
-            "}",
-            "",
         ]
     )
-    files["game_cisc.c"] = "\n".join(lines)
+    for symbol in region_symbols:
+        bridge.extend(
+            [
+                f"    step = {symbol}(cpu, UINT32_C(1));",
+                "    if (step != 0U || cpu->stop_reason != D2E_X86_RUNNING) {",
+                "        return step;",
+                "    }",
+            ]
+        )
+    bridge.extend(["    return 0;", "}", ""])
+    files["game_cisc.c"] = "\n".join(bridge)
+
+    for index, partition in enumerate(partitions):
+        region = [
+            "/* Generated CISC region compiled by ESP-IDF as Xtensa code. */",
+            '#include "d2e/native_patterns.h"',
+            '#include "d2e/native_runtime.h"',
+            '#include "d2e/x86_alu.h"',
+            "",
+        ]
+        region.extend(
+            emit_region(
+                partition,
+                load_segment,
+                image_format,
+                region_symbols[index],
+                handoff_on_unknown=True,
+                storage="",
+            )
+        )
+        region.append("")
+        files[f"game_cisc_region_{index:03d}.c"] = "\n".join(region)
     return files
 
 
