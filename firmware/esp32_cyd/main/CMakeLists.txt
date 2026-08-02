@@ -37,7 +37,12 @@ if(D2E_ALLEY_CAT)
         PROPERTIES COMPILE_OPTIONS "-O2;-mtext-section-literals"
     )
 elseif(D2E_XTENSA_ASM_SMOKE)
-    set(d2e_generated_sources "generated/xtensa-asm-smoke/game_native.S")
+    file(GLOB d2e_generated_sources CONFIGURE_DEPENDS
+        "generated/xtensa-asm-smoke/*.c"
+        "generated/xtensa-asm-smoke/*.S")
+    if(NOT d2e_generated_sources)
+        message(FATAL_ERROR "Generate Xtensa assembly smoke sources before configuring")
+    endif()
 else()
     set(d2e_generated_sources "generated/native_smoke.c")
 endif()

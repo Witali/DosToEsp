@@ -1,0 +1,5 @@
+# Direct Xtensa prefix: mov/add/cmp/jne.
+# CISC helper success block: push ax; pop bx; mov/mul/memory/hlt.
+# Direct Xtensa failure block: mov bx,0deadh; hlt.
+# data: dw 1234h
+a1 1d 01 83 c0 01 3d 35 12 75 0e 50 5b b9 02 00 f7 e1 a3 1d 01 a1 1d 01 f4 bb ad de f4 34 12

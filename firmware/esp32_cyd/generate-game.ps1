@@ -46,7 +46,7 @@ if ($AlleyCat) {
     & $python (Join-Path $repository "tools\d2e_build.py") `
         --hex-input --format com --name native_asm_smoke `
         --load-segment 0x1000 --backend xtensa-asm --output $output `
-        (Join-Path $repository "tests\fixtures\native_asm_smoke.hex")
+        (Join-Path $repository "tests\fixtures\native_asm_mixed.hex")
     if ($LASTEXITCODE -ne 0) {
         throw "Xtensa assembly smoke translation failed"
     }

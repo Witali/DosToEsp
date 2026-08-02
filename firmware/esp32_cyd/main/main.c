@@ -415,7 +415,7 @@ void app_main(void) {
         cpu.regs[D2E_X86_BX] != UINT16_C(0x1235) ||
         cpu.regs[D2E_X86_CX] != UINT16_C(2) ||
         cpu.regs[D2E_X86_DX] != 0U ||
-        cpu.instructions_retired != UINT64_C(10)) {
+        cpu.instructions_retired != UINT64_C(11)) {
         esp_rom_printf(
             "D2E_XTENSA_ASM_FAIL,run,reason=%u,exit=%u,ax=%04x,bx=%04x,"
             "instructions=%" PRIu64 ",target=%04x:%04x,address=%08x\n",

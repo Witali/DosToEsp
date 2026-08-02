@@ -28,6 +28,10 @@ $indirectGenerated = Join-Path $outputDirectory "native_indirect.c"
 $indirectAssembly = Join-Path $outputDirectory "native_indirect.xtensa.s"
 $adcFlagsGenerated = Join-Path $outputDirectory "native_adc_flags.c"
 $adcFlagsAssembly = Join-Path $outputDirectory "native_adc_flags.xtensa.s"
+$mixedDirectory = Join-Path $outputDirectory "mixed"
+$mixedAssemblyObject = Join-Path $outputDirectory "mixed_native.o"
+$mixedCiscObject = Join-Path $outputDirectory "mixed_cisc.o"
+$runtimeObject = Join-Path $outputDirectory "native_runtime.o"
 
 if (-not (Test-Path -LiteralPath $compiler -PathType Leaf)) {
     throw "Xtensa ESP32 compiler was not found: $compiler"
@@ -42,6 +46,26 @@ if (-not (Test-Path -LiteralPath `
 }
 
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+& $python (Join-Path $project "tools\d2e_build.py") `
+    (Join-Path $project "tests\fixtures\native_control.hex") `
+    --hex-input --format com --name native_control_xtensa `
+    --backend xtensa-asm --output $mixedDirectory
+if ($LASTEXITCODE -ne 0) { throw "Mixed Xtensa source build failed" }
+
+& $compiler -I (Join-Path $project "include") -c `
+    (Join-Path $mixedDirectory "game_native.S") -o $mixedAssemblyObject
+if ($LASTEXITCODE -ne 0) { throw "Generated Xtensa assembly failed to compile" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -c `
+    (Join-Path $mixedDirectory "game_cisc.c") -o $mixedCiscObject
+if ($LASTEXITCODE -ne 0) { throw "Generated CISC helpers failed to compile" }
+
+& $compiler -std=c99 -O2 -Wall -Wextra -Werror `
+    -I (Join-Path $project "include") -c `
+    (Join-Path $project "src\core\native_runtime.c") -o $runtimeObject
+if ($LASTEXITCODE -ne 0) { throw "Xtensa runtime ABI audit failed" }
+
 & $python (Join-Path $project "tools\d2e_translate.py") `
     --hex-input --name native_smoke `
     (Join-Path $project "tests\fixtures\native_smoke.hex") $generated
@@ -146,6 +170,17 @@ if ($generatedText -match "static void block_") {
     throw "Legacy per-block functions were emitted instead of a cached region"
 }
 
+$mixedAssemblyText = Get-Content -LiteralPath `
+    (Join-Path $mixedDirectory "game_native.S") -Raw
+if ($mixedAssemblyText -notmatch "call8 d2e_generated_cisc_step") {
+    throw "Mixed Xtensa assembly does not call its generated CISC helper"
+}
+$mixedCiscText = Get-Content -LiteralPath `
+    (Join-Path $mixedDirectory "game_cisc.c") -Raw
+if ($mixedCiscText -notmatch "d2e_generated_cisc_region") {
+    throw "Mixed Xtensa source build did not emit its CISC region"
+}
+
 $memoryText = Get-Content -LiteralPath $memoryGenerated -Raw
 foreach ($pattern in @(
         "d2e_x86_read16_seg",
@@ -180,6 +215,7 @@ if ($text -match "(?m)^block_[0-9a-f]+:") {
     throw "Guest blocks became ABI function boundaries in Xtensa assembly"
 }
 Write-Host `
-    "Xtensa native-code audit passed: $assembly, $memoryAssembly, " `
+    "Xtensa native-code audit passed: $mixedAssemblyObject, " `
+    "$mixedCiscObject, $runtimeObject, $assembly, $memoryAssembly, " `
     "$callAssembly, $logicAssembly, $shiftAssembly, $stringAssembly, " `
     "$portAssembly, $rareAssembly, $indirectAssembly, $adcFlagsAssembly"
