@@ -573,10 +573,18 @@ def _emit_stack_push(emitter: _Emitter, instruction: Any) -> list[str]:
             "    l16ui a11, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
             f"({segment_index} * 2)"
         )
+    elif source[0] == "mem":
+        memory = _memory_operand(instruction, source, 16)
+        lines = [
+            *_emit_memory_arguments(emitter, instruction, memory),
+            "    call8 d2e_native_helper_read16",
+            "    mov a11, a10",
+            "    mov a10, a2",
+        ]
     else:
         raise _error(
             instruction,
-            "currently supports only register and segment PUSH operands",
+            "currently supports only register, segment, and memory PUSH operands",
         )
     completed = emitter.local("stack_push_completed")
     lines.extend(
@@ -591,7 +599,7 @@ def _emit_stack_push(emitter: _Emitter, instruction: Any) -> list[str]:
     return lines
 
 
-def _emit_stack_pop(instruction: Any) -> list[str]:
+def _emit_stack_pop(emitter: _Emitter, instruction: Any) -> list[str]:
     if len(instruction.operands) != 1:
         raise _error(instruction, "requires one POP operand")
     destination = instruction.operands[0]
@@ -611,10 +619,24 @@ def _emit_stack_pop(instruction: Any) -> list[str]:
             "    s16i a10, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
             f"({segment_index} * 2)"
         )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, 16)
+        completed = emitter.local("stack_pop_write_completed")
+        lines.extend(
+            [
+                "    mov a13, a10",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                "    call8 d2e_native_helper_write16",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
+        )
     else:
         raise _error(
             instruction,
-            "currently supports only register and segment POP operands",
+            "currently supports only register, segment, and memory POP operands",
         )
     return lines
 
@@ -895,7 +917,7 @@ def native_block_leaders(
                 elif mnemonic == "push":
                     _emit_stack_push(emitter, instruction)
                 elif mnemonic == "pop":
-                    _emit_stack_pop(instruction)
+                    _emit_stack_pop(emitter, instruction)
                 elif mnemonic == "pushf":
                     _emit_push_flags(emitter, instruction)
                 elif mnemonic == "popf":
@@ -1119,7 +1141,7 @@ def emit_program(
             elif mnemonic == "push":
                 body.extend(_emit_stack_push(emitter, instruction))
             elif mnemonic == "pop":
-                body.extend(_emit_stack_pop(instruction))
+                body.extend(_emit_stack_pop(emitter, instruction))
             elif mnemonic == "pushf":
                 body.extend(_emit_push_flags(emitter, instruction))
             elif mnemonic == "popf":

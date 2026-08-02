@@ -253,7 +253,7 @@ def main() -> int:
         assert manifest["generated_data"] == []
         assert (output / "game_native.S").read_text(encoding="utf-8") == assembly
 
-        mixed_fixture = bytes.fromhex("ff 36 00 02 eb 00 f4")
+        mixed_fixture = bytes.fromhex("27 eb 00 f4")
         output = pathlib.Path(temporary) / "asm-mixed"
         manifest = d2e_build.build_sources(
             mixed_fixture,
@@ -279,8 +279,8 @@ def main() -> int:
         )
         assert ".extern d2e_generated_cisc_step" in mixed_assembly
         assert "call8 d2e_generated_cisc_step" in mixed_assembly
-        assert "/* 0106: hlt  */" in mixed_assembly
-        assert ".byte 0xff" not in mixed_assembly
+        assert "/* 0103: hlt  */" in mixed_assembly
+        assert ".byte 0x27" not in mixed_assembly
         assert ".byte 0xeb" not in mixed_assembly
         assert ".byte 0xf4" not in mixed_assembly
         assert "d2e_generated_cisc_region_000" in mixed_cisc
@@ -289,10 +289,8 @@ def main() -> int:
             "static uint32_t d2e_generated_cisc_region_000"
             not in mixed_region
         )
-        assert "r_sp = (uint16_t)(r_sp - UINT16_C(2));" in mixed_region
-        assert "d2e_x86_write16_seg(" in mixed_region
-        assert "d2e_x86_read16_seg" in mixed_region
-        assert "block_0106:" not in mixed_region
+        assert "r_ax = d2e_x86_daa(cpu, r_ax);" in mixed_region
+        assert "block_0103:" not in mixed_region
         assert "UINT32_C(1)" not in mixed_cisc
         assert "uint32_t step;" not in mixed_cisc
         assert "const uint32_t module_target = cpu->ip;" in mixed_cisc
@@ -417,8 +415,33 @@ def main() -> int:
         assert direct_flags_stack_assembly.count("call8 d2e_x86_push16") == 1
         assert direct_flags_stack_assembly.count("call8 d2e_x86_pop16") == 1
 
+        direct_memory_stack_fixture = bytes.fromhex(
+            "ff 36 09 01 8f 06 0b 01 f4 ef be 00 00"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-memory-stack"
+        manifest = d2e_build.build_sources(
+            direct_memory_stack_fixture,
+            "direct-memory-stack.com",
+            "com",
+            "direct_memory_stack",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_memory_stack_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: push word ptr [0x109] */" in direct_memory_stack_assembly
+        assert "/* 0104: pop word ptr [0x10b] */" in direct_memory_stack_assembly
+        assert "call8 d2e_native_helper_read16" in direct_memory_stack_assembly
+        assert "call8 d2e_x86_push16" in direct_memory_stack_assembly
+        assert "call8 d2e_x86_pop16" in direct_memory_stack_assembly
+        assert "call8 d2e_native_helper_write16" in direct_memory_stack_assembly
+        assert ".byte 0xef, 0xbe, 0x00, 0x00" in direct_memory_stack_assembly
+
         dead_cisc_fixture = bytes.fromhex(
-            "ff 36 00 02 83 c0 01 d1 e0 f7 e3 f4"
+            "27 83 c0 01 d1 e0 f7 e3 f4"
         )
         output = pathlib.Path(temporary) / "asm-dead-cisc-flags"
         manifest = d2e_build.build_sources(
@@ -488,7 +511,7 @@ def main() -> int:
         assert ".long 0 /* relocation_count */" in mz_assembly
         assert "0x00001010" in mz_assembly
 
-        mixed_mz_module = bytes.fromhex("ff 36 08 00 eb 00 f4")
+        mixed_mz_module = bytes.fromhex("27 eb 00 f4")
         mixed_mz = bytearray(32 + len(mixed_mz_module))
         mixed_mz[:2] = b"MZ"
         struct.pack_into("<H", mixed_mz, 0x02, len(mixed_mz))
@@ -510,7 +533,7 @@ def main() -> int:
             encoding="utf-8"
         )
         assert "uint32_t next_module_target = UINT32_MAX;" in mixed_mz_region
-        assert "next_module_target = UINT32_C(0x00006);" in mixed_mz_region
+        assert "next_module_target = UINT32_C(0x00003);" in mixed_mz_region
         assert "if (next_module_target != UINT32_MAX)" in mixed_mz_region
         assert mixed_mz_region.count("cpu->ip = (uint16_t)(next_module_target -") == 1
 
