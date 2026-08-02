@@ -14,6 +14,8 @@ D2E_ASM_ABI_ASSERT(cpu_segments,
                        D2E_ASM_CPU_SEGMENTS_OFFSET);
 D2E_ASM_ABI_ASSERT(cpu_ip,
                    offsetof(d2e_x86_cpu, ip) == D2E_ASM_CPU_IP_OFFSET);
+D2E_ASM_ABI_ASSERT(cpu_flags,
+                   offsetof(d2e_x86_cpu, flags) == D2E_ASM_CPU_FLAGS_OFFSET);
 D2E_ASM_ABI_ASSERT(cpu_stop_reason,
                    offsetof(d2e_x86_cpu, stop_reason) ==
                        D2E_ASM_CPU_STOP_REASON_OFFSET);

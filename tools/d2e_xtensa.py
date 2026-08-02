@@ -28,10 +28,16 @@ REG16_OFFSETS = {
 class _Emitter:
     def __init__(self) -> None:
         self.literals: list[tuple[str, int]] = []
+        self.local_count = 0
 
     def literal(self, value: int, purpose: str) -> str:
         label = f".Lprogram_region_{purpose}_{len(self.literals)}"
         self.literals.append((label, value & 0xFFFFFFFF))
+        return label
+
+    def local(self, purpose: str) -> str:
+        label = f".Lprogram_region_{purpose}_{self.local_count}"
+        self.local_count += 1
         return label
 
 
@@ -92,7 +98,7 @@ def _emit_add16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
     destination, source = instruction.operands
     if destination[0] != "reg" or destination[1] not in REG16_OFFSETS:
         raise _error(instruction, "currently supports only 16-bit register ADD destinations")
-    if live_flags != 0:
+    if live_flags not in (0, d2e_flags.ZF):
         raise _error(instruction, "does not yet materialize live ADD flags")
 
     destination_offset = REG16_OFFSETS[str(destination[1])]
@@ -116,7 +122,93 @@ def _emit_add16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
             f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
         ]
     )
+    if live_flags == d2e_flags.ZF:
+        lines.extend(_emit_zero_flag(emitter, "a4"))
     return lines
+
+
+def _emit_zero_flag(emitter: _Emitter, result_register: str) -> list[str]:
+    done = emitter.local("zero_flag_done")
+    return [
+        "    l16ui a5, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+        f"    movi a8, {-1 - d2e_flags.ZF}",
+        "    and a5, a5, a8",
+        f"    bnez {result_register}, {done}",
+        f"    movi a8, {d2e_flags.ZF}",
+        "    or a5, a5, a8",
+        f"{done}:",
+        "    s16i a5, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+    ]
+
+
+def _emit_cmp16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[str]:
+    if len(instruction.operands) != 2:
+        raise _error(instruction, "requires a two-operand CMP")
+    left, right = instruction.operands
+    if left[0] != "reg" or left[1] not in REG16_OFFSETS:
+        raise _error(instruction, "currently supports only 16-bit register CMP left operands")
+    if live_flags not in (0, d2e_flags.ZF):
+        raise _error(instruction, "does not yet materialize these live CMP flags")
+    if live_flags == 0:
+        return ["    /* CMP result and all flags are dead. */"]
+
+    left_offset = REG16_OFFSETS[str(left[1])]
+    lines = [f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {left_offset}"]
+    if right[0] == "imm":
+        right_literal = emitter.literal(int(right[1]) & 0xFFFF, "immediate")
+        lines.append(f"    l32r a5, {right_literal}")
+    elif right[0] == "reg" and right[1] in REG16_OFFSETS:
+        right_offset = REG16_OFFSETS[str(right[1])]
+        lines.append(f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {right_offset}")
+    else:
+        raise _error(instruction, "currently supports only immediate/register CMP right operands")
+    lines.extend(["    sub a4, a4, a5", "    extui a4, a4, 0, 16"])
+    lines.extend(_emit_zero_flag(emitter, "a4"))
+    return lines
+
+
+def _direct_target(instruction: Any) -> int:
+    if len(instruction.operands) != 1 or instruction.operands[0][0] != "imm":
+        raise _error(instruction, "requires a direct control-flow target")
+    return int(instruction.operands[0][1]) & 0xFFFF
+
+
+def _block_label(address: int) -> str:
+    return f".Lprogram_region_block_{address:04x}"
+
+
+def _emit_edge(
+    emitter: _Emitter,
+    target: int,
+    blocks: Mapping[int, Sequence[Any]],
+) -> list[str]:
+    if target in blocks:
+        return [f"    j {_block_label(target)}"]
+    target_literal = emitter.literal(target, "edge_target")
+    return [
+        f"    l32r a4, {target_literal}",
+        "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
+        "    j .Lprogram_region_dispatch",
+    ]
+
+
+def _emit_retired(emitter: _Emitter, count: int) -> list[str]:
+    if count <= 127:
+        return [f"    addi a7, a7, {count}"]
+    count_literal = emitter.literal(count, "retired")
+    return [f"    l32r a4, {count_literal}", "    add a7, a7, a4"]
+
+
+def _emit_condition(emitter: _Emitter, instruction: Any, taken: str) -> list[str]:
+    if instruction.mnemonic not in ("je", "jz", "jne", "jnz"):
+        raise _error(instruction, "does not support this condition yet")
+    branch = "bnez" if instruction.mnemonic in ("je", "jz") else "beqz"
+    return [
+        "    l16ui a4, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+        f"    movi a5, {d2e_flags.ZF}",
+        "    and a4, a4, a5",
+        f"    {branch} a4, {taken}",
+    ]
 
 
 def omitted_image_offsets(
@@ -179,52 +271,108 @@ def emit_program(
     load_segment: int,
     entry: int,
 ) -> str:
-    """Emit a complete Xtensa `.S` unit for the first straight-line subset."""
-    if list(sorted(blocks)) != [entry]:
-        raise BackendError(
-            "Xtensa assembly backend stage 1 requires exactly one block at the entry point"
-        )
-    block = list(blocks[entry])
-    if not block or block[-1].mnemonic != "hlt":
-        raise BackendError(
-            "Xtensa assembly backend stage 1 requires the entry block to end in HLT"
-        )
+    """Emit a complete Xtensa `.S` unit for the supported COM subset."""
+    if entry not in blocks:
+        raise BackendError("Xtensa assembly backend has no block at the entry point")
+    if any(not sequence for sequence in blocks.values()):
+        raise BackendError("Xtensa assembly backend cannot emit an empty block")
 
     emitter = _Emitter()
     data_fragments = extract_data_fragments(image, blocks)
     flag_liveness = d2e_flags.analyze(blocks)
     load_literal = emitter.literal(load_segment, "load_segment")
-    entry_literal = emitter.literal(entry, "entry")
-    next_ip_literal = emitter.literal(block[-1].next_address, "next_ip")
+    leader_literals = {
+        leader: emitter.literal(leader, "leader") for leader in sorted(blocks)
+    }
     body: list[str] = []
-    for index, instruction in enumerate(block):
-        body.append(
-            f"    /* {instruction.address:04x}: {instruction.mnemonic} {instruction.op_str} */"
+    for leader in sorted(blocks):
+        block = list(blocks[leader])
+        execute = emitter.local("execute_block")
+        body.extend(
+            [
+                f"{_block_label(leader)}:",
+                f"    bltu a6, a3, {execute}",
+                f"    l32r a4, {leader_literals[leader]}",
+                "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
+                "    j .Lprogram_region_finish",
+                f"{execute}:",
+                "    addi a6, a6, 1",
+            ]
         )
-        if instruction.mnemonic == "mov":
-            body.extend(_emit_mov(emitter, instruction))
-        elif instruction.mnemonic == "add":
-            body.extend(
-                _emit_add16(
-                    emitter,
-                    instruction,
-                    flag_liveness.live_defined[instruction.address],
-                )
+        terminated = False
+        for index, instruction in enumerate(block):
+            mnemonic = instruction.mnemonic
+            body.append(
+                f"    /* {instruction.address:04x}: {mnemonic} {instruction.op_str} */"
             )
-        elif instruction.mnemonic == "mul":
-            body.extend(
-                _emit_mul16(
-                    emitter,
-                    instruction,
-                    flag_liveness.live_defined[instruction.address],
+            if mnemonic in d2e_flags.CONDITION_READS:
+                if index != len(block) - 1:
+                    raise _error(instruction, "requires a conditional branch to end its block")
+                taken = emitter.local("branch_taken")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(_emit_condition(emitter, instruction, taken))
+                body.extend(_emit_edge(emitter, instruction.next_address, blocks))
+                body.append(f"{taken}:")
+                body.extend(_emit_edge(emitter, _direct_target(instruction), blocks))
+                terminated = True
+            elif mnemonic == "jmp":
+                if index != len(block) - 1:
+                    raise _error(instruction, "requires JMP to end its block")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(_emit_edge(emitter, _direct_target(instruction), blocks))
+                terminated = True
+            elif mnemonic == "hlt":
+                if index != len(block) - 1:
+                    raise _error(instruction, "requires HLT to end its block")
+                next_ip_literal = emitter.literal(instruction.next_address, "next_ip")
+                body.extend(
+                    [
+                        f"    l32r a4, {next_ip_literal}",
+                        "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
+                    ]
                 )
-            )
-        elif instruction.mnemonic == "nop" and not instruction.operands:
-            body.append("    nop")
-        elif instruction.mnemonic == "hlt" and index == len(block) - 1:
-            pass
-        else:
-            raise _error(instruction, "does not support this instruction yet")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(
+                    [
+                        "    movi a4, D2E_ASM_STOP_EXITED",
+                        "    s32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                        "    j .Lprogram_region_finish",
+                    ]
+                )
+                terminated = True
+            elif mnemonic == "mov":
+                body.extend(_emit_mov(emitter, instruction))
+            elif mnemonic == "add":
+                body.extend(
+                    _emit_add16(
+                        emitter,
+                        instruction,
+                        flag_liveness.live_defined[instruction.address],
+                    )
+                )
+            elif mnemonic == "cmp":
+                body.extend(
+                    _emit_cmp16(
+                        emitter,
+                        instruction,
+                        flag_liveness.live_defined[instruction.address],
+                    )
+                )
+            elif mnemonic == "mul":
+                body.extend(
+                    _emit_mul16(
+                        emitter,
+                        instruction,
+                        flag_liveness.live_defined[instruction.address],
+                    )
+                )
+            elif mnemonic == "nop" and not instruction.operands:
+                body.append("    nop")
+            else:
+                raise _error(instruction, "does not support this instruction yet")
+        if not terminated:
+            body.extend(_emit_retired(emitter, len(block)))
+            body.extend(_emit_edge(emitter, block[-1].next_address, blocks))
 
     lines = [
         "/* Generated by tools/d2e_translate.py --backend xtensa-asm. Do not edit. */",
@@ -245,35 +393,26 @@ def emit_program(
             "    .type program_region, @function",
             "program_region:",
             "    entry a1, 32",
+            "    movi a6, 0 /* executed blocks */",
+            "    movi a7, 0 /* retired guest instructions */",
+            ".Lprogram_region_dispatch:",
             "    l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + (D2E_ASM_X86_CS_INDEX * 2)",
             f"    l32r a5, {load_literal}",
             "    bne a4, a5, .Lprogram_region_unknown",
             "    l16ui a4, a2, D2E_ASM_CPU_IP_OFFSET",
-            f"    l32r a5, {entry_literal}",
-            "    bne a4, a5, .Lprogram_region_unknown",
-            "    beqz a3, .Lprogram_region_budget",
         ]
     )
+    for leader in sorted(blocks):
+        lines.extend(
+            [
+                f"    l32r a5, {leader_literals[leader]}",
+                f"    beq a4, a5, {_block_label(leader)}",
+            ]
+        )
+    lines.append("    j .Lprogram_region_unknown")
     lines.extend(body)
     lines.extend(
         [
-            f"    l32r a4, {next_ip_literal}",
-            "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
-            "    l32i a4, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET",
-            "    l32i a5, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET + 4",
-            f"    movi a6, {len(block)}",
-            "    add a6, a4, a6",
-            "    bltu a6, a4, .Lprogram_region_retired_carry",
-            ".Lprogram_region_store_retired:",
-            "    s32i a6, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET",
-            "    s32i a5, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET + 4",
-            "    movi a4, D2E_ASM_STOP_EXITED",
-            "    s32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
-            "    movi a2, 1",
-            "    retw",
-            ".Lprogram_region_retired_carry:",
-            "    addi a5, a5, 1",
-            "    j .Lprogram_region_store_retired",
             ".Lprogram_region_unknown:",
             "    l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + (D2E_ASM_X86_CS_INDEX * 2)",
             "    s16i a4, a2, D2E_ASM_CPU_FAULT_CS_OFFSET",
@@ -281,11 +420,21 @@ def emit_program(
             "    s16i a4, a2, D2E_ASM_CPU_FAULT_IP_OFFSET",
             "    movi a4, D2E_ASM_STOP_UNTRANSLATED_TARGET",
             "    s32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
-            "    movi a2, 0",
+            ".Lprogram_region_finish:",
+            "    beqz a7, .Lprogram_region_return",
+            "    l32i a4, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET",
+            "    l32i a5, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET + 4",
+            "    add a8, a4, a7",
+            "    bltu a8, a4, .Lprogram_region_retired_carry",
+            ".Lprogram_region_store_retired:",
+            "    s32i a8, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET",
+            "    s32i a5, a2, D2E_ASM_CPU_INSTRUCTIONS_RETIRED_OFFSET + 4",
+            ".Lprogram_region_return:",
+            "    mov a2, a6",
             "    retw",
-            ".Lprogram_region_budget:",
-            "    movi a2, 0",
-            "    retw",
+            ".Lprogram_region_retired_carry:",
+            "    addi a5, a5, 1",
+            "    j .Lprogram_region_store_retired",
             "    .size program_region, . - program_region",
             "",
         ]

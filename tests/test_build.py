@@ -178,6 +178,14 @@ def main() -> int:
         assert "movi a12, 0 /* no MUL flags are live */" in assembly
         assert "add a4, a4, a5" in assembly
         assert "does not yet materialize live ADD flags" not in assembly
+        assert ".Lprogram_region_block_0100:" in assembly
+        assert ".Lprogram_region_block_010b:" in assembly
+        assert ".Lprogram_region_block_0113:" in assembly
+        assert "movi a8, -65" in assembly
+        assert "beqz a4, .Lprogram_region_branch_taken_" in assembly
+        add_start = assembly.index("/* 0103: add ax, 1 */")
+        cmp_start = assembly.index("/* 0106: cmp ax, 0x1235 */")
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" not in assembly[add_start:cmp_start]
         assert ".Lprogram_image" not in assembly
         assert ".Lprogram_fragments" not in assembly
         assert ".byte 0xb8, 0x34, 0x12, 0x89, 0xc3" not in assembly
