@@ -13,6 +13,7 @@ add_library(d2e_core
     src/machine/pc_at.c
     src/machine/pc_input.c
     src/core/native_runtime.c
+    src/core/native_helpers.c
     src/core/native_patterns.c
     src/core/package.c
     src/core/supervisor.c

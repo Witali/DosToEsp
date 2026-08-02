@@ -52,6 +52,7 @@ idf_component_register(
         "qemu_frame_dump.c"
         ${d2e_generated_sources}
         "${d2e_root}/src/core/native_runtime.c"
+        "${d2e_root}/src/core/native_helpers.c"
         "${d2e_root}/src/core/native_patterns.c"
         "${d2e_root}/src/core/package.c"
         "${d2e_root}/src/core/supervisor.c"

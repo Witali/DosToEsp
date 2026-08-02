@@ -172,9 +172,11 @@ def main() -> int:
         assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in assembly
         assert "l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in assembly
         assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in assembly
+        assert "call8 d2e_native_helper_mul16" in assembly
+        assert "l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in assembly
         assert ".Lprogram_image" not in assembly
         assert ".Lprogram_fragments" not in assembly
-        assert ".byte 0xb8, 0x34, 0x12, 0x89, 0xc3, 0xf4" not in assembly
+        assert ".byte 0xb8, 0x34, 0x12, 0x89, 0xc3" not in assembly
         assert ".long 0 /* full image omitted */" in assembly
 
         c_default = d2e_translate.emit_program(
