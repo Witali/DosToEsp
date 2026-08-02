@@ -16,6 +16,16 @@ from typing import Any
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 LOCAL_PACKAGES = PROJECT_ROOT / "local_tools" / "python_packages"
+git_marker = PROJECT_ROOT / ".git"
+if not LOCAL_PACKAGES.is_dir() and git_marker.is_file():
+    git_directory = pathlib.Path(
+        git_marker.read_text(encoding="utf-8").partition(":")[2].strip()
+    )
+    worktree_packages = (
+        git_directory.parents[2] / "local_tools" / "python_packages"
+    )
+    if worktree_packages.is_dir():
+        LOCAL_PACKAGES = worktree_packages
 sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 sys.path.insert(0, str(LOCAL_PACKAGES))
 

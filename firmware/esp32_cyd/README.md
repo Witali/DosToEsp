@@ -70,6 +70,17 @@ partition and is installed from SD before executing directly from `A:` Flash:
 .\qemu-xip-alley-cat-windows.ps1 -FrameLimit 60
 ```
 
+Build Volkov Commander 4.00 as an external XIP module and verify its DOS
+filesystem startup path through the same shell:
+
+```powershell
+.\qemu-xip-volkov-commander-windows.ps1 -FrameLimit 10
+```
+
+The script copies the original VC companion files into its temporary SD image,
+installs `VC.D2E`, and starts the `VC` command through `AUTOEXEC.BAT`. See
+`docs/VOLKOV_COMMANDER_TARGET.md` for physical SD-card deployment.
+
 Flash and verify the physical CYD2USB board (COM8 by default):
 
 ```powershell

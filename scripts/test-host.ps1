@@ -19,7 +19,13 @@ function Find-Tool([string]$Name, [string[]]$Fallbacks) {
     throw "Required tool was not found: $Name"
 }
 
-$sibling = Join-Path $project "..\HLV-codec"
+$commonDirectory = (& git -C $project rev-parse --path-format=absolute `
+    --git-common-dir).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $commonDirectory) {
+    throw "Could not locate the main DosToEsp repository"
+}
+$mainProject = Split-Path -Parent ([IO.Path]::GetFullPath($commonDirectory))
+$sibling = Join-Path (Split-Path -Parent $mainProject) "HLV-codec"
 $cmake = Find-Tool "cmake.exe" @(
     (Join-Path $sibling "firmware\esp32_2432s028_hlv_player_idf_c\.tools\espressif\tools\cmake\3.30.2\bin\cmake.exe")
 )
@@ -33,23 +39,33 @@ $python = if (Test-Path -LiteralPath $siblingPython -PathType Leaf) {
 } else {
     Find-Tool "python.exe" @()
 }
-$capstone = Join-Path $project "local_tools\python_packages\capstone\__init__.py"
+$pythonPackages = Join-Path $mainProject "local_tools\python_packages"
+$capstone = Join-Path $pythonPackages "capstone\__init__.py"
 if (-not (Test-Path -LiteralPath $capstone -PathType Leaf)) {
     & (Join-Path $PSScriptRoot "setup-analysis-tools.ps1")
 }
-& $python (Join-Path $project "tests\test_analysis.py")
+
+function Invoke-D2ePython([string]$Script) {
+    $bootstrap = "import runpy,sys; " +
+        "sys.path.insert(0,r'$pythonPackages'); " +
+        "sys.argv=[r'$Script',*sys.argv[1:]]; " +
+        "runpy.run_path(r'$Script',run_name='__main__')"
+    & $python -c $bootstrap
+}
+
+Invoke-D2ePython (Join-Path $project "tests\test_analysis.py")
 if ($LASTEXITCODE -ne 0) { throw "Static inventory tests failed" }
-& $python (Join-Path $project "tests\test_trace.py")
+Invoke-D2ePython (Join-Path $project "tests\test_trace.py")
 if ($LASTEXITCODE -ne 0) { throw "Reference trace tests failed" }
-& $python (Join-Path $project "tests\test_coverage.py")
+Invoke-D2ePython (Join-Path $project "tests\test_coverage.py")
 if ($LASTEXITCODE -ne 0) { throw "Translator coverage tests failed" }
-& $python (Join-Path $project "tests\test_isa8086.py")
+Invoke-D2ePython (Join-Path $project "tests\test_isa8086.py")
 if ($LASTEXITCODE -ne 0) { throw "8086 ISA audit tests failed" }
-& $python (Join-Path $project "tests\test_build.py")
+Invoke-D2ePython (Join-Path $project "tests\test_build.py")
 if ($LASTEXITCODE -ne 0) { throw "Unified source build tests failed" }
-& $python (Join-Path $project "tests\test_qemu_frame.py")
+Invoke-D2ePython (Join-Path $project "tests\test_qemu_frame.py")
 if ($LASTEXITCODE -ne 0) { throw "QEMU frame converter tests failed" }
-& $python (Join-Path $project "tests\test_xip_pack.py")
+Invoke-D2ePython (Join-Path $project "tests\test_xip_pack.py")
 if ($LASTEXITCODE -ne 0) { throw "XIP module packer tests failed" }
 $compiler = $null
 $vswhere = Join-Path ${env:ProgramFiles(x86)} `

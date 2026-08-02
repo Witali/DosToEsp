@@ -1,8 +1,8 @@
-# Volkov Commander 4.00 translation baseline
+# Volkov Commander 4.00 target
 
-This baseline covers the user-supplied English Volkov Commander 4.00 archive.
-The distribution remains under the Git-ignored `games/` directory and is not
-redistributed by DosToEsp. Its primary executable is `VC.COM`, not an MZ EXE.
+Volkov Commander 4.00 is supported as an external `D2EXIP1` module for the
+ESP32 D2E Shell. The user-supplied distribution remains in the Git-ignored
+`games/` directory and is not redistributed by DosToEsp.
 
 ## Binary identity
 
@@ -10,66 +10,78 @@ redistributed by DosToEsp. Its primary executable is `VC.COM`, not an MZ EXE.
 - Size: 65,142 bytes
 - SHA-256: `f0a1fa6e78aa79268c8374d3603d45444484c598f6307fe9c0eb8c2c3aab8904`
 - Format: DOS COM
-- Load base and entry: `0100h`
-- CPU profile: documented Intel 8086
+- Load segment and entry: `1000h:0100h`
+- CPU profile: Intel 8086
 
-The automatic source attempt is reproduced with:
+The current frontend translates every reachable instruction. VC also uses two
+runtime callback entries that are not roots of the static COM entry graph:
+`0397h` and `0425h`. The dedicated build script records both targets.
+
+## Build
+
+Place the original VC distribution at
+`games\volkov-commander-4.00\`, then run:
 
 ```powershell
-.\scripts\translate-game.ps1 `
-    -InputPath games\volkov-commander-4.00\VC.COM `
-    -Name volkov-commander-4.00
+.\scripts\build-volkov-commander.ps1
 ```
 
-Generated reports are written to the ignored
-`out/generated/volkov-commander-4.00/` directory.
+The script works from a normal checkout or a Git worktree. It produces the
+ignored artifact `out\modules\VC.D2E`. The module command is `VC`; its title is
+`Volkov Commander 4.00`.
 
-## Static result
+VC uses the `xtensa-c` XIP backend. Its statically discovered x86 graph is
+compiled to Xtensa C regions, while a small assembly dispatcher keeps the
+module entry and sparse data image compatible with direct Flash execution.
+This backend is larger and slower than the direct assembly optimizer, but it
+preserves the verified C translation semantics for VC's relocated control
+flow.
 
-- 12,449 reachable instruction sites
-- 4,005 basic blocks
-- 6,449 CFG edges
-- 6 unresolved indirect control transfers
-- 0 decode, overlap or out-of-image issues
-- 12,291 currently translatable sites (98.73%)
-- 158 unsupported sites
+## SD-card layout and shell use
 
-The COM target exposed and validated correct 16-bit wrapping of high near
-branch targets. It also exposed a Capstone mnemonic mismatch for opcode `98h`;
-the frontend now normalizes it to 8086 `CBW`. Native `CBW` and `CWD` semantics
-pass both the host suite and the Xtensa assembly audit.
+Copy `VC.D2E` and the contents of the original VC distribution directory to
+the root of a FAT-formatted SD card. In D2E Shell:
 
-## Remaining source-generation blockers
+```text
+C:
+INSTALL VC.D2E
+VC
+```
 
-The largest semantic groups are:
+`INSTALL` stores the executable module in the internal `A:` XIP volume. The
+original `VC.COM`, help, menu, configuration and extension files remain on
+`C:` so the DOS filesystem services can expose them to the running commander.
+Installing the first package also creates `A:\AUTOEXEC.BAT`; a fresh device
+therefore starts `VC` automatically on later boots. `Ctrl+]` returns to D2E
+Shell.
 
-- `LEA`: 31 sites
-- `REPNE SCASB`: 28 sites
-- `SBB`: 23 sites
-- `DIV`: 20 sites
-- `REPE CMPSB`: 16 sites
-- `CMC`: 12 sites
-- remaining `SCAS/CMPS`, `NEG`, `LDS` and `ROR`: 22 sites
-- indirect/far `CALL` or `JMP`: 6 sites, representing 6 unresolved targets
+## Runtime requirements
 
-The unresolved sites are:
+The shell exposes 224 KiB of conventional memory to VC. The first 124 KiB is a
+resident byte-addressable region. The remaining 100 KiB is sparse and allocates
+4 KiB, 32-bit-capable ESP32 pages only when written, leaving enough DRAM for
+the mounted FAT filesystem.
 
-- `00A68h`: `CALL [0BC1h]`
-- `02F6Eh`: `JMP CS:[BX+SI]`
-- `09382h`: `JMP CS:[SI-2]`
-- `09E50h`: `CALL CS:[BP+4]`
-- `0A333h`: `CALL ES:[0BC1h]`
-- `0CB0Ch`: `CALL ES:[0ABBh]`
+The PC/AT boundary includes the DOS services used during the verified startup:
+memory allocation and resize, DTA management, file open/read/seek/close,
+directory enumeration, current drive and directory, country case mapping,
+date/time, extended error reporting, Ctrl-Break, interrupt vectors, IOCTL,
+idle and Windows time-slice multiplex calls. The SD root is mapped as DOS
+drive `C:`. Text video, keyboard, timer, minimal mouse detection and the VC
+video-shadow probe are also handled.
 
-The strict frontend therefore emits reports and a `blocked` manifest, but no
-partial `game_native.c`. A reference execution trace is required to prove the
-dynamic targets. After that, the remaining instruction groups can be added as
-general 8086 translations and the automatic source build can be retried.
+## Validation
 
-## Machine boundary
+The host probe reaches the complete two-panel interface and lists both panels
+from the original distribution directory. The end-to-end ESP32 test builds the
+firmware and module, creates a FAT32 SD image, installs `VC.D2E`, executes the
+generated `AUTOEXEC.BAT`, runs VC for a bounded interactive frame count and
+returns through the harness without a guest fault:
 
-The static inventory contains 143 software interrupts across video, keyboard,
-time, DOS, mouse and multiplex services (`INT 10h`, `15h`, `16h`, `1Ah`, `21h`,
-`28h`, `2Fh` and `33h`), plus dynamic-port input. Volkov Commander therefore
-requires a substantially broader PC/AT DOS environment and filesystem model
-than the first Alley Cat execution probe.
+```powershell
+.\firmware\esp32_cyd\qemu-xip-volkov-commander-windows.ps1 -FrameLimit 10
+```
+
+The validated module size is 1,135,336 bytes. The QEMU run retired 3,159,802
+guest instructions and ended with `state=1, reason=8`, the expected active
+supervisor state with a per-slice budget boundary.

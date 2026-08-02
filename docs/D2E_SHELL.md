@@ -53,6 +53,11 @@ installing Alley Cat writes `ALLEY` and subsequent boots start it without user
 input. An existing XIP volume with one or more packages but no startup file is
 migrated in the same way when it is mounted.
 
+Volkov Commander is installed as command `VC`. Its executable module runs from
+`A:`, while the original help, menu, configuration and extension files stay on
+the FAT-backed `C:` drive. This split is required because XIP code must be in
+internal Flash but VC's DOS file access must remain writable and enumerable.
+
 Development firmware can still contain a built-in `ALLEY` entry. The production
 layout installs that translation from the FAT-backed `C:` drive into an
 aligned, append-only extent on `A:`. A catalog record is committed only after

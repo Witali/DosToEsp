@@ -10,8 +10,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $project = $PSScriptRoot
-$toolProject = [IO.Path]::GetFullPath((Join-Path $project `
-    "..\..\..\HLV-codec\firmware\esp32_2432s028_hlv_player_idf_c"))
+$root = [IO.Path]::GetFullPath((Join-Path $project "..\.."))
+$commonDirectory = (& git -C $root rev-parse --path-format=absolute `
+    --git-common-dir).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $commonDirectory) {
+    throw "Could not locate the main DosToEsp repository"
+}
+$mainRoot = Split-Path -Parent ([IO.Path]::GetFullPath($commonDirectory))
+$workspace = Split-Path -Parent $mainRoot
+$toolProject = Join-Path $workspace `
+    "HLV-codec\firmware\esp32_2432s028_hlv_player_idf_c"
 $tools = Join-Path $toolProject ".tools"
 $idf = Join-Path $tools "esp-idf-v5.5.5"
 $idfTools = Join-Path $tools "espressif"
