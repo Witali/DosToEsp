@@ -58,7 +58,9 @@ bounded QEMU workload.
     the direct `CF`/`ZF` subset;
   - [x] memory and byte forms of `sub`, with small binary immediates emitted as
     `movi` instead of separate flash literals;
-  - [ ] common logical and increment/decrement instructions.
+  - [x] byte/memory `inc` and `dec`, preserving `CF` through helpers whenever
+    more than direct `ZF` materialization is live;
+  - [ ] common logical instructions.
 
 ## Evaluation log
 
@@ -85,6 +87,7 @@ bounded QEMU workload.
 | Direct byte/memory `CMP` and full-flags helper fallback | 673,072 (-8,256) | 139,398 (-57,508) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 557 more native blocks and helpers only when partial direct flags are insufficient |
 | Initial byte/memory `SUB` with literal-loaded immediates | 673,248 (+176) | 126,760 (-12,638) | Pass | Supersede: CISC shrank, but native literals and alignment produced net image growth |
 | Direct byte/memory `SUB` with inline small immediates | 672,368 (-704 from CMP control) | 126,800 (-12,598) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 136 more native blocks and one fewer flash load for common immediates |
+| Direct byte/memory `INC` and `DEC` | 669,680 (-2,688) | 111,745 (-15,055) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 124 more native blocks and helper-backed carry preservation when required |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured

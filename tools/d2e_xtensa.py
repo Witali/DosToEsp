@@ -534,6 +534,72 @@ def _emit_sub16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
     return lines
 
 
+def _emit_inc_dec(
+    emitter: _Emitter,
+    instruction: Any,
+    live_flags: int,
+) -> list[str]:
+    if len(instruction.operands) != 1:
+        raise _error(instruction, "requires one INC/DEC operand")
+    destination = instruction.operands[0]
+    width = _binary_operand_width(instruction, destination)
+    if destination[0] == "reg":
+        lines = _emit_nonmemory_value(
+            emitter, instruction, destination, width, "a4"
+        )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, width)
+        lines = [
+            *_emit_memory_arguments(emitter, instruction, memory),
+            f"    call8 d2e_native_helper_read{width}",
+            "    mov a4, a10",
+        ]
+    else:
+        raise _error(instruction, "requires a register or memory INC/DEC operand")
+
+    if live_flags in (0, d2e_flags.ZF):
+        delta = 1 if instruction.mnemonic == "inc" else -1
+        lines.extend(
+            [f"    addi a4, a4, {delta}", f"    extui a4, a4, 0, {width}"]
+        )
+        if live_flags == d2e_flags.ZF:
+            lines.extend(_emit_zero_flag(emitter, "a4"))
+        result_register = "a4"
+    else:
+        lines.extend(
+            [
+                "    mov a10, a2",
+                "    mov a11, a4",
+                f"    call8 d2e_x86_{instruction.mnemonic}{width}",
+            ]
+        )
+        result_register = "a10"
+
+    if destination[0] == "reg":
+        register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+        destination_offset = register_offsets[str(destination[1])]
+        store = "s8i" if width == 8 else "s16i"
+        lines.append(
+            f"    {store} {result_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    else:
+        memory = _memory_operand(instruction, destination, width)
+        completed = emitter.local("increment_write_completed")
+        lines.extend(
+            [
+                f"    mov a13, {result_register}",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_write{width}",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
+        )
+    return lines
+
+
 def _emit_shl16(instruction: Any, live_flags: int) -> list[str]:
     if (
         len(instruction.operands) != 2
@@ -1021,6 +1087,8 @@ def native_block_leaders(
                     _emit_cmp16(emitter, instruction, live)
                 elif mnemonic == "sub":
                     _emit_sub16(emitter, instruction, live)
+                elif mnemonic in ("inc", "dec"):
+                    _emit_inc_dec(emitter, instruction, live)
                 elif mnemonic == "shl":
                     _emit_shl16(instruction, live)
                 elif mnemonic == "mul":
@@ -1275,6 +1343,14 @@ def emit_program(
                         flag_liveness.live_defined[instruction.address],
                     )
                 )
+            elif mnemonic in ("inc", "dec"):
+                body.extend(
+                    _emit_inc_dec(
+                        emitter,
+                        instruction,
+                        flag_liveness.live_defined[instruction.address],
+                    )
+                )
             elif mnemonic == "shl":
                 body.extend(
                     _emit_shl16(
@@ -1320,6 +1396,10 @@ def emit_program(
         "    .extern d2e_x86_push16",
         "    .extern d2e_x86_sub8",
         "    .extern d2e_x86_sub16",
+        "    .extern d2e_x86_inc8",
+        "    .extern d2e_x86_inc16",
+        "    .extern d2e_x86_dec8",
+        "    .extern d2e_x86_dec16",
         "    .extern d2e_native_helper_read8",
         "    .extern d2e_native_helper_read16",
         "    .extern d2e_native_helper_write8",

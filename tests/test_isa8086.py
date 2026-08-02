@@ -153,7 +153,9 @@ KNOWN_GAPS: set[str] = set()
 KNOWN_XTENSA_DIRECT = {
     "call-near",
     "cmp",
+    "dec",
     "hlt",
+    "inc",
     "ja",
     "jae",
     "jb",

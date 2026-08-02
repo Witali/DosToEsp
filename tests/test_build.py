@@ -493,6 +493,28 @@ def main() -> int:
         assert "extui a4, a4, 0, 8" in direct_byte_subtract_assembly
         assert ".byte 0x02" in direct_byte_subtract_assembly
 
+        direct_increment_fixture = bytes.fromhex("fe 06 05 01 f4 ff")
+        output = pathlib.Path(temporary) / "asm-direct-increment"
+        manifest = d2e_build.build_sources(
+            direct_increment_fixture,
+            "direct-increment.com",
+            "com",
+            "direct_increment",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_increment_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: inc byte ptr [0x105] */" in direct_increment_assembly
+        assert "call8 d2e_native_helper_read8" in direct_increment_assembly
+        assert "call8 d2e_native_helper_write8" in direct_increment_assembly
+        assert "call8 d2e_x86_inc8" not in direct_increment_assembly
+        assert "addi a4, a4, 1" in direct_increment_assembly
+        assert ".byte 0xff" in direct_increment_assembly
+
         dead_cisc_fixture = bytes.fromhex(
             "27 83 c0 01 d1 e0 f7 e3 f4"
         )
