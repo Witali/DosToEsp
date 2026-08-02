@@ -198,18 +198,455 @@ def main() -> int:
         assert "call8 d2e_native_helper_mul16" in assembly
         assert "l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in assembly
         assert "movi a12, 0 /* no MUL flags are live */" in assembly
-        assert "add a4, a4, a5" in assembly
         assert "bne a4, a5, .Lprogram_region_unknown" not in assembly
         assert "call8 d2e_native_service_control_target" in assembly
+        assert "addi a4, a4, 1" in assembly
         assert "does not yet materialize live ADD flags" not in assembly
         assert ".Lprogram_region_block_0100:" in assembly
         assert ".Lprogram_region_block_010b:" in assembly
         assert ".Lprogram_region_block_0119:" in assembly
-        assert "movi a9, -65" in assembly
-        assert "beqz a4, .Lprogram_region_branch_taken_" in assembly
+        assert "fused with preceding CMP" in assembly
+        assert "bne a4, a5, .Lprogram_region_fused_branch_taken_" in assembly
         assert assembly.count(".Lprogram_region_budget_finish:") == 1
         assert assembly.count("j .Lprogram_region_budget_finish") == len(blocks)
         assert assembly.count(".Lprogram_region_untranslated:") == 1
+
+        literal_emitter = d2e_xtensa._Emitter("com", 0x1000)
+        shared_literal = literal_emitter.literal(0x1234, "first")
+        assert literal_emitter.literal(0x100001234, "second") == shared_literal
+        assert literal_emitter.literals == [(shared_literal, 0x1234)]
+        assert d2e_xtensa._emit_load_constant(
+            literal_emitter, "a4", 2047, "small"
+        ) == ["    movi a4, 2047"]
+        assert d2e_xtensa._emit_load_constant(
+            literal_emitter, "a5", -2048, "negative"
+        ) == ["    movi a5, -2048"]
+        large_load = d2e_xtensa._emit_load_constant(
+            literal_emitter, "a8", 0x3456, "large"
+        )
+        assert large_load == [
+            "    l32r a8, .Lprogram_region_large_1"
+        ]
+        assert d2e_xtensa._emit_load_constant(
+            literal_emitter, "a9", 0x3456, "duplicate"
+        ) == ["    l32r a9, .Lprogram_region_large_1"]
+        assert literal_emitter.literals == [
+            (shared_literal, 0x1234),
+            (".Lprogram_region_large_1", 0x3456),
+        ]
+
+        repeated_immediate_fixture = bytes.fromhex(
+            "b8 34 12 bb 34 12 b9 07 00 ba 07 00 f4"
+        )
+        repeated_decoded = d2e_translate.discover(
+            repeated_immediate_fixture, 0x100, 0x100
+        )
+        repeated_blocks = d2e_translate.make_blocks(repeated_decoded, 0x100)
+        repeated_assembly = d2e_xtensa.emit_program(
+            repeated_immediate_fixture,
+            repeated_blocks,
+            "repeated_immediate",
+            0x1000,
+            0x100,
+        )
+        assert repeated_assembly.count("    .long 0x00001234") == 1
+        assert repeated_assembly.count("    movi a4, 7") == 2
+        assert "    .long 0x00000007" not in repeated_assembly
+
+        cached_fixture = bytes.fromhex(
+            "01 d8 01 c8 89 c2 f4"
+        )  # add ax,bx; add ax,cx; mov dx,ax; hlt
+        cached_decoded = d2e_translate.discover(cached_fixture, 0x100, 0x100)
+        cached_blocks = d2e_translate.make_blocks(cached_decoded, 0x100)
+        cached_assembly = d2e_xtensa.emit_program(
+            cached_fixture,
+            cached_blocks,
+            "cached_registers",
+            0x1000,
+            0x100,
+        )
+        assert (
+            "/* Register-cache selection: 1 runs, estimated 4 Xtensa "
+            "instructions and 3 CPU accesses saved. */"
+        ) in cached_assembly
+        assert (
+            "/* Register cache: AX=a4, BX=a5, CX=a8, DX=a9; estimated "
+            "saving 4 instructions, 3 CPU accesses. */"
+        ) in cached_assembly
+        assert "l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in cached_assembly
+        assert "l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in cached_assembly
+        assert "l16ui a8, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in cached_assembly
+        assert "add a4, a4, a5" in cached_assembly
+        assert "add a4, a4, a8" in cached_assembly
+        assert "mov a9, a4" in cached_assembly
+        assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in cached_assembly
+        assert "s16i a9, a2, D2E_ASM_CPU_REGS_OFFSET + 4" in cached_assembly
+        assert "extui a4, a4, 0, 16" not in cached_assembly
+
+        fused_fixture = bytes.fromhex(
+            "89 c2 01 da f4"
+        )  # mov dx,ax; add dx,bx; hlt
+        fused_decoded = d2e_translate.discover(fused_fixture, 0x100, 0x100)
+        fused_blocks = d2e_translate.make_blocks(fused_decoded, 0x100)
+        fused_assembly = d2e_xtensa.emit_program(
+            fused_fixture,
+            fused_blocks,
+            "fused_registers",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: add dx, bx; fused with preceding MOV. */" in (
+            fused_assembly
+        )
+        assert "add a5, a4, a8" in fused_assembly
+        assert "mov a5, a4" not in fused_assembly
+        assert "extui a5, a5, 0, 16" not in fused_assembly
+
+        fused_immediate_fixture = bytes.fromhex(
+            "89 c2 83 c2 05 f4"
+        )  # mov dx,ax; add dx,5; hlt
+        fused_immediate_decoded = d2e_translate.discover(
+            fused_immediate_fixture, 0x100, 0x100
+        )
+        fused_immediate_blocks = d2e_translate.make_blocks(
+            fused_immediate_decoded, 0x100
+        )
+        fused_immediate_assembly = d2e_xtensa.emit_program(
+            fused_immediate_fixture,
+            fused_immediate_blocks,
+            "fused_immediate_registers",
+            0x1000,
+            0x100,
+        )
+        assert "addi a5, a4, 5" in fused_immediate_assembly
+        assert "mov a5, a4" not in fused_immediate_assembly
+
+        fused_alias_fixture = bytes.fromhex(
+            "89 c2 01 d2 f4"
+        )  # mov dx,ax; add dx,dx; hlt
+        fused_alias_decoded = d2e_translate.discover(
+            fused_alias_fixture, 0x100, 0x100
+        )
+        fused_alias_blocks = d2e_translate.make_blocks(
+            fused_alias_decoded, 0x100
+        )
+        fused_alias_assembly = d2e_xtensa.emit_program(
+            fused_alias_fixture,
+            fused_alias_blocks,
+            "fused_alias_registers",
+            0x1000,
+            0x100,
+        )
+        assert "add a5, a4, a4" in fused_alias_assembly
+        assert "add a5, a4, a5" not in fused_alias_assembly
+
+        fused_operations_fixture = bytes.fromhex(
+            "89 c2 29 da "
+            "89 c2 21 da "
+            "89 c2 09 da "
+            "89 c2 31 da "
+            "89 c2 4a "
+            "89 c2 83 e2 1f "
+            "f4"
+        )
+        fused_operations_decoded = d2e_translate.discover(
+            fused_operations_fixture, 0x100, 0x100
+        )
+        fused_operations_blocks = d2e_translate.make_blocks(
+            fused_operations_decoded, 0x100
+        )
+        fused_operations_assembly = d2e_xtensa.emit_program(
+            fused_operations_fixture,
+            fused_operations_blocks,
+            "fused_operations",
+            0x1000,
+            0x100,
+        )
+        assert "sub a5, a4, a8" in fused_operations_assembly
+        assert "and a5, a4, a8" in fused_operations_assembly
+        assert "or a5, a4, a8" in fused_operations_assembly
+        assert "xor a5, a4, a8" in fused_operations_assembly
+        assert "addi a5, a4, -1" in fused_operations_assembly
+        assert "extui a5, a4, 0, 5" in fused_operations_assembly
+
+        fused_shift_fixture = bytes.fromhex(
+            "89 c2 d1 e2 "  # mov dx,ax; shl dx,1
+            "89 c2 d1 ea "  # mov dx,ax; shr dx,1
+            "f4"
+        )
+        fused_shift_decoded = d2e_translate.discover(
+            fused_shift_fixture, 0x100, 0x100
+        )
+        fused_shift_blocks = d2e_translate.make_blocks(
+            fused_shift_decoded, 0x100
+        )
+        fused_shift_assembly = d2e_xtensa.emit_program(
+            fused_shift_fixture,
+            fused_shift_blocks,
+            "fused_shifts",
+            0x1000,
+            0x100,
+        )
+        assert "slli a5, a4, 1" in fused_shift_assembly
+        assert "extui a5, a4, 1, 15" in fused_shift_assembly
+        assert "mov a5, a4" not in fused_shift_assembly
+
+        fused_scaled_add_fixture = bytes.fromhex("d1 e0 01 d8 f4")
+        fused_scaled_add_decoded = d2e_translate.discover(
+            fused_scaled_add_fixture, 0x100, 0x100
+        )
+        fused_scaled_add_blocks = d2e_translate.make_blocks(
+            fused_scaled_add_decoded, 0x100
+        )
+        fused_scaled_add_assembly = d2e_xtensa.emit_program(
+            fused_scaled_add_fixture,
+            fused_scaled_add_blocks,
+            "fused_scaled_add",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: add ax, bx; fused with preceding SHL. */" in (
+            fused_scaled_add_assembly
+        )
+        assert "addx2 a4, a4, a5" in fused_scaled_add_assembly
+        assert "slli a4, a4, 1" not in fused_scaled_add_assembly
+
+        fused_scaled_alias_fixture = bytes.fromhex("d1 e0 01 c0 f4")
+        fused_scaled_alias_decoded = d2e_translate.discover(
+            fused_scaled_alias_fixture, 0x100, 0x100
+        )
+        fused_scaled_alias_blocks = d2e_translate.make_blocks(
+            fused_scaled_alias_decoded, 0x100
+        )
+        fused_scaled_alias_assembly = d2e_xtensa.emit_program(
+            fused_scaled_alias_fixture,
+            fused_scaled_alias_blocks,
+            "fused_scaled_alias",
+            0x1000,
+            0x100,
+        )
+        assert "slli a4, a4, 2" in fused_scaled_alias_assembly
+        assert "addx2 a4, a4, a4" not in fused_scaled_alias_assembly
+
+        uncached_fixture = bytes.fromhex("89 d8 f4")  # mov ax,bx; hlt
+        uncached_decoded = d2e_translate.discover(
+            uncached_fixture, 0x100, 0x100
+        )
+        uncached_blocks = d2e_translate.make_blocks(uncached_decoded, 0x100)
+        uncached_assembly = d2e_xtensa.emit_program(
+            uncached_fixture,
+            uncached_blocks,
+            "uncached_registers",
+            0x1000,
+            0x100,
+        )
+        assert (
+            "/* Register-cache selection: 0 runs, estimated 0 Xtensa "
+            "instructions and 0 CPU accesses saved. */"
+        ) in uncached_assembly
+        assert "/* Register cache:" not in uncached_assembly
+
+        live_add_fixture = bytes.fromhex(
+            "01 d8 74 01 f4 f4"
+        )  # add ax,bx; jz taken
+        live_add_decoded = d2e_translate.discover(
+            live_add_fixture, 0x100, 0x100
+        )
+        live_add_blocks = d2e_translate.make_blocks(live_add_decoded, 0x100)
+        live_add_assembly = d2e_xtensa.emit_program(
+            live_add_fixture,
+            live_add_blocks,
+            "live_add_registers",
+            0x1000,
+            0x100,
+        )
+        assert "/* Register cache:" not in live_add_assembly
+        assert "s16i a8, a2, D2E_ASM_CPU_FLAGS_OFFSET" in live_add_assembly
+
+        fused_compare_fixture = bytes.fromhex("39 d8 72 01 f4 f4")
+        fused_compare_decoded = d2e_translate.discover(
+            fused_compare_fixture, 0x100, 0x100
+        )
+        fused_compare_blocks = d2e_translate.make_blocks(
+            fused_compare_decoded, 0x100
+        )
+        fused_compare_assembly = d2e_xtensa.emit_program(
+            fused_compare_fixture,
+            fused_compare_blocks,
+            "fused_compare_branch",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: jb 0x105; fused with preceding CMP. */" in (
+            fused_compare_assembly
+        )
+        assert "bltu a4, a5, .Lprogram_region_fused_branch_taken_" in (
+            fused_compare_assembly
+        )
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" not in fused_compare_assembly
+
+        fused_test_fixture = bytes.fromhex("85 d8 74 01 f4 f4")
+        fused_test_decoded = d2e_translate.discover(
+            fused_test_fixture, 0x100, 0x100
+        )
+        fused_test_blocks = d2e_translate.make_blocks(
+            fused_test_decoded, 0x100
+        )
+        fused_test_assembly = d2e_xtensa.emit_program(
+            fused_test_fixture,
+            fused_test_blocks,
+            "fused_test_branch",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: je 0x105; fused with preceding TEST. */" in (
+            fused_test_assembly
+        )
+        assert "and a4, a4, a5" in fused_test_assembly
+        assert "beqz a4, .Lprogram_region_fused_branch_taken_" in (
+            fused_test_assembly
+        )
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" not in fused_test_assembly
+
+        for opcode, expected in ((0x76, "bgeu a5, a4"), (0x77, "bltu a5, a4")):
+            fixture = bytes((0x39, 0xD8, opcode, 0x01, 0xF4, 0xF4))
+            decoded = d2e_translate.discover(fixture, 0x100, 0x100)
+            blocks = d2e_translate.make_blocks(decoded, 0x100)
+            order_assembly = d2e_xtensa.emit_program(
+                fixture,
+                blocks,
+                "fused_order_branch",
+                0x1000,
+                0x100,
+            )
+            assert expected in order_assembly
+            assert "D2E_ASM_CPU_FLAGS_OFFSET" not in order_assembly
+
+        live_compare_flags_fixture = bytes.fromhex(
+            "39 d8 74 02 9c f4 9c f4"
+        )
+        live_compare_flags_decoded = d2e_translate.discover(
+            live_compare_flags_fixture, 0x100, 0x100
+        )
+        live_compare_flags_blocks = d2e_translate.make_blocks(
+            live_compare_flags_decoded, 0x100
+        )
+        live_compare_flags_assembly = d2e_xtensa.emit_program(
+            live_compare_flags_fixture,
+            live_compare_flags_blocks,
+            "live_compare_flags",
+            0x1000,
+            0x100,
+        )
+        assert "fused with preceding CMP" not in live_compare_flags_assembly
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" in live_compare_flags_assembly
+
+        live_immediate_add_fixture = bytes.fromhex(
+            "83 c0 01 74 01 f4 f4"
+        )  # add ax,1; jz taken
+        live_immediate_add_decoded = d2e_translate.discover(
+            live_immediate_add_fixture, 0x100, 0x100
+        )
+        live_immediate_add_blocks = d2e_translate.make_blocks(
+            live_immediate_add_decoded, 0x100
+        )
+        live_immediate_add_assembly = d2e_xtensa.emit_program(
+            live_immediate_add_fixture,
+            live_immediate_add_blocks,
+            "live_immediate_add",
+            0x1000,
+            0x100,
+        )
+        assert "addi a4, a4, 1" in live_immediate_add_assembly
+        assert "movi a5, 1" not in live_immediate_add_assembly
+        assert "l32r a5, .Lprogram_region_immediate" not in (
+            live_immediate_add_assembly
+        )
+
+        full_flags_add_fixture = bytes.fromhex(
+            "00 d8 9c f4"
+        )  # add al,bl; pushf; hlt
+        output = pathlib.Path(temporary) / "asm-direct-full-flags-add"
+        manifest = d2e_build.build_sources(
+            full_flags_add_fixture,
+            "direct-full-flags-add.com",
+            "com",
+            "direct_full_flags_add",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == ["game_native.S"]
+        full_flags_add_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: add al, bl */" in full_flags_add_assembly
+        assert "call8 d2e_x86_add8" in full_flags_add_assembly
+        assert "s8i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in (
+            full_flags_add_assembly
+        )
+
+        memory_add_fixture = bytes.fromhex(
+            "83 06 08 01 01 f4 00 00 34 12"
+        )  # add word ptr [0108h],1; hlt; data
+        output = pathlib.Path(temporary) / "asm-direct-memory-add"
+        manifest = d2e_build.build_sources(
+            memory_add_fixture,
+            "direct-memory-add.com",
+            "com",
+            "direct_memory_add",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == ["game_native.S"]
+        memory_add_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "call8 d2e_native_helper_read16" in memory_add_assembly
+        assert "call8 d2e_native_helper_write16" in memory_add_assembly
+        assert "add a4, a4, a5" in memory_add_assembly
+        assert "0x34, 0x12" in memory_add_assembly
+
+        carry_zero_add_fixture = bytes.fromhex(
+            "01 d8 76 01 f4 f4"
+        )  # add ax,bx; jbe taken
+        output = pathlib.Path(temporary) / "asm-direct-carry-zero-add"
+        manifest = d2e_build.build_sources(
+            carry_zero_add_fixture,
+            "direct-carry-zero-add.com",
+            "com",
+            "direct_carry_zero_add",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        carry_zero_add_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert ".Lprogram_region_add_carry_done_" in carry_zero_add_assembly
+        assert ".Lprogram_region_add_zero_done_" in carry_zero_add_assembly
+        assert "call8 d2e_x86_add16" not in carry_zero_add_assembly
+
+        pressure_fixture = bytes.fromhex(
+            "01 d8 01 c8 01 d0 01 f0 f4"
+        )  # four ADDs touch five x86 registers
+        pressure_decoded = d2e_translate.discover(
+            pressure_fixture, 0x100, 0x100
+        )
+        pressure_blocks = d2e_translate.make_blocks(pressure_decoded, 0x100)
+        pressure_block = list(pressure_blocks[0x100])
+        pressure_liveness = d2e_flags.analyze(pressure_blocks)
+        pressure_runs, pressure_score = d2e_xtensa._plan_cached_register_runs(
+            pressure_block, pressure_liveness.live_defined
+        )
+        assert pressure_score == (8, 4)
+        assert set(pressure_runs) == {0, 1}
+        assert pressure_runs[0][0] == 1
+        assert pressure_runs[1][0] == 4
 
         dispatch_probe_emitter = d2e_xtensa._Emitter("com", 0x1000)
         dispatch_probe_leaders = tuple(range(0x100, 0x111))
@@ -421,6 +858,67 @@ def main() -> int:
         assert "/* 0104: ret  */" in direct_call_assembly
         assert "call8 d2e_x86_pop16" in direct_call_assembly
 
+        for fixture, expected_comment, expected_number in (
+            (bytes.fromhex("cd 10 f4"), "/* 0100: int 0x10 */", 16),
+            (bytes.fromhex("cc f4"), "/* 0100: int3  */", 3),
+        ):
+            output = pathlib.Path(temporary) / f"asm-direct-int-{expected_number}"
+            manifest = d2e_build.build_sources(
+                fixture,
+                f"direct-int-{expected_number}.com",
+                "com",
+                f"direct_int_{expected_number}",
+                0x1000,
+                output,
+                "xtensa-asm",
+            )
+            assert manifest["status"] == "complete"
+            assert manifest["generated_sources"] == ["game_native.S"]
+            direct_int_assembly = (output / "game_native.S").read_text(
+                encoding="utf-8"
+            )
+            assert expected_comment in direct_int_assembly
+            assert f"movi a11, {expected_number}" in direct_int_assembly
+            assert "call8 d2e_native_interrupt" in direct_int_assembly
+            assert "l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET" in (
+                direct_int_assembly
+            )
+
+        direct_port_fixture = bytes.fromhex(
+            "e4 60 e5 61 ec ed e6 62 e7 63 ee ef f4"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-port"
+        manifest = d2e_build.build_sources(
+            direct_port_fixture,
+            "direct-port.com",
+            "com",
+            "direct_port",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == ["game_native.S"]
+        direct_port_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "call8 d2e_x86_port_in8" in direct_port_assembly
+        assert "call8 d2e_x86_port_in16" in direct_port_assembly
+        assert "call8 d2e_x86_port_out8" in direct_port_assembly
+        assert "call8 d2e_x86_port_out16" in direct_port_assembly
+        assert "movi a11, 96" in direct_port_assembly
+        assert "movi a11, 99" in direct_port_assembly
+        assert direct_port_assembly.count(
+            f"l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + "
+            f"{d2e_xtensa.REG16_OFFSETS['dx']}"
+        ) == 4
+        assert "s8i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in (
+            direct_port_assembly
+        )
+        assert "s16i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in (
+            direct_port_assembly
+        )
+
         direct_return_fixture = bytes.fromhex("c2 80 00")
         output = pathlib.Path(temporary) / "asm-direct-return"
         manifest = d2e_build.build_sources(
@@ -558,10 +1056,51 @@ def main() -> int:
         )
         assert "call8 d2e_native_helper_read8" in direct_byte_subtract_assembly
         assert "call8 d2e_native_helper_write8" in direct_byte_subtract_assembly
-        assert "movi a5, 1" in direct_byte_subtract_assembly
+        assert "addi a4, a4, -1" in direct_byte_subtract_assembly
+        assert "movi a5, 1" not in direct_byte_subtract_assembly
         assert "call8 d2e_x86_sub8" not in direct_byte_subtract_assembly
         assert "extui a4, a4, 0, 8" in direct_byte_subtract_assembly
         assert ".byte 0x02" in direct_byte_subtract_assembly
+
+        live_zero_subtract_fixture = bytes.fromhex("83 e8 01 74 01 f4 f4")
+        output = pathlib.Path(temporary) / "asm-live-zero-subtract"
+        manifest = d2e_build.build_sources(
+            live_zero_subtract_fixture,
+            "live-zero-subtract.com",
+            "com",
+            "live_zero_subtract",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        live_zero_subtract_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "addi a4, a4, -1" in live_zero_subtract_assembly
+        assert "movi a5, 1" not in live_zero_subtract_assembly
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" in live_zero_subtract_assembly
+        assert "call8 d2e_x86_sub16" not in live_zero_subtract_assembly
+
+        live_carry_subtract_fixture = bytes.fromhex("83 e8 01 72 01 f4 f4")
+        output = pathlib.Path(temporary) / "asm-live-carry-subtract"
+        manifest = d2e_build.build_sources(
+            live_carry_subtract_fixture,
+            "live-carry-subtract.com",
+            "com",
+            "live_carry_subtract",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        live_carry_subtract_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "addi a4, a4, -1" not in live_carry_subtract_assembly
+        assert "movi a5, 1" in live_carry_subtract_assembly
+        assert "sub a4, a4, a5" in live_carry_subtract_assembly
+        assert "call8 d2e_x86_sub16" not in live_carry_subtract_assembly
 
         direct_increment_fixture = bytes.fromhex("fe 06 05 01 f4 ff")
         output = pathlib.Path(temporary) / "asm-direct-increment"

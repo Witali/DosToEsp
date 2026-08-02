@@ -15,6 +15,8 @@ option(D2E_SHELL_AUTORUN "Automatically run the first shell package" OFF)
 option(D2E_QEMU_INTERACTIVE "Run Alley Cat continuously in QEMU" OFF)
 option(D2E_QEMU_DUMP_FRAME "Dump final CGA VRAM through QEMU UART" OFF)
 option(D2E_QEMU_SCRIPTED_INPUT "Inject deterministic Alley Cat keys" OFF)
+option(D2E_TRANSLATION_PROFILE
+    "Measure translated execution with the ESP32 cycle counter" OFF)
 option(D2E_QEMU_EXIT_AFTER_RETURN
     "Restart the ESP32 after a bounded shell session" OFF)
 option(D2E_QEMU_BOARD_DEVICES
@@ -119,6 +121,11 @@ endif()
 if(D2E_QEMU_SCRIPTED_INPUT)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         D2E_QEMU_SCRIPTED_INPUT=1
+    )
+endif()
+if(D2E_TRANSLATION_PROFILE)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        D2E_TRANSLATION_PROFILE=1
     )
 endif()
 if(D2E_QEMU_EXIT_AFTER_RETURN)

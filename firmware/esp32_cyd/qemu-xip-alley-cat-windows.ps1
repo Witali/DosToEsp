@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidateRange(1, 1000000)]
-    [int]$FrameLimit = 60
+    [int]$FrameLimit = 60,
+    [switch]$Profile
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +33,7 @@ $flash = Join-Path $build "d2e-xip-shell-qemu-4mb.bin"
 $sd = Join-Path $build "d2e-xip-modules-sd.img"
 $marker = Join-Path $build "qemu.txt"
 $log = Join-Path $root "out\qemu\alley-cat-xip-windows.log"
+$profileValue = if ($Profile) { "ON" } else { "OFF" }
 
 foreach ($required in @($qemu, $python, $input, $toolchainBin)) {
     if (-not $required -or -not (Test-Path -LiteralPath $required)) {
@@ -47,7 +49,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Alley Cat XIP translation failed"
 }
 
-& (Join-Path $project "idf.ps1") -IdfArguments @(
+$idfArguments = @(
     "-B", $build,
     "-D", "D2E_QEMU_SMOKE=ON",
     "-D", "D2E_QEMU_BOARD_DEVICES=ON",
@@ -56,11 +58,13 @@ if ($LASTEXITCODE -ne 0) {
     "-D", "D2E_SHELL=ON",
     "-D", "D2E_SHELL_AUTORUN=ON",
     "-D", "D2E_QEMU_XIP_INSTALL_FILE=ALLEY.D2E",
+    "-D", "D2E_TRANSLATION_PROFILE=$profileValue",
     "-D", "D2E_QEMU_EXIT_AFTER_RETURN=ON",
     "-D", "D2E_QEMU_INTERACTIVE=ON",
     "-D", "D2E_QEMU_INTERACTIVE_FRAME_LIMIT=$FrameLimit",
     "build"
 )
+& (Join-Path $project "idf.ps1") -IdfArguments $idfArguments
 
 & (Join-Path $project "idf.ps1") -EsptoolArguments @(
     "--chip", "esp32", "merge_bin", "-o", $flash,
@@ -129,7 +133,7 @@ $qemuArguments = @(
 if ($LASTEXITCODE -ne 0) {
     throw "QEMU exited with code $LASTEXITCODE. See $log"
 }
-foreach ($expected in @(
+$expectedMarkers = @(
     "D2E_QEMU_XIP_INSTALL,file=ALLEY.D2E,result=ESP_OK",
     "D2E_MODULE_INSTALLED,command=ALLEY",
     "D2E_AUTOEXEC_CREATED,file=A:/AUTOEXEC.BAT,command=ALLEY",
@@ -139,7 +143,11 @@ foreach ($expected in @(
     "D2E_SHELL_RUN,command=ALLEY",
     "D2E_SHELL_RETURN,command=ALLEY,source=harness",
     "D2E_QEMU_DONE,0"
-)) {
+)
+if ($Profile) {
+    $expectedMarkers += "D2E_TRANSLATION_PROFILE,calls="
+}
+foreach ($expected in $expectedMarkers) {
     if (-not (Select-String -LiteralPath $log -Quiet -SimpleMatch $expected)) {
         throw "XIP QEMU check is missing '$expected'. See $log"
     }

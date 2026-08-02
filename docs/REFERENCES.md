@@ -39,3 +39,9 @@ its `main` branch. HLV-codec is no longer modified to build DosToEsp QEMU.
   disassembler and is not linked into the firmware.
 - Espressif Xtensa GCC `esp-14.2.0_20260121` from the sibling HLV-codec's
   pinned ESP-IDF 5.5.5 installation is used by the native-code audit.
+- Cadence's official [Xtensa Instruction Set ISA
+  Summary](https://www.cadence.com/content/dam/cadence-www/global/en_US/documents/tools/silicon-solutions/compute-ip/isa-summary.pdf)
+  defines the instruction semantics and configurable packages used by the
+  [8086-to-Xtensa pairing policy](X86_XTENSA_INSTRUCTION_PAIRS.md). The
+  installed ESP32 compiler feature macros and assembler remain the final check
+  for instructions available on the LX6 target.

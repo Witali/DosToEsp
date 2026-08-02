@@ -46,19 +46,41 @@ SEGMENT_INDICES = {
 class _Emitter:
     def __init__(self, image_format: str, load_segment: int) -> None:
         self.literals: list[tuple[str, int]] = []
+        self._literal_labels: dict[int, str] = {}
         self.local_count = 0
         self.image_format = image_format
         self.load_segment = load_segment
 
     def literal(self, value: int, purpose: str) -> str:
+        value &= 0xFFFFFFFF
+        existing = self._literal_labels.get(value)
+        if existing is not None:
+            return existing
         label = f".Lprogram_region_{purpose}_{len(self.literals)}"
-        self.literals.append((label, value & 0xFFFFFFFF))
+        self.literals.append((label, value))
+        self._literal_labels[value] = label
         return label
 
     def local(self, purpose: str) -> str:
         label = f".Lprogram_region_{purpose}_{self.local_count}"
         self.local_count += 1
         return label
+
+
+def _emit_load_constant(
+    emitter: _Emitter,
+    target_register: str,
+    value: int,
+    purpose: str,
+) -> list[str]:
+    """Load an exact 32-bit value without allocating an avoidable literal."""
+    value &= 0xFFFFFFFF
+    if value <= 2047:
+        return [f"    movi {target_register}, {value}"]
+    if value >= 0xFFFFF800:
+        return [f"    movi {target_register}, {value - 0x100000000}"]
+    literal = emitter.literal(value, purpose)
+    return [f"    l32r {target_register}, {literal}"]
 
 
 def _error(instruction: Any, detail: str) -> BackendError:
@@ -98,18 +120,21 @@ def _emit_memory_arguments(
     segment = getattr(memory, "segment", None) or default_segment
     if segment not in SEGMENT_INDICES:
         raise _error(instruction, "uses an unsupported memory segment")
-    offset_literal = emitter.literal(
-        int(getattr(memory, "displacement", 0)) & 0xFFFF,
-        "memory_offset",
-    )
     lines = [
         "    mov a10, a2",
         (
             "    l16ui a11, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
             f"({SEGMENT_INDICES[segment]} * 2)"
         ),
-        f"    l32r a12, {offset_literal}",
     ]
+    lines.extend(
+        _emit_load_constant(
+            emitter,
+            "a12",
+            int(getattr(memory, "displacement", 0)) & 0xFFFF,
+            "memory_offset",
+        )
+    )
     for register in (base, index):
         if register is not None:
             lines.extend(
@@ -133,9 +158,10 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
     if destination[0] == "reg" and destination[1] in REG16_OFFSETS:
         destination_offset = REG16_OFFSETS[str(destination[1])]
         if source[0] == "imm":
-            literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
             return [
-                f"    l32r a4, {literal}",
+                *_emit_load_constant(
+                    emitter, "a4", int(source[1]) & 0xFFFF, "immediate"
+                ),
                 f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
             ]
         if source[0] == "reg" and source[1] in REG16_OFFSETS:
@@ -199,9 +225,10 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
     if destination[0] == "reg" and destination[1] in REG8_OFFSETS:
         destination_offset = REG8_OFFSETS[str(destination[1])]
         if source[0] == "imm":
-            literal = emitter.literal(int(source[1]) & 0xFF, "immediate")
             return [
-                f"    l32r a4, {literal}",
+                *_emit_load_constant(
+                    emitter, "a4", int(source[1]) & 0xFF, "immediate"
+                ),
                 f"    s8i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
             ]
         if source[0] == "reg" and source[1] in REG8_OFFSETS:
@@ -233,8 +260,11 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
         lines = _emit_memory_arguments(emitter, instruction, memory)
         if source[0] == "imm":
             mask = 0xFF if width == 8 else 0xFFFF
-            literal = emitter.literal(int(source[1]) & mask, "immediate")
-            lines.append(f"    l32r a13, {literal}")
+            lines.extend(
+                _emit_load_constant(
+                    emitter, "a13", int(source[1]) & mask, "immediate"
+                )
+            )
         elif (
             source[0] == "reg"
             and width == 16
@@ -297,8 +327,9 @@ def _emit_mul16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
     if live_flags == 0:
         lines.append("    movi a12, 0 /* no MUL flags are live */")
     else:
-        live_literal = emitter.literal(live_flags, "live_flags")
-        lines.append(f"    l32r a12, {live_literal}")
+        lines.extend(
+            _emit_load_constant(emitter, "a12", live_flags, "live_flags")
+        )
     lines.append("    call8 d2e_native_helper_mul16")
     return lines
 
@@ -307,34 +338,74 @@ def _emit_add16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
     if len(instruction.operands) != 2:
         raise _error(instruction, "requires a two-operand ADD")
     destination, source = instruction.operands
-    if destination[0] != "reg" or destination[1] not in REG16_OFFSETS:
-        raise _error(instruction, "currently supports only 16-bit register ADD destinations")
-    if live_flags not in (0, d2e_flags.ZF):
-        raise _error(instruction, "does not yet materialize live ADD flags")
-
-    destination_offset = REG16_OFFSETS[str(destination[1])]
-    lines = [
-        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-    ]
-    if source[0] == "imm":
-        source_literal = emitter.literal(int(source[1]) & 0xFFFF, "immediate")
-        lines.append(f"    l32r a5, {source_literal}")
-    elif source[0] == "reg" and source[1] in REG16_OFFSETS:
-        source_offset = REG16_OFFSETS[str(source[1])]
-        lines.append(
-            f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+    width = _binary_operand_width(instruction, destination)
+    direct_flags = (live_flags & ~(d2e_flags.CF | d2e_flags.ZF)) == 0
+    immediate_add: int | None = None
+    if (
+        direct_flags
+        and (live_flags & d2e_flags.CF) == 0
+        and destination[0] == "reg"
+        and source[0] == "imm"
+    ):
+        value = int(source[1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        if -128 <= signed <= 127:
+            immediate_add = signed
+    if immediate_add is not None:
+        lines = _emit_nonmemory_value(
+            emitter, instruction, destination, width, "a4"
         )
     else:
-        raise _error(instruction, "currently supports only immediate/register ADD sources")
-    lines.extend(
-        [
-            "    add a4, a4, a5",
-            "    extui a4, a4, 0, 16",
-            f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-        ]
-    )
-    if live_flags == d2e_flags.ZF:
-        lines.extend(_emit_zero_flag(emitter, "a4"))
+        lines = _emit_binary_values(
+            emitter, instruction, destination, source, width
+        )
+
+    if direct_flags:
+        if immediate_add is not None:
+            lines.append(f"    addi a4, a4, {immediate_add}")
+        else:
+            lines.append("    add a4, a4, a5")
+        lines.append(f"    extui a4, a4, 0, {width}")
+        if live_flags:
+            lines.extend(_emit_add_flags(emitter, "a4", "a5", live_flags))
+        result_register = "a4"
+    else:
+        lines.extend(
+            [
+                "    mov a10, a2",
+                "    mov a11, a4",
+                "    mov a12, a5",
+                f"    call8 d2e_x86_add{width}",
+            ]
+        )
+        result_register = "a10"
+
+    if destination[0] == "reg":
+        register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+        if destination[1] not in register_offsets:
+            raise _error(instruction, "uses a mismatched ADD destination")
+        destination_offset = register_offsets[str(destination[1])]
+        store = "s8i" if width == 8 else "s16i"
+        lines.append(
+            f"    {store} {result_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, width)
+        completed = emitter.local("add_write_completed")
+        lines.extend(
+            [
+                f"    mov a13, {result_register}",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_write{width}",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
+        )
+    else:
+        raise _error(instruction, "requires a register or memory ADD destination")
     return lines
 
 
@@ -350,6 +421,41 @@ def _emit_zero_flag(emitter: _Emitter, result_register: str) -> list[str]:
         f"{done}:",
         "    s16i a5, a2, D2E_ASM_CPU_FLAGS_OFFSET",
     ]
+
+
+def _emit_add_flags(
+    emitter: _Emitter,
+    result_register: str,
+    right_register: str,
+    live_flags: int,
+) -> list[str]:
+    lines = [
+        "    l16ui a8, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+        f"    movi a9, {-1 - live_flags}",
+        "    and a8, a8, a9",
+    ]
+    if live_flags & d2e_flags.CF:
+        carry_done = emitter.local("add_carry_done")
+        lines.extend(
+            [
+                f"    bgeu {result_register}, {right_register}, {carry_done}",
+                f"    movi a9, {d2e_flags.CF}",
+                "    or a8, a8, a9",
+                f"{carry_done}:",
+            ]
+        )
+    if live_flags & d2e_flags.ZF:
+        zero_done = emitter.local("add_zero_done")
+        lines.extend(
+            [
+                f"    bnez {result_register}, {zero_done}",
+                f"    movi a9, {d2e_flags.ZF}",
+                "    or a8, a8, a9",
+                f"{zero_done}:",
+            ]
+        )
+    lines.append("    s16i a8, a2, D2E_ASM_CPU_FLAGS_OFFSET")
+    return lines
 
 
 def _emit_compare_flags(
@@ -415,10 +521,7 @@ def _emit_nonmemory_value(
     if operand[0] == "imm":
         mask = 0xFF if width == 8 else 0xFFFF
         value = int(operand[1]) & mask
-        if value <= 2047:
-            return [f"    movi {target_register}, {value}"]
-        literal = emitter.literal(value, "immediate")
-        return [f"    l32r {target_register}, {literal}"]
+        return _emit_load_constant(emitter, target_register, value, "immediate")
     raise _error(instruction, "uses mismatched or unsupported binary operands")
 
 
@@ -485,14 +588,55 @@ def _emit_sub16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
         raise _error(instruction, "requires a two-operand SUB")
     destination, source = instruction.operands
     width = _binary_operand_width(instruction, destination)
-    lines = _emit_binary_values(
-        emitter, instruction, destination, source, width
-    )
     direct_flags = (live_flags & ~(d2e_flags.CF | d2e_flags.ZF)) == 0
+    immediate_add: int | None = None
+    if (
+        direct_flags
+        and (live_flags & d2e_flags.CF) == 0
+        and source[0] == "imm"
+    ):
+        mask = 0xFF if width == 8 else 0xFFFF
+        sign_bit = 1 << (width - 1)
+        value = (-int(source[1])) & mask
+        signed = value if value < sign_bit else value - (mask + 1)
+        if -128 <= signed <= 127:
+            immediate_add = signed
+
+    if immediate_add is not None:
+        if destination[0] == "reg":
+            lines = _emit_nonmemory_value(
+                emitter, instruction, destination, width, "a4"
+            )
+        elif destination[0] == "mem":
+            memory = _memory_operand(instruction, destination, width)
+            lines = [
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_read{width}",
+                "    mov a4, a10",
+            ]
+        else:
+            raise _error(
+                instruction, "requires a register or memory SUB destination"
+            )
+    else:
+        lines = _emit_binary_values(
+            emitter, instruction, destination, source, width
+        )
+
     if direct_flags:
-        if live_flags:
-            lines.extend(_emit_compare_flags(emitter, "a4", "a5", live_flags))
-        lines.extend(["    sub a4, a4, a5", f"    extui a4, a4, 0, {width}"])
+        if immediate_add is not None:
+            lines.append(f"    addi a4, a4, {immediate_add}")
+            lines.append(f"    extui a4, a4, 0, {width}")
+            if live_flags & d2e_flags.ZF:
+                lines.extend(_emit_zero_flag(emitter, "a4"))
+        else:
+            if live_flags:
+                lines.extend(
+                    _emit_compare_flags(emitter, "a4", "a5", live_flags)
+                )
+            lines.extend(
+                ["    sub a4, a4, a5", f"    extui a4, a4, 0, {width}"]
+            )
         result_register = "a4"
     else:
         lines.extend(
@@ -896,6 +1040,96 @@ def _emit_store_ip(emitter: _Emitter, target: int) -> list[str]:
     return lines
 
 
+def _emit_interrupt(emitter: _Emitter, instruction: Any) -> list[str]:
+    if instruction.mnemonic == "int3":
+        if instruction.operands:
+            raise _error(instruction, "requires operand-free INT3")
+        interrupt_number = 3
+    elif instruction.mnemonic == "int":
+        interrupt_number = _direct_target(instruction)
+        if interrupt_number > 0xFF:
+            raise _error(instruction, "requires an 8-bit interrupt number")
+    else:
+        raise _error(instruction, "requires INT or INT3")
+
+    completed = emitter.local("interrupt_completed")
+    return [
+        *_emit_store_ip(emitter, instruction.next_address),
+        "    mov a10, a2",
+        f"    movi a11, {interrupt_number}",
+        "    call8 d2e_native_interrupt",
+        "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+        f"    beqz a4, {completed}",
+        "    j .Lprogram_region_finish",
+        f"{completed}:",
+    ]
+
+
+def _emit_port_operand(
+    emitter: _Emitter,
+    instruction: Any,
+    operand: tuple[Any, Any],
+    target_register: str,
+) -> list[str]:
+    if operand[0] == "imm":
+        return _emit_load_constant(
+            emitter, target_register, int(operand[1]) & 0xFFFF, "port"
+        )
+    if operand == ("reg", "dx"):
+        return [
+            f"    l16ui {target_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS['dx']}"
+        ]
+    raise _error(instruction, "requires an immediate port or DX")
+
+
+def _emit_port_io(emitter: _Emitter, instruction: Any) -> list[str]:
+    if len(instruction.operands) != 2:
+        raise _error(instruction, "requires two IN/OUT operands")
+    first, second = instruction.operands
+    completed = emitter.local("port_completed")
+
+    if instruction.mnemonic == "in":
+        if first == ("reg", "al"):
+            width = 8
+        elif first == ("reg", "ax"):
+            width = 16
+        else:
+            raise _error(instruction, "requires AL or AX as the IN destination")
+        store = "s8i" if width == 8 else "s16i"
+        return [
+            "    mov a10, a2",
+            *_emit_port_operand(emitter, instruction, second, "a11"),
+            f"    call8 d2e_x86_port_in{width}",
+            f"    {store} a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0",
+            "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+            f"    beqz a4, {completed}",
+            "    j .Lprogram_region_finish",
+            f"{completed}:",
+        ]
+
+    if instruction.mnemonic == "out":
+        if second == ("reg", "al"):
+            width = 8
+        elif second == ("reg", "ax"):
+            width = 16
+        else:
+            raise _error(instruction, "requires AL or AX as the OUT source")
+        load = "l8ui" if width == 8 else "l16ui"
+        return [
+            "    mov a10, a2",
+            *_emit_port_operand(emitter, instruction, first, "a11"),
+            f"    {load} a12, a2, D2E_ASM_CPU_REGS_OFFSET + 0",
+            f"    call8 d2e_x86_port_out{width}",
+            "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+            f"    beqz a4, {completed}",
+            "    j .Lprogram_region_finish",
+            f"{completed}:",
+        ]
+
+    raise _error(instruction, "requires IN or OUT")
+
+
 def _emit_near_call(emitter: _Emitter, instruction: Any) -> list[str]:
     _direct_target(instruction)
     completed = emitter.local("call_push_completed")
@@ -1295,6 +1529,72 @@ def _emit_condition(emitter: _Emitter, instruction: Any, taken: str) -> list[str
     ]
 
 
+def _can_fuse_compare_branch(
+    producer: Any,
+    branch: Any,
+    flag_liveness: d2e_flags.FlagLiveness,
+) -> bool:
+    """Return whether a CMP/TEST result can feed one terminal branch directly."""
+    if producer.mnemonic not in ("cmp", "test"):
+        return False
+    zero_conditions = {"je", "jz", "jne", "jnz"}
+    compare_conditions = {
+        "jb",
+        "jc",
+        "jnae",
+        "jae",
+        "jnb",
+        "jnc",
+        *zero_conditions,
+        "jbe",
+        "jna",
+        "ja",
+        "jnbe",
+    }
+    supported = zero_conditions if producer.mnemonic == "test" else compare_conditions
+    if branch.mnemonic not in supported:
+        return False
+    if len(producer.operands) != 2 or any(
+        operand[0] == "mem" for operand in producer.operands
+    ):
+        return False
+    defined = d2e_flags.effects(producer).defines
+    return (flag_liveness.live_after[branch.address] & defined) == 0
+
+
+def _emit_compare_branch(
+    emitter: _Emitter,
+    producer: Any,
+    branch: Any,
+    taken: str,
+) -> list[str]:
+    """Branch directly on CMP/TEST operands without materializing x86 FLAGS."""
+    left, right = producer.operands
+    width = _binary_operand_width(producer, left)
+    lines = _emit_binary_values(emitter, producer, left, right, width)
+    if producer.mnemonic == "test":
+        lines.append("    and a4, a4, a5")
+        operation = "beqz" if branch.mnemonic in ("je", "jz") else "bnez"
+        lines.append(f"    {operation} a4, {taken}")
+        return lines
+
+    if branch.mnemonic in ("je", "jz"):
+        lines.append(f"    beq a4, a5, {taken}")
+    elif branch.mnemonic in ("jne", "jnz"):
+        lines.append(f"    bne a4, a5, {taken}")
+    elif branch.mnemonic in ("jb", "jc", "jnae"):
+        lines.append(f"    bltu a4, a5, {taken}")
+    elif branch.mnemonic in ("jae", "jnb", "jnc"):
+        lines.append(f"    bgeu a4, a5, {taken}")
+    elif branch.mnemonic in ("jbe", "jna"):
+        lines.append(f"    bgeu a5, a4, {taken}")
+    elif branch.mnemonic in ("ja", "jnbe"):
+        lines.append(f"    bltu a5, a4, {taken}")
+    else:
+        raise _error(branch, "does not support direct compare fusion")
+    return lines
+
+
 def _emit_indirect_jump(
     emitter: _Emitter,
     instruction: Any,
@@ -1323,6 +1623,400 @@ def _emit_indirect_jump(
         lines.append(f"{match}:")
         lines.extend(_emit_edge(emitter, target, blocks))
     return lines
+
+
+_CACHED_XTENSA_REGISTERS = ("a4", "a5", "a8", "a9")
+
+
+def _cached_register_operation(
+    instruction: Any,
+    live_flags: int,
+) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """Return register reads/writes for a cacheable helper-free operation."""
+    operands = instruction.operands
+    mnemonic = instruction.mnemonic
+    if mnemonic == "mov":
+        if (
+            len(operands) != 2
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+        ):
+            return None
+        destination = str(operands[0][1])
+        source = operands[1]
+        if source[0] == "reg" and source[1] in REG16_OFFSETS:
+            return (str(source[1]),), (destination,)
+        if source[0] == "imm" and (int(source[1]) & 0xFFFF) <= 2047:
+            return (), (destination,)
+        return None
+
+    if mnemonic in ("add", "sub", "and", "or", "xor"):
+        if (
+            live_flags != 0
+            or len(operands) != 2
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+        ):
+            return None
+        destination = str(operands[0][1])
+        source = operands[1]
+        if source[0] == "reg" and source[1] in REG16_OFFSETS:
+            return (destination, str(source[1])), (destination,)
+        if source[0] != "imm":
+            return None
+        value = int(source[1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        addi_value = signed if mnemonic == "add" else -signed
+        if value <= 2047 or (
+            mnemonic in ("add", "sub") and -128 <= addi_value <= 127
+        ):
+            return (destination,), (destination,)
+        return None
+
+    if mnemonic in ("inc", "dec", "not"):
+        if (
+            len(operands) != 1
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+            or (mnemonic in ("inc", "dec") and live_flags != 0)
+        ):
+            return None
+        destination = str(operands[0][1])
+        return (destination,), (destination,)
+    if mnemonic in ("shl", "shr"):
+        if (
+            live_flags != 0
+            or len(operands) != 2
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+            or operands[1] != ("imm", 1)
+        ):
+            return None
+        destination = str(operands[0][1])
+        return (destination,), (destination,)
+    return None
+
+
+def _cached_baseline_instruction_count(instruction: Any) -> int:
+    """Estimate existing direct-lowering instructions for a cacheable op."""
+    if instruction.mnemonic == "mov":
+        return 2
+    if (
+        instruction.mnemonic in ("add", "sub")
+        and instruction.operands[1][0] == "imm"
+    ):
+        value = int(instruction.operands[1][1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        addi_value = signed if instruction.mnemonic == "add" else -signed
+        if -128 <= addi_value <= 127:
+            return 4
+    if instruction.mnemonic in ("add", "sub", "and", "or", "xor", "not"):
+        return 5
+    if instruction.mnemonic in ("inc", "dec"):
+        return 4
+    if instruction.mnemonic in ("shl", "shr"):
+        return 4
+    raise AssertionError(f"unexpected cached operation: {instruction.mnemonic}")
+
+
+def _cached_baseline_memory_access_count(instruction: Any) -> int:
+    """Count CPU-register loads/stores in the existing direct lowering."""
+    if instruction.mnemonic == "mov":
+        return 1 if instruction.operands[1][0] == "imm" else 2
+    if instruction.mnemonic in ("add", "sub", "and", "or", "xor"):
+        return 2 if instruction.operands[1][0] == "imm" else 3
+    if instruction.mnemonic in ("inc", "dec", "not"):
+        return 2
+    if instruction.mnemonic in ("shl", "shr"):
+        return 2
+    raise AssertionError(f"unexpected cached operation: {instruction.mnemonic}")
+
+
+def _emit_cached_register_operation(
+    instruction: Any,
+    registers: Mapping[str, str],
+) -> list[str]:
+    # Supported cached operations preserve the exact low 16 bits even when an
+    # arithmetic result is not canonicalized after every instruction. The run
+    # ends with S16I stores, so emitting EXTUI here would only add work.
+    mnemonic = instruction.mnemonic
+    operands = instruction.operands
+    destination = str(operands[0][1])
+    target = registers[destination]
+    if mnemonic == "mov":
+        source = operands[1]
+        if source[0] == "reg":
+            source_register = registers[str(source[1])]
+            if source_register == target:
+                return []
+            return [f"    mov {target}, {source_register}"]
+        return [f"    movi {target}, {int(source[1]) & 0xFFFF}"]
+
+    if mnemonic in ("inc", "dec"):
+        delta = 1 if mnemonic == "inc" else -1
+        return [f"    addi {target}, {target}, {delta}"]
+    if mnemonic == "not":
+        return [
+            "    movi a10, -1",
+            f"    xor {target}, {target}, a10",
+        ]
+    if mnemonic == "shl":
+        return [f"    slli {target}, {target}, 1"]
+    if mnemonic == "shr":
+        return [f"    extui {target}, {target}, 1, 15"]
+
+    source = operands[1]
+    operation = mnemonic
+    lines: list[str] = []
+    if source[0] == "reg":
+        source_register = registers[str(source[1])]
+    else:
+        value = int(source[1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        addi_value = signed if mnemonic == "add" else -signed
+        if mnemonic in ("add", "sub") and -128 <= addi_value <= 127:
+            return [f"    addi {target}, {target}, {addi_value}"]
+        lines.append(f"    movi a10, {value}")
+        source_register = "a10"
+    lines.append(f"    {operation} {target}, {target}, {source_register}")
+    return lines
+
+
+def _emit_cached_register_pair(
+    first: Any,
+    second: Any,
+    registers: Mapping[str, str],
+) -> list[str] | None:
+    """Fuse two dependent cached 16-bit operations when possible."""
+    if (
+        first.mnemonic == "shl"
+        and len(first.operands) == 2
+        and first.operands[0][0] == "reg"
+        and first.operands[0][1] in REG16_OFFSETS
+        and first.operands[1] == ("imm", 1)
+        and second.mnemonic == "add"
+        and len(second.operands) == 2
+        and second.operands[0] == first.operands[0]
+        and second.operands[1][0] == "reg"
+        and second.operands[1][1] in REG16_OFFSETS
+    ):
+        destination_name = str(first.operands[0][1])
+        right_name = str(second.operands[1][1])
+        target = registers[destination_name]
+        if right_name == destination_name:
+            return [f"    slli {target}, {target}, 2"]
+        return [
+            f"    addx2 {target}, {target}, {registers[right_name]}"
+        ]
+
+    if first.mnemonic != "mov" or len(first.operands) != 2:
+        return None
+    destination, move_source = first.operands
+    if (
+        destination[0] != "reg"
+        or destination[1] not in REG16_OFFSETS
+        or move_source[0] != "reg"
+        or move_source[1] not in REG16_OFFSETS
+    ):
+        return None
+
+    destination_name = str(destination[1])
+    source_name = str(move_source[1])
+    target = registers[destination_name]
+    source_register = registers[source_name]
+    if not second.operands or second.operands[0] != destination:
+        return None
+
+    if second.mnemonic in ("inc", "dec") and len(second.operands) == 1:
+        delta = 1 if second.mnemonic == "inc" else -1
+        return [f"    addi {target}, {source_register}, {delta}"]
+
+    if (
+        second.mnemonic in ("shl", "shr")
+        and len(second.operands) == 2
+        and second.operands[1] == ("imm", 1)
+    ):
+        if second.mnemonic == "shl":
+            return [f"    slli {target}, {source_register}, 1"]
+        return [f"    extui {target}, {source_register}, 1, 15"]
+
+    if (
+        second.mnemonic not in ("add", "sub", "and", "or", "xor")
+        or len(second.operands) != 2
+    ):
+        return None
+    right = second.operands[1]
+    if right[0] == "reg" and right[1] in REG16_OFFSETS:
+        right_name = str(right[1])
+        if right_name == destination_name:
+            right_name = source_name
+        return [
+            f"    {second.mnemonic} {target}, {source_register}, "
+            f"{registers[right_name]}"
+        ]
+    if right[0] != "imm":
+        return None
+
+    value = int(right[1]) & 0xFFFF
+    signed = value if value < 0x8000 else value - 0x10000
+    if second.mnemonic in ("add", "sub"):
+        addi_value = signed if second.mnemonic == "add" else -signed
+        if -128 <= addi_value <= 127:
+            return [f"    addi {target}, {source_register}, {addi_value}"]
+        return None
+    if second.mnemonic == "and":
+        if value == 0:
+            return [f"    movi {target}, 0"]
+        if value & (value + 1) == 0:
+            return [
+                f"    extui {target}, {source_register}, 0, {value.bit_length()}"
+            ]
+    return None
+
+
+def _build_cached_register_run(
+    instructions: Sequence[Any],
+    live_flags: Mapping[int, int],
+) -> tuple[list[str], tuple[int, int]] | None:
+    """Build a run and return lines plus instruction/memory-access savings."""
+    touched: list[str] = []
+    live_in: list[str] = []
+    dirty: list[str] = []
+    written: set[str] = set()
+    baseline_count = 0
+    baseline_memory_accesses = 0
+    for instruction in instructions:
+        shape = _cached_register_operation(
+            instruction, live_flags[instruction.address]
+        )
+        if shape is None:
+            return None
+        reads, writes = shape
+        baseline_count += _cached_baseline_instruction_count(instruction)
+        baseline_memory_accesses += _cached_baseline_memory_access_count(
+            instruction
+        )
+        for register in (*reads, *writes):
+            if register not in touched:
+                touched.append(register)
+        for register in reads:
+            if register not in written and register not in live_in:
+                live_in.append(register)
+        for register in writes:
+            written.add(register)
+            if register not in dirty:
+                dirty.append(register)
+    if len(touched) > len(_CACHED_XTENSA_REGISTERS):
+        return None
+
+    registers = dict(zip(touched, _CACHED_XTENSA_REGISTERS, strict=False))
+    lines: list[str] = []
+    for register in live_in:
+        lines.append(
+            f"    l16ui {registers[register]}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS[register]}"
+        )
+    index = 0
+    while index < len(instructions):
+        instruction = instructions[index]
+        lines.append(
+            f"    /* {instruction.address:04x}: {instruction.mnemonic} "
+            f"{instruction.op_str} */"
+        )
+        if index + 1 < len(instructions):
+            following = instructions[index + 1]
+            fused = _emit_cached_register_pair(
+                instruction, following, registers
+            )
+            if fused is not None:
+                lines.append(
+                    f"    /* {following.address:04x}: {following.mnemonic} "
+                    f"{following.op_str}; fused with preceding "
+                    f"{instruction.mnemonic.upper()}. */"
+                )
+                lines.extend(fused)
+                index += 2
+                continue
+        lines.extend(_emit_cached_register_operation(instruction, registers))
+        index += 1
+    for register in dirty:
+        lines.append(
+            f"    s16i {registers[register]}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS[register]}"
+        )
+
+    candidate_count = sum(
+        line.startswith("    ") and not line.startswith("    /*")
+        for line in lines
+    )
+    saving = (
+        baseline_count - candidate_count,
+        baseline_memory_accesses - len(live_in) - len(dirty),
+    )
+    if saving <= (0, 0):
+        return None
+    bindings = ", ".join(
+        f"{register.upper()}={registers[register]}" for register in touched
+    )
+    lines.insert(
+        0,
+        (
+            f"    /* Register cache: {bindings}; estimated saving "
+            f"{saving[0]} instructions, {saving[1]} CPU accesses. */"
+        ),
+    )
+    return lines, saving
+
+
+def _plan_cached_register_runs(
+    instructions: Sequence[Any],
+    live_flags: Mapping[int, int],
+) -> tuple[dict[int, tuple[int, list[str]]], tuple[int, int]]:
+    """Choose non-overlapping cached runs with maximum estimated saving."""
+    candidates: dict[int, list[tuple[int, list[str], tuple[int, int]]]] = {}
+    for start in range(len(instructions)):
+        touched: set[str] = set()
+        for end in range(start + 1, len(instructions) + 1):
+            instruction = instructions[end - 1]
+            shape = _cached_register_operation(
+                instruction, live_flags[instruction.address]
+            )
+            if shape is None:
+                break
+            touched.update((*shape[0], *shape[1]))
+            if len(touched) > len(_CACHED_XTENSA_REGISTERS):
+                break
+            candidate = _build_cached_register_run(
+                instructions[start:end], live_flags
+            )
+            if candidate is not None:
+                lines, score = candidate
+                candidates.setdefault(start, []).append((end, lines, score))
+
+    best_score = [(0, 0)] * (len(instructions) + 1)
+    best_runs: list[list[tuple[int, int, list[str], tuple[int, int]]]] = [
+        [] for _ in range(len(instructions) + 1)
+    ]
+    for start in range(len(instructions) - 1, -1, -1):
+        best_score[start] = best_score[start + 1]
+        best_runs[start] = best_runs[start + 1]
+        for end, lines, score in candidates.get(start, []):
+            total = (
+                score[0] + best_score[end][0],
+                score[1] + best_score[end][1],
+            )
+            if total > best_score[start]:
+                best_score[start] = total
+                best_runs[start] = [
+                    (start, end, lines, score),
+                    *best_runs[end],
+                ]
+
+    selected = {
+        start: (end, lines)
+        for start, end, lines, _ in best_runs[0]
+    }
+    return selected, best_score[0]
 
 
 def native_block_leaders(
@@ -1363,6 +2057,12 @@ def native_block_leaders(
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires RET to end its block")
                     _emit_near_return(emitter, instruction)
+                elif mnemonic in ("int", "int3"):
+                    if index != len(sequence) - 1:
+                        raise _error(instruction, "requires INT to end its block")
+                    _emit_interrupt(emitter, instruction)
+                elif mnemonic in ("in", "out"):
+                    _emit_port_io(emitter, instruction)
                 elif mnemonic == "push":
                     _emit_stack_push(emitter, instruction)
                 elif mnemonic == "pop":
@@ -1521,8 +2221,17 @@ def emit_program(
         for leader in sorted(native_blocks)
     }
     body: list[str] = []
+    cached_run_count = 0
+    cached_instruction_saving = 0
+    cached_memory_saving = 0
     for leader in sorted(native_blocks):
         block = list(blocks[leader])
+        cached_runs, block_cached_score = _plan_cached_register_runs(
+            block, flag_liveness.live_defined
+        )
+        cached_run_count += len(cached_runs)
+        cached_instruction_saving += block_cached_score[0]
+        cached_memory_saving += block_cached_score[1]
         execute = emitter.local("execute_block")
         body.extend(
             [
@@ -1535,11 +2244,48 @@ def emit_program(
         )
         body.append("    addi a6, a6, 1")
         terminated = False
+        cached_until = 0
+        fused_compare_index: int | None = None
+        if len(block) >= 2 and _can_fuse_compare_branch(
+            block[-2], block[-1], flag_liveness
+        ):
+            fused_compare_index = len(block) - 2
         for index, instruction in enumerate(block):
+            if index < cached_until:
+                continue
+            cached = cached_runs.get(index)
+            if cached is not None:
+                cached_until, cached_lines = cached
+                body.extend(cached_lines)
+                continue
             mnemonic = instruction.mnemonic
             body.append(
                 f"    /* {instruction.address:04x}: {mnemonic} {instruction.op_str} */"
             )
+            if index == fused_compare_index:
+                branch = block[index + 1]
+                body.append(
+                    f"    /* {branch.address:04x}: {branch.mnemonic} "
+                    f"{branch.op_str}; fused with preceding {mnemonic.upper()}. */"
+                )
+                taken = emitter.local("fused_branch_taken")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(
+                    _emit_compare_branch(
+                        emitter, instruction, branch, taken
+                    )
+                )
+                body.extend(
+                    _emit_edge(emitter, branch.next_address, native_blocks)
+                )
+                body.append(f"{taken}:")
+                body.extend(
+                    _emit_edge(
+                        emitter, _direct_target(branch), native_blocks
+                    )
+                )
+                terminated = True
+                break
             if mnemonic in d2e_flags.CONDITION_READS:
                 if index != len(block) - 1:
                     raise _error(instruction, "requires a conditional branch to end its block")
@@ -1603,6 +2349,17 @@ def emit_program(
                 body.extend(_emit_retired(emitter, len(block)))
                 body.append("    j .Lprogram_region_dispatch")
                 terminated = True
+            elif mnemonic in ("int", "int3"):
+                if index != len(block) - 1:
+                    raise _error(instruction, "requires INT to end its block")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(_emit_interrupt(emitter, instruction))
+                body.extend(
+                    _emit_edge(emitter, instruction.next_address, native_blocks)
+                )
+                terminated = True
+            elif mnemonic in ("in", "out"):
+                body.extend(_emit_port_io(emitter, instruction))
             elif mnemonic == "push":
                 body.extend(_emit_stack_push(emitter, instruction))
             elif mnemonic == "pop":
@@ -1711,12 +2468,24 @@ def emit_program(
 
     lines = [
         "/* Generated by tools/d2e_translate.py --backend xtensa-asm. Do not edit. */",
+        (
+            f"/* Register-cache selection: {cached_run_count} runs, "
+            f"estimated {cached_instruction_saving} Xtensa instructions and "
+            f"{cached_memory_saving} CPU accesses saved. */"
+        ),
         '#include "d2e/native_asm_offsets.h"',
         "    .extern d2e_native_helper_mul16",
         "    .extern d2e_native_helper_push_near_return",
         "    .extern d2e_native_service_control_target",
+        "    .extern d2e_native_interrupt",
+        "    .extern d2e_x86_port_in8",
+        "    .extern d2e_x86_port_in16",
+        "    .extern d2e_x86_port_out8",
+        "    .extern d2e_x86_port_out16",
         "    .extern d2e_x86_pop16",
         "    .extern d2e_x86_push16",
+        "    .extern d2e_x86_add8",
+        "    .extern d2e_x86_add16",
         "    .extern d2e_x86_sub8",
         "    .extern d2e_x86_sub16",
         "    .extern d2e_x86_inc8",
