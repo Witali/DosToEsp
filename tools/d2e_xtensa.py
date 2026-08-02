@@ -1082,6 +1082,52 @@ def _emit_edge(
     return [*_emit_store_ip(emitter, target), "    j .Lprogram_region_dispatch"]
 
 
+def _emit_loop_control(
+    emitter: _Emitter,
+    instruction: Any,
+    blocks: Mapping[int, Sequence[Any]],
+) -> list[str]:
+    target = _direct_target(instruction)
+    mnemonic = instruction.mnemonic
+    if mnemonic not in ("loop", "loope", "loopne", "jcxz"):
+        raise _error(instruction, "uses an unsupported loop-control instruction")
+    lines = [
+        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS['cx']}",
+    ]
+    if mnemonic != "jcxz":
+        lines.extend(
+            [
+                "    addi a4, a4, -1",
+                "    extui a4, a4, 0, 16",
+                f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS['cx']}",
+            ]
+        )
+    if mnemonic in ("loop", "jcxz"):
+        taken = emitter.local("loop_taken")
+        branch = "bnez" if mnemonic == "loop" else "beqz"
+        lines.append(f"    {branch} a4, {taken}")
+        lines.extend(_emit_edge(emitter, instruction.next_address, blocks))
+        lines.append(f"{taken}:")
+        lines.extend(_emit_edge(emitter, target, blocks))
+        return lines
+
+    not_taken = emitter.local("loop_not_taken")
+    lines.extend(
+        [
+            f"    beqz a4, {not_taken}",
+            "    l16ui a5, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+            f"    movi a8, {d2e_flags.ZF}",
+            "    and a5, a5, a8",
+        ]
+    )
+    flag_branch = "beqz" if mnemonic == "loope" else "bnez"
+    lines.append(f"    {flag_branch} a5, {not_taken}")
+    lines.extend(_emit_edge(emitter, target, blocks))
+    lines.append(f"{not_taken}:")
+    lines.extend(_emit_edge(emitter, instruction.next_address, blocks))
+    return lines
+
+
 def _emit_retired(emitter: _Emitter, count: int) -> list[str]:
     if count <= 127:
         return [f"    addi a7, a7, {count}"]
@@ -1298,6 +1344,10 @@ def native_block_leaders(
                         raise _error(instruction, "requires a branch to end its block")
                     _emit_condition(emitter, instruction, emitter.local("taken"))
                     _direct_target(instruction)
+                elif mnemonic in ("loop", "loope", "loopne", "jcxz"):
+                    if index != len(sequence) - 1:
+                        raise _error(instruction, "requires loop control to end its block")
+                    _emit_loop_control(emitter, instruction, blocks)
                 elif mnemonic == "jmp":
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires JMP to end its block")
@@ -1504,6 +1554,14 @@ def emit_program(
                     _emit_edge(
                         emitter, _direct_target(instruction), native_blocks
                     )
+                )
+                terminated = True
+            elif mnemonic in ("loop", "loope", "loopne", "jcxz"):
+                if index != len(block) - 1:
+                    raise _error(instruction, "requires loop control to end its block")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(
+                    _emit_loop_control(emitter, instruction, native_blocks)
                 )
                 terminated = True
             elif mnemonic == "jmp":

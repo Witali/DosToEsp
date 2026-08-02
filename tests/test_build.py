@@ -643,6 +643,26 @@ def main() -> int:
         assert "call8 d2e_x86_sar16" not in dead_shift_assembly
         assert "srai a4, a4, 17" in dead_shift_assembly
 
+        direct_loop_fixture = bytes.fromhex("b9 02 00 e1 01 f4 f4")
+        output = pathlib.Path(temporary) / "asm-direct-loop"
+        manifest = d2e_build.build_sources(
+            direct_loop_fixture,
+            "direct-loop.com",
+            "com",
+            "direct_loop",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_loop_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0103: loope 0x106 */" in direct_loop_assembly
+        assert "addi a4, a4, -1" in direct_loop_assembly
+        assert "movi a8, 64" in direct_loop_assembly
+        assert ".Lprogram_region_loop_not_taken_" in direct_loop_assembly
+
         dead_cisc_fixture = bytes.fromhex(
             "27 83 c0 01 d1 e0 f7 e3 f4"
         )

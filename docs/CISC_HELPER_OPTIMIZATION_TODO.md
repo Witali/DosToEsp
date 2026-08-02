@@ -68,7 +68,8 @@ bounded QEMU workload.
   - [x] byte/memory `not` and direct `clc`/`cmc`/`stc`,
     `cld`/`std`, and `cli`/`sti` status control;
   - [x] byte/memory shifts and rotates, retaining direct dead-flag shifts by
-    one and using the full 8086 ALU helpers when produced flags remain live.
+    one and using the full 8086 ALU helpers when produced flags remain live;
+  - [x] direct `loop`, `loope`, `loopne`, and `jcxz` control flow.
 
 ## Evaluation log
 
@@ -100,6 +101,7 @@ bounded QEMU workload.
 | Pass the materialized module target into CISC regions | 662,512 (-2,768) | 88,381 (-2,710) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: removes duplicate `CS:IP` address reconstruction in both the bridge and selected region |
 | Direct `NOT` and status-control instructions | 657,168 (-5,344) | 81,477 (-6,904) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: 86 more native blocks, 489 fallback blocks remain, and one CISC region disappears |
 | Direct shifts and rotates | 651,856 (-5,312) | 68,757 (-12,720) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: 76 more native blocks, 413 fallback blocks remain, and dead one-bit shifts avoid slower helpers |
+| Direct `LOOP` family | 649,856 (-2,000) | 65,620 (-3,137) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: 31 more native blocks, 382 fallback blocks remain, and no helper is required |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
