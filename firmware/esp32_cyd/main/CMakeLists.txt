@@ -63,6 +63,7 @@ idf_component_register(
         "${d2e_root}/src/core/package.c"
         "${d2e_root}/src/core/supervisor.c"
         "${d2e_root}/src/core/x86_alu.c"
+        "${d2e_root}/src/core/x86_control.c"
         "${d2e_root}/src/core/x86_cpu.c"
         "${d2e_root}/src/core/x86_memory.c"
         "${d2e_root}/src/devices/cga.c"

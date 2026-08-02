@@ -30,6 +30,15 @@ a shared ESP32-native helper. This is an ahead-of-time optimisation, not a CPU
 emulation fallback: the helper is compiled by ESP-IDF into Xtensa LX6 code and
 contains no opcode fetch or decode loop.
 
+Instruction semantics are program-independent runtime code. Generated units
+contain decoded operands, translated control targets and block handoff logic,
+but they must not define private copies of complex x86 operations. Arithmetic
+and BCD semantics live in `x86_alu.c`; flags-stack, call-frame, return and IRET
+semantics live in `x86_control.c`. Both modules are linked once and are shared
+unchanged by every translated COM or MZ program. The helper ABI passes concrete
+addresses as values, so it contains no executable fingerprint or game-specific
+address table.
+
 The first pattern family recognises repeated `MOVSB/MOVSW` and `STOSB/STOSW`
 and emits `d2e_pattern_copy8/16` or `d2e_pattern_fill8/16`. These helpers retain
 the exact visible 8086 contract: `DF` direction, 16-bit `SI`/`DI` wrapping,

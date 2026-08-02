@@ -1,5 +1,6 @@
 #include "d2e/x86_cpu.h"
 #include "d2e/x86_alu.h"
+#include "d2e/x86_control.h"
 #include "d2e/native_helpers.h"
 
 #include <stdio.h>
@@ -84,6 +85,67 @@ static void test_native_near_return_push(d2e_x86_cpu *cpu) {
     CHECK(cpu->regs[D2E_X86_SP] == UINT16_C(0x00fe));
     CHECK(d2e_x86_read16_seg(cpu, UINT16_C(0x2000), UINT16_C(0x00fe)) ==
           UINT16_C(0x2005));
+}
+
+static void test_shared_control_instructions(d2e_x86_cpu *cpu) {
+    uint16_t stack_pointer;
+
+    cpu->stop_reason = D2E_X86_RUNNING;
+    cpu->segments[D2E_X86_SS] = UINT16_C(0x2000);
+    cpu->segments[D2E_X86_CS] = UINT16_C(0x1234);
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF |
+                 D2E_X86_FLAG_IF | D2E_X86_FLAG_OF;
+
+    stack_pointer = d2e_x86_push_flags(cpu, UINT16_C(0x0100));
+    CHECK(stack_pointer == UINT16_C(0x00fe));
+    CHECK(d2e_x86_read16_seg(cpu, UINT16_C(0x2000), stack_pointer) ==
+          cpu->flags);
+    d2e_x86_write16_seg(cpu, UINT16_C(0x2000), stack_pointer,
+                        UINT16_C(0xffff));
+    stack_pointer = d2e_x86_pop_flags(cpu, stack_pointer);
+    CHECK(stack_pointer == UINT16_C(0x0100));
+    CHECK(cpu->flags == UINT16_C(0x0fd7));
+
+    stack_pointer = d2e_x86_call_near(
+        cpu, UINT16_C(0x0200), UINT16_C(0x3456), UINT16_C(0x789a));
+    CHECK(stack_pointer == UINT16_C(0x01fe));
+    CHECK(cpu->ip == UINT16_C(0x789a));
+    CHECK(d2e_x86_read16_seg(cpu, UINT16_C(0x2000), stack_pointer) ==
+          UINT16_C(0x3456));
+    stack_pointer = d2e_x86_return_near(cpu, stack_pointer, UINT16_C(6));
+    CHECK(cpu->ip == UINT16_C(0x3456));
+    CHECK(stack_pointer == UINT16_C(0x0206));
+
+    cpu->segments[D2E_X86_CS] = UINT16_C(0x1111);
+    stack_pointer = d2e_x86_call_far(
+        cpu, UINT16_C(0x0300), UINT16_C(0x2222), UINT16_C(0x3333),
+        UINT16_C(0x4444));
+    CHECK(stack_pointer == UINT16_C(0x02fc));
+    CHECK(cpu->segments[D2E_X86_CS] == UINT16_C(0x3333));
+    CHECK(cpu->ip == UINT16_C(0x4444));
+    CHECK(d2e_x86_read16_seg(cpu, UINT16_C(0x2000), UINT16_C(0x02fc)) ==
+          UINT16_C(0x2222));
+    CHECK(d2e_x86_read16_seg(cpu, UINT16_C(0x2000), UINT16_C(0x02fe)) ==
+          UINT16_C(0x1111));
+    stack_pointer = d2e_x86_return_far(cpu, stack_pointer, UINT16_C(4));
+    CHECK(cpu->ip == UINT16_C(0x2222));
+    CHECK(cpu->segments[D2E_X86_CS] == UINT16_C(0x1111));
+    CHECK(stack_pointer == UINT16_C(0x0304));
+
+    stack_pointer = UINT16_C(0x0400);
+    d2e_x86_write16_seg(cpu, UINT16_C(0x2000), stack_pointer,
+                        UINT16_C(0xaaaa));
+    d2e_x86_write16_seg(cpu, UINT16_C(0x2000),
+                        (uint16_t)(stack_pointer + UINT16_C(2)),
+                        UINT16_C(0xbbbb));
+    d2e_x86_write16_seg(cpu, UINT16_C(0x2000),
+                        (uint16_t)(stack_pointer + UINT16_C(4)),
+                        UINT16_C(0xffff));
+    stack_pointer = d2e_x86_iret(cpu, stack_pointer);
+    CHECK(cpu->ip == UINT16_C(0xaaaa));
+    CHECK(cpu->segments[D2E_X86_CS] == UINT16_C(0xbbbb));
+    CHECK(cpu->flags == UINT16_C(0x0fd7));
+    CHECK(stack_pointer == UINT16_C(0x0406));
 }
 
 static void test_alu_flags(d2e_x86_cpu *cpu) {
@@ -330,6 +392,7 @@ int main(void) {
     test_fetch_wrap(&cpu);
     test_stack(&cpu);
     test_native_near_return_push(&cpu);
+    test_shared_control_instructions(&cpu);
     test_alu_flags(&cpu);
     test_shift_flags(&cpu);
     test_multiply_and_adjust(&cpu);

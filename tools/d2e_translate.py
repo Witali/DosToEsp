@@ -860,20 +860,14 @@ def translate_data_instruction(
     if mnemonic == "pushf" and not operands:
         stack_pointer = stack_pointer_expression(cached)
         return [
-            f"{stack_pointer} = (uint16_t)({stack_pointer} - UINT16_C(2));",
-            "d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], "
-            f"{stack_pointer}, (uint16_t)(cpu->flags | D2E_X86_FLAG_FIXED));",
+            f"{stack_pointer} = d2e_x86_push_flags(cpu, {stack_pointer});",
             "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
         ]
     if mnemonic == "popf" and not operands:
         stack_pointer = stack_pointer_expression(cached)
         return [
-            "stack_value = d2e_x86_read16_seg(cpu, "
-            f"cpu->segments[D2E_X86_SS], {stack_pointer});",
-            f"{stack_pointer} = (uint16_t)({stack_pointer} + UINT16_C(2));",
+            f"{stack_pointer} = d2e_x86_pop_flags(cpu, {stack_pointer});",
             "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
-            "cpu->flags = (uint16_t)((stack_value & UINT16_C(0x0fd5)) | "
-            "D2E_X86_FLAG_FIXED);",
         ]
     operation = mnemonic.removeprefix("rep ").removeprefix(
         "repne "
@@ -1286,7 +1280,7 @@ def emit_region(
         if single_step:
             lines.append("    uint32_t next_module_target = UINT32_MAX;")
     if any(
-        instruction.mnemonic in ("pop", "popf")
+        instruction.mnemonic == "pop"
         for block in blocks.values()
         for instruction in block
     ):
@@ -1584,10 +1578,9 @@ def emit_region(
                         lines.append("    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
                 lines.extend(
                     [
-                        "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",
                         (
-                            "    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], "
-                            f"r_sp, {guest_ip_expression(instruction.next_address, image_format, load_segment)});"
+                            "    r_sp = d2e_x86_push_near_return(cpu, r_sp, "
+                            f"{guest_ip_expression(instruction.next_address, image_format, load_segment)});"
                         ),
                         "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
                     ]
@@ -1640,12 +1633,11 @@ def emit_region(
                     )
                 lines.extend(
                     [
-                        "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",
-                        "    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp, cpu->segments[D2E_X86_CS]);",
-                        "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",
                         (
-                            "    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], "
-                            f"r_sp, {guest_ip_expression(instruction.next_address, image_format, load_segment)});"
+                            "    r_sp = d2e_x86_push_far_return(cpu, r_sp, "
+                            "cpu->segments[D2E_X86_CS], "
+                            f"{guest_ip_expression(instruction.next_address, image_format, load_segment)}"
+                            ");"
                         ),
                         "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
                         "    cpu->segments[D2E_X86_CS] = control_segment;",
@@ -1656,35 +1648,32 @@ def emit_region(
                 )
                 terminated = True
             elif mnemonic == "ret":
-                stack_adjustment = 2
+                stack_cleanup = 0
                 if instruction.operands:
                     if len(instruction.operands) != 1 or instruction.operands[0][0] != "imm":
                         raise TranslationError(
                             f"unsupported ret operands {instruction.address:04x}: {instruction.op_str}"
                         )
-                    stack_adjustment += int(instruction.operands[0][1])
+                    stack_cleanup = int(instruction.operands[0][1])
                 lines.extend(
                     [
-                        "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
-                        f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
+                        f"    r_sp = d2e_x86_return_near(cpu, r_sp, UINT16_C(0x{stack_cleanup & 0xffff:04x}));",
                         f"    retired += {retired_constant}({len(block)});",
                         post_block_handoff,
                     ]
                 )
                 terminated = True
             elif mnemonic == "retf":
-                stack_adjustment = 4
+                stack_cleanup = 0
                 if instruction.operands:
                     if len(instruction.operands) != 1 or instruction.operands[0][0] != "imm":
                         raise TranslationError(
                             f"unsupported retf operands {instruction.address:04x}: {instruction.op_str}"
                         )
-                    stack_adjustment += int(instruction.operands[0][1])
+                    stack_cleanup = int(instruction.operands[0][1])
                 lines.extend(
                     [
-                        "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
-                        "    cpu->segments[D2E_X86_CS] = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(2)));",
-                        f"    r_sp = (uint16_t)(r_sp + UINT16_C(0x{stack_adjustment & 0xffff:04x}));",
+                        f"    r_sp = d2e_x86_return_far(cpu, r_sp, UINT16_C(0x{stack_cleanup & 0xffff:04x}));",
                         f"    retired += {retired_constant}({len(block)});",
                         post_block_handoff,
                     ]
@@ -1693,10 +1682,7 @@ def emit_region(
             elif mnemonic == "iret":
                 lines.extend(
                     [
-                        "    cpu->ip = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp);",
-                        "    cpu->segments[D2E_X86_CS] = d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(2)));",
-                        "    cpu->flags = (uint16_t)((d2e_x86_read16_seg(cpu, cpu->segments[D2E_X86_SS], (uint16_t)(r_sp + UINT16_C(4))) & UINT16_C(0x0fd5)) | D2E_X86_FLAG_FIXED);",
-                        "    r_sp = (uint16_t)(r_sp + UINT16_C(6));",
+                        "    r_sp = d2e_x86_iret(cpu, r_sp);",
                         f"    retired += {retired_constant}({len(block)});",
                         "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
                         post_block_handoff,
@@ -1896,6 +1882,7 @@ def emit_program(
         '#include "d2e/native_patterns.h"',
         '#include "d2e/native_runtime.h"',
         '#include "d2e/x86_alu.h"',
+        '#include "d2e/x86_control.h"',
         "",
     ]
     lines.extend(emit_region(blocks, load_segment))
@@ -1947,6 +1934,7 @@ def emit_mz_program(
         '#include "d2e/native_patterns.h"',
         '#include "d2e/native_runtime.h"',
         '#include "d2e/x86_alu.h"',
+        '#include "d2e/x86_control.h"',
         "",
     ]
     lines.extend(emit_mz_regions(blocks, load_segment))
@@ -2078,6 +2066,7 @@ def emit_region_unit(
         '#include "game_native.h"',
         '#include "d2e/native_patterns.h"',
         '#include "d2e/x86_alu.h"',
+        '#include "d2e/x86_control.h"',
         "",
     ]
     lines.extend(
@@ -2314,6 +2303,7 @@ def emit_xtensa_source_files(
             '#include "d2e/native_patterns.h"',
             '#include "d2e/native_runtime.h"',
             '#include "d2e/x86_alu.h"',
+            '#include "d2e/x86_control.h"',
             "",
         ]
         region.extend(

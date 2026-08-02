@@ -1,4 +1,5 @@
 #include "d2e/native_helpers.h"
+#include "d2e/x86_control.h"
 
 #include "d2e/x86_alu.h"
 
@@ -39,10 +40,6 @@ void d2e_native_helper_push_near_return(d2e_x86_cpu *cpu,
     const uint32_t cs_module_base =
         (uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - load_segment) << 4U;
     const uint16_t return_ip = (uint16_t)(module_return - cs_module_base);
-    const uint16_t stack_pointer =
-        (uint16_t)(cpu->regs[D2E_X86_SP] - UINT16_C(2));
-
-    cpu->regs[D2E_X86_SP] = stack_pointer;
-    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], stack_pointer,
-                        return_ip);
+    cpu->regs[D2E_X86_SP] = d2e_x86_push_near_return(
+        cpu, cpu->regs[D2E_X86_SP], return_ip);
 }

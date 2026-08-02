@@ -42,6 +42,8 @@ bounded QEMU workload.
   direct assembly block.
 - [x] Remove stop-reason checks only after translator-backed proof that the
   preceding operation cannot fault.
+- [x] Keep complex x86 instruction semantics in program-independent runtime
+  modules instead of defining game-private copies in generated CISC regions.
 - [ ] Partition CISC blocks by CFG locality and estimated linked byte size,
   rather than fixed address-ordered groups of 256 blocks.
 - [x] Bound direct-address redispatch with a generated comparison tree and
@@ -104,6 +106,7 @@ bounded QEMU workload.
 | Direct `LOOP` family | 649,856 (-2,000) | 65,620 (-3,137) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: 31 more native blocks, 382 fallback blocks remain, and no helper is required |
 | Initial direct `CBW`/`CWD`/`LAHF`/`SAHF` | 650,944 (+1,088) | 66,273 (+653) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Revert: only three blocks moved, while the fixed 256-block partition boundary made the first CISC region larger |
 | Fixed 128-block CISC regions | 651,040 (+1,184) | 66,776 (+1,156) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Revert: a third prologue, epilogue and bridge route outweigh smaller individual sparse switches |
+| Shared x86 flags-stack and control helpers | 649,264 (-592) | 64,784 (-836) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: common semantics link once for every DOS program; generated code retains only operands, targets and handoff logic |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
@@ -117,13 +120,14 @@ older absolute application-image rows.
 
 ## Current checkpoint
 
-- Application image: 649,856 bytes, 44,144 bytes below the original absolute
+- Application image: 649,264 bytes, 44,736 bytes below the original absolute
   baseline despite the later common-component size increase.
 - Generated direct assembly: 228,178 linked bytes, including literals.
-- Generated CISC regions and bridge: 65,620 linked bytes, down 361,917 bytes
-  from the baseline CISC contribution and only 84 bytes above 64 KiB.
-- Total translated code: 293,798 linked bytes, down 192,700 bytes (39.6%) from
-  the original 486,498-byte direct-plus-CISC contribution.
+- Generated CISC regions and bridge: 64,784 linked bytes, down 362,753 bytes
+  from the baseline CISC contribution and 752 bytes below 64 KiB.
+- Shared `x86_control` semantics: 252 linked text bytes used by Alley Cat.
+- Total generated translated code: 292,962 linked bytes, down 193,536 bytes
+  (39.8%) from the original 486,498-byte direct-plus-CISC contribution.
 - Direct/fallback split: 2,850/382 blocks, versus 548/2,684 at baseline.
 - Bounded board QEMU: 60 rendered frames, LittleFS A: and SD FAT C: mounted,
   active 259 Hz PC-speaker tone, clean shell return and `D2E_QEMU_DONE,0`.

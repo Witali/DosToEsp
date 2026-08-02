@@ -18,6 +18,7 @@ add_library(d2e_core
     src/core/package.c
     src/core/supervisor.c
     src/core/x86_alu.c
+    src/core/x86_control.c
     src/core/x86_cpu.c
     src/core/x86_memory.c
     src/shell/shell.c
