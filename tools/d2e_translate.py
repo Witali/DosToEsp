@@ -981,21 +981,38 @@ def translate_data_instruction(
             )
         )
         return lines
-    if mnemonic == "mul" and len(operands) == 1:
+    if mnemonic in ("mul", "imul") and len(operands) == 1:
         width = operand_width(operands[0], cached)
         value = value_expression(operands[0], width, cached)
         if width == 8:
             return [
-                "r_ax = d2e_x86_mul8(cpu, (uint8_t)r_ax, "
+                f"r_ax = d2e_x86_{mnemonic}8(cpu, (uint8_t)r_ax, "
                 f"(uint8_t)({value}));"
             ]
         if width == 16:
             return [
-                f"multiply_value = d2e_x86_mul16(cpu, r_ax, {value});",
+                f"multiply_value = d2e_x86_{mnemonic}16(cpu, r_ax, {value});",
                 "r_ax = (uint16_t)multiply_value;",
                 "r_dx = (uint16_t)(multiply_value >> 16U);",
             ]
-        raise TranslationError(f"unsupported MUL width {width}")
+        raise TranslationError(f"unsupported {mnemonic.upper()} width {width}")
+    if mnemonic in ("div", "idiv") and len(operands) == 1:
+        width = operand_width(operands[0], cached)
+        value = value_expression(operands[0], width, cached)
+        if width == 8:
+            return [
+                f"r_ax = d2e_x86_{mnemonic}8(cpu, r_ax, (uint8_t)({value}));",
+                "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+            ]
+        if width == 16:
+            return [
+                f"divide_value = d2e_x86_{mnemonic}16(cpu, "
+                f"((uint32_t)r_dx << 16U) | r_ax, {value});",
+                "if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+                "r_ax = (uint16_t)divide_value;",
+                "r_dx = (uint16_t)(divide_value >> 16U);",
+            ]
+        raise TranslationError(f"unsupported {mnemonic.upper()} width {width}")
     if mnemonic == "aaa" and not operands:
         return ["r_ax = d2e_x86_aaa(cpu, r_ax);"]
     if mnemonic == "aas" and not operands:
@@ -1079,6 +1096,9 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 used.add("cx")
             if instruction.mnemonic in (
                 "mul",
+                "imul",
+                "div",
+                "idiv",
                 "aaa",
                 "aas",
                 "daa",
@@ -1087,7 +1107,7 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
                 "aad",
             ):
                 used.add("ax")
-            if instruction.mnemonic == "mul" and operand_width(
+            if instruction.mnemonic in ("mul", "imul", "div", "idiv") and operand_width(
                 instruction.operands[0], True
             ) == 16:
                 used.add("dx")
@@ -1170,12 +1190,19 @@ def emit_region(
             ["    uint16_t pointer_offset;", "    uint16_t pointer_value;"]
         )
     if any(
-        instruction.mnemonic == "mul"
+        instruction.mnemonic in ("mul", "imul")
         and operand_width(instruction.operands[0], True) == 16
         for block in blocks.values()
         for instruction in block
     ):
         lines.append("    uint32_t multiply_value;")
+    if any(
+        instruction.mnemonic in ("div", "idiv")
+        and operand_width(instruction.operands[0], True) == 16
+        for block in blocks.values()
+        for instruction in block
+    ):
+        lines.append("    uint32_t divide_value;")
     for name in registers:
         lines.append(f"    uint16_t r_{name};")
     lines.extend(emit_cached_load(registers))

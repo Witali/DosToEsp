@@ -178,6 +178,20 @@ static void test_multiply_and_adjust(d2e_x86_cpu *cpu) {
     CHECK(d2e_x86_mul16(cpu, UINT16_C(0xffff), UINT16_C(2)) ==
           UINT32_C(0x0001fffe));
 
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_ZF;
+    CHECK(d2e_x86_imul8(cpu, UINT8_C(0xfe), UINT8_C(3)) ==
+          UINT16_C(0xfffa));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) == 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_ZF) != 0U);
+    CHECK(d2e_x86_imul8(cpu, UINT8_C(0x80), UINT8_C(2)) ==
+          UINT16_C(0xff00));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+    CHECK(d2e_x86_imul16(cpu, UINT16_C(0x8000), UINT16_C(0xffff)) ==
+          UINT32_C(0x00008000));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+
     cpu->flags = D2E_X86_FLAG_FIXED;
     CHECK(d2e_x86_aaa(cpu, UINT16_C(0x090a)) == UINT16_C(0x0a00));
     CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF)) ==
@@ -208,6 +222,36 @@ static void test_multiply_and_adjust(d2e_x86_cpu *cpu) {
 
     CHECK(d2e_x86_aad(cpu, UINT16_C(0x0402)) == UINT16_C(0x002a));
     CHECK((cpu->flags & D2E_X86_FLAG_PF) == 0U);
+}
+
+static void test_divide(d2e_x86_cpu *cpu) {
+    uint16_t flags;
+
+    cpu->stop_reason = D2E_X86_RUNNING;
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_DF | D2E_X86_FLAG_ZF;
+    flags = cpu->flags;
+    CHECK(d2e_x86_div8(cpu, UINT16_C(0x1234), UINT8_C(0x34)) ==
+          UINT16_C(0x2059));
+    CHECK(cpu->stop_reason == D2E_X86_RUNNING);
+    CHECK(cpu->flags == flags);
+    CHECK(d2e_x86_div16(cpu, UINT32_C(0x00010000), UINT16_C(2)) ==
+          UINT32_C(0x00008000));
+    CHECK(d2e_x86_idiv8(cpu, UINT16_C(0xff9c), UINT8_C(7)) ==
+          UINT16_C(0xfef2));
+    CHECK(d2e_x86_idiv16(cpu, UINT32_C(0xfffe7960), UINT16_C(300)) ==
+          UINT32_C(0xff9cfeb3));
+
+    CHECK(d2e_x86_div8(cpu, UINT16_C(0x0100), UINT8_C(1)) ==
+          UINT16_C(0x0100));
+    CHECK(cpu->stop_reason == D2E_X86_DIVIDE_ERROR);
+    cpu->stop_reason = D2E_X86_RUNNING;
+    CHECK(d2e_x86_div16(cpu, UINT32_C(1), UINT16_C(0)) == UINT32_C(1));
+    CHECK(cpu->stop_reason == D2E_X86_DIVIDE_ERROR);
+    cpu->stop_reason = D2E_X86_RUNNING;
+    CHECK(d2e_x86_idiv16(cpu, UINT32_C(0x80000000), UINT16_C(0xffff)) ==
+          UINT32_C(0x80000000));
+    CHECK(cpu->stop_reason == D2E_X86_DIVIDE_ERROR);
+    cpu->stop_reason = D2E_X86_RUNNING;
 }
 
 static void test_add_with_carry(d2e_x86_cpu *cpu) {
@@ -276,6 +320,7 @@ int main(void) {
     test_alu_flags(&cpu);
     test_shift_flags(&cpu);
     test_multiply_and_adjust(&cpu);
+    test_divide(&cpu);
     test_add_with_carry(&cpu);
     test_sparse_video_mapping();
 

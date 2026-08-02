@@ -87,7 +87,7 @@ def effects(instruction: Any) -> FlagEffects:
         return FlagEffects(defines=CF | OF)
     if mnemonic in ("rcl", "rcr"):
         return FlagEffects(reads=CF, defines=CF | OF)
-    if mnemonic == "mul":
+    if mnemonic in ("mul", "imul"):
         return FlagEffects(defines=CF | OF)
     if mnemonic == "aaa":
         return FlagEffects(reads=AF, defines=AF | CF)
@@ -132,6 +132,8 @@ def effects(instruction: Any) -> FlagEffects:
         "pop",
         "in",
         "out",
+        "div",
+        "idiv",
         "xchg",
         "not",
         "cbw",

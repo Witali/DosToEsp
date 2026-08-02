@@ -462,6 +462,111 @@ uint32_t d2e_x86_mul16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right) {
     return result;
 }
 
+static int32_t signed8(uint8_t value) {
+    return value < UINT8_C(0x80) ? (int32_t)value
+                                 : (int32_t)value - INT32_C(0x100);
+}
+
+static int32_t signed16(uint16_t value) {
+    return value < UINT16_C(0x8000) ? (int32_t)value
+                                    : (int32_t)value - INT32_C(0x10000);
+}
+
+static int64_t signed32(uint32_t value) {
+    return value <= UINT32_C(0x7fffffff)
+               ? (int64_t)value
+               : (int64_t)value - INT64_C(0x100000000);
+}
+
+uint16_t d2e_x86_imul8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right) {
+    const int32_t result = signed8(left) * signed8(right);
+    replace_multiply_flags(cpu,
+                           result < INT32_C(-128) || result > INT32_C(127));
+    return (uint16_t)result;
+}
+
+uint32_t d2e_x86_imul16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right) {
+    const int32_t result = signed16(left) * signed16(right);
+    replace_multiply_flags(cpu, result < INT32_C(-32768) ||
+                                    result > INT32_C(32767));
+    return (uint32_t)result;
+}
+
+static void divide_error(d2e_x86_cpu *cpu) {
+    cpu->stop_reason = D2E_X86_DIVIDE_ERROR;
+}
+
+uint16_t d2e_x86_div8(d2e_x86_cpu *cpu, uint16_t dividend,
+                      uint8_t divisor) {
+    uint16_t quotient;
+    if (divisor == 0U) {
+        divide_error(cpu);
+        return dividend;
+    }
+    quotient = (uint16_t)(dividend / divisor);
+    if (quotient > UINT16_C(0x00ff)) {
+        divide_error(cpu);
+        return dividend;
+    }
+    return (uint16_t)((uint8_t)quotient |
+                      ((uint16_t)(uint8_t)(dividend % divisor) << 8U));
+}
+
+uint32_t d2e_x86_div16(d2e_x86_cpu *cpu, uint32_t dividend,
+                       uint16_t divisor) {
+    uint32_t quotient;
+    if (divisor == 0U) {
+        divide_error(cpu);
+        return dividend;
+    }
+    quotient = dividend / divisor;
+    if (quotient > UINT32_C(0xffff)) {
+        divide_error(cpu);
+        return dividend;
+    }
+    return (uint32_t)(uint16_t)quotient |
+           ((uint32_t)(uint16_t)(dividend % divisor) << 16U);
+}
+
+uint16_t d2e_x86_idiv8(d2e_x86_cpu *cpu, uint16_t dividend_bits,
+                       uint8_t divisor_bits) {
+    const int32_t dividend = signed16(dividend_bits);
+    const int32_t divisor = signed8(divisor_bits);
+    int32_t quotient;
+    int32_t remainder;
+    if (divisor == 0) {
+        divide_error(cpu);
+        return dividend_bits;
+    }
+    quotient = dividend / divisor;
+    remainder = dividend % divisor;
+    if (quotient < INT32_C(-128) || quotient > INT32_C(127)) {
+        divide_error(cpu);
+        return dividend_bits;
+    }
+    return (uint16_t)((uint8_t)quotient | ((uint16_t)(uint8_t)remainder << 8U));
+}
+
+uint32_t d2e_x86_idiv16(d2e_x86_cpu *cpu, uint32_t dividend_bits,
+                        uint16_t divisor_bits) {
+    const int64_t dividend = signed32(dividend_bits);
+    const int64_t divisor = signed16(divisor_bits);
+    int64_t quotient;
+    int64_t remainder;
+    if (divisor == 0) {
+        divide_error(cpu);
+        return dividend_bits;
+    }
+    quotient = dividend / divisor;
+    remainder = dividend % divisor;
+    if (quotient < INT64_C(-32768) || quotient > INT64_C(32767)) {
+        divide_error(cpu);
+        return dividend_bits;
+    }
+    return (uint32_t)(uint16_t)quotient |
+           ((uint32_t)(uint16_t)remainder << 16U);
+}
+
 uint16_t d2e_x86_aaa(d2e_x86_cpu *cpu, uint16_t ax) {
     if ((ax & UINT16_C(0x000f)) > UINT16_C(9) ||
         (cpu->flags & D2E_X86_FLAG_AF) != 0U) {
