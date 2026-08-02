@@ -144,6 +144,15 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
                 f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}",
                 f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
             ]
+        if source[0] == "reg" and source[1] in SEGMENT_INDICES:
+            segment_index = SEGMENT_INDICES[str(source[1])]
+            return [
+                (
+                    "    l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+                    f"({segment_index} * 2)"
+                ),
+                f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
+            ]
         if source[0] == "mem":
             memory = _memory_operand(instruction, source, 16)
             return [
@@ -157,6 +166,34 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
         raise _error(
             instruction,
             "currently supports only immediate/register/memory MOV sources",
+        )
+
+    if destination[0] == "reg" and destination[1] in SEGMENT_INDICES:
+        if destination[1] == "cs":
+            raise _error(instruction, "cannot write CS with MOV")
+        destination_index = SEGMENT_INDICES[str(destination[1])]
+        if source[0] == "reg" and source[1] in REG16_OFFSETS:
+            source_offset = REG16_OFFSETS[str(source[1])]
+            return [
+                f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}",
+                (
+                    "    s16i a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+                    f"({destination_index} * 2)"
+                ),
+            ]
+        if source[0] == "mem":
+            memory = _memory_operand(instruction, source, 16)
+            return [
+                *_emit_memory_arguments(emitter, instruction, memory),
+                "    call8 d2e_native_helper_read16",
+                (
+                    "    s16i a10, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+                    f"({destination_index} * 2)"
+                ),
+            ]
+        raise _error(
+            instruction,
+            "currently supports only register/memory MOV sources for segments",
         )
 
     if destination[0] == "reg" and destination[1] in REG8_OFFSETS:
@@ -211,6 +248,16 @@ def _emit_mov(emitter: _Emitter, instruction: Any) -> list[str]:
             source_offset = REG8_OFFSETS[str(source[1])]
             lines.append(
                 f"    l8ui a13, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+            )
+        elif (
+            source[0] == "reg"
+            and width == 16
+            and source[1] in SEGMENT_INDICES
+        ):
+            segment_index = SEGMENT_INDICES[str(source[1])]
+            lines.append(
+                "    l16ui a13, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+                f"({segment_index} * 2)"
             )
         else:
             raise _error(

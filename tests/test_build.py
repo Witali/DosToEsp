@@ -293,6 +293,28 @@ def main() -> int:
         )
         assert "s8i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 1" in high_byte_assembly
 
+        segment_fixture = bytes.fromhex(
+            "b8 34 12 8e d8 8c db f4"
+        )
+        segment_decoded = d2e_translate.discover(segment_fixture, 0x100, 0x100)
+        segment_blocks = d2e_translate.make_blocks(segment_decoded, 0x100)
+        segment_assembly = d2e_xtensa.emit_program(
+            segment_fixture,
+            segment_blocks,
+            "segment_registers",
+            0x1000,
+            0x100,
+        )
+        assert (
+            "s16i a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+            "(D2E_ASM_X86_DS_INDEX * 2)"
+        ) in segment_assembly
+        assert (
+            "l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+            "(D2E_ASM_X86_DS_INDEX * 2)"
+        ) in segment_assembly
+        assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in segment_assembly
+
         stack_fixture = bytes.fromhex("bd 07 01 8b 46 00 f4 34 12")
         stack_decoded = d2e_translate.discover(stack_fixture, 0x100, 0x100)
         stack_blocks = d2e_translate.make_blocks(stack_decoded, 0x100)
