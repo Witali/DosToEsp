@@ -604,6 +604,11 @@ def operand_width(operand: tuple[str, OperandValue], cached: bool) -> int:
     raise TranslationError("operand has no data width")
 
 
+def operand_read_can_stop(operand: tuple[str, OperandValue]) -> bool:
+    """Return whether evaluating an operand can set ``cpu->stop_reason``."""
+    return operand[0] == "mem"
+
+
 def value_expression(
     operand: tuple[str, OperandValue], width: int, cached: bool = False
 ) -> str:
@@ -1419,7 +1424,8 @@ def emit_region(
                     operand = instruction.operands[0]
                     target = value_expression(operand, 16, cached=True)
                     lines.append(f"    cpu->ip = (uint16_t)({target});")
-                    lines.append("    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
+                    if operand_read_can_stop(operand):
+                        lines.append("    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
                     lines.append(post_block_handoff)
                 else:
                     emit_native_target(
@@ -1564,15 +1570,11 @@ def emit_region(
                     and instruction.operands[0][0] != "imm"
                 )
                 if indirect_call:
-                    target = value_expression(
-                        instruction.operands[0], 16, cached=True
-                    )
-                    lines.extend(
-                        [
-                            f"    control_offset = (uint16_t)({target});",
-                            "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
-                        ]
-                    )
+                    operand = instruction.operands[0]
+                    target = value_expression(operand, 16, cached=True)
+                    lines.append(f"    control_offset = (uint16_t)({target});")
+                    if operand_read_can_stop(operand):
+                        lines.append("    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }")
                 lines.extend(
                     [
                         "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",

@@ -37,7 +37,7 @@ bounded QEMU workload.
   instead of repeating the CS-relative formula on every control-flow edge.
 - [x] Share cold budget-exhaustion paths instead of repeating them in every
   direct assembly block.
-- [ ] Remove stop-reason checks only after translator-backed proof that the
+- [x] Remove stop-reason checks only after translator-backed proof that the
   preceding operation cannot fault.
 - [ ] Partition CISC blocks by CFG locality and estimated linked byte size,
   rather than fixed address-ordered groups of 256 blocks.
@@ -57,6 +57,7 @@ bounded QEMU workload.
 | Pack CISC retired delta into the assembly handoff | 608,208 (-14,624) | 342,383 (-14,312) | Pass | Keep: one shared 64-bit synchronization path |
 | Share static MZ PC materialization per region | 574,368 (-33,840) | 308,545 (-33,838) | Pass | Keep: replaces more than 4,000 repeated CS-relative expressions |
 | Share direct assembly budget-exhaustion path | 562,704 (-11,664) | 308,545 (+0) | Pass | Keep: removes duplicated cold MZ formulas and edge-target literals |
+| Prove register control-target reads cannot stop | 562,704 (+0) | 308,545 (+0) | Alley output unchanged; host pass | Keep: removes checks in programs with register-indirect control flow; Alley Cat has none |
 
 Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
 semantics are not default solutions because they can trade execution speed for
