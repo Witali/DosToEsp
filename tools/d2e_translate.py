@@ -12,6 +12,16 @@ from collections import deque
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 LOCAL_PACKAGES = PROJECT_ROOT / "local_tools" / "python_packages"
+git_marker = PROJECT_ROOT / ".git"
+if not LOCAL_PACKAGES.is_dir() and git_marker.is_file():
+    git_directory = pathlib.Path(
+        git_marker.read_text(encoding="utf-8").partition(":")[2].strip()
+    )
+    worktree_packages = (
+        git_directory.parents[2] / "local_tools" / "python_packages"
+    )
+    if worktree_packages.is_dir():
+        LOCAL_PACKAGES = worktree_packages
 sys.path.insert(0, str(PROJECT_ROOT / "tools"))
 sys.path.insert(0, str(LOCAL_PACKAGES))
 
@@ -402,11 +412,15 @@ def is_terminator(instruction: Instruction) -> bool:
 
 
 def discover(
-    image: bytes, base: int, entry: int, cs_base: int | None = None
+    image: bytes,
+    base: int,
+    entry: int,
+    cs_base: int | None = None,
+    entry_targets: tuple[int, ...] = (),
 ) -> dict[int, Instruction]:
     disassembler = Cs(CS_ARCH_X86, CS_MODE_16)
     disassembler.detail = True
-    queue = deque([entry])
+    queue = deque((entry, *entry_targets))
     decoded: dict[int, Instruction] = {}
     occupied: dict[int, int] = {}
     image_end = base + len(image)
@@ -461,9 +475,11 @@ def discover(
 
 
 def make_blocks(
-    decoded: dict[int, Instruction], entry: int
+    decoded: dict[int, Instruction],
+    entry: int,
+    entry_targets: tuple[int, ...] = (),
 ) -> dict[int, list[Instruction]]:
-    leaders = {entry}
+    leaders = {entry, *entry_targets}
     incoming: set[int] = set()
     for instruction in decoded.values():
         if is_terminator(instruction):
@@ -1336,17 +1352,7 @@ def emit_region(
     if entry_target_parameter:
         lines.append("    switch (module_target) {")
     elif image_format == "com":
-        lines.extend(
-            [
-                f"    if (cpu->segments[D2E_X86_CS] != UINT16_C(0x{load_segment:04x})) {{",
-                "        cpu->fault_cs = cpu->segments[D2E_X86_CS];",
-                "        cpu->fault_ip = cpu->ip;",
-                "        cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
-                "        goto finish;",
-                "    }",
-                "    switch (cpu->ip) {",
-            ]
-        )
+        lines.append("    switch (cpu->ip) {")
     else:
         lines.extend(
             [
@@ -1373,6 +1379,11 @@ def emit_region(
     else:
         lines.extend(
             [
+                "        if (d2e_native_service_control_target(cpu)) {",
+                "            ++executed;",
+                f"            retired += {retired_constant}(1);",
+                "            goto dispatch;",
+                "        }",
                 "        cpu->fault_cs = cpu->segments[D2E_X86_CS];",
                 "        cpu->fault_ip = cpu->ip;",
                 "        cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
@@ -1853,6 +1864,11 @@ def emit_mz_regions(
             "    }",
             "    return executed;",
             "unknown_target:",
+            "    if (d2e_native_service_control_target(cpu)) {",
+            "        ++executed;",
+            "        ++cpu->instructions_retired;",
+            "        return executed;",
+            "    }",
             "    cpu->fault_cs = cpu->segments[D2E_X86_CS];",
             "    cpu->fault_ip = cpu->ip;",
             "    cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
@@ -2097,14 +2113,7 @@ def emit_region_dispatcher(
         "           cpu->stop_reason == D2E_X86_RUNNING) {",
     ]
     if image_format == "com":
-        lines.extend(
-            [
-                f"        if (cpu->segments[D2E_X86_CS] != UINT16_C(0x{load_segment:04x})) {{",
-                "            goto unknown_target;",
-                "        }",
-                "        target = cpu->ip;",
-            ]
-        )
+        lines.append("        target = cpu->ip;")
     else:
         lines.extend(
             [
@@ -2139,6 +2148,11 @@ def emit_region_dispatcher(
             "    }",
             "    return executed;",
             "unknown_target:",
+            "    if (d2e_native_service_control_target(cpu)) {",
+            "        ++executed;",
+            "        ++cpu->instructions_retired;",
+            "        return executed;",
+            "    }",
             "    cpu->fault_cs = cpu->segments[D2E_X86_CS];",
             "    cpu->fault_ip = cpu->ip;",
             "    cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
@@ -2232,11 +2246,16 @@ def emit_xtensa_source_files(
     entry_ip: int,
     initial_ss: int,
     initial_sp: int,
+    force_c_fallback: bool = False,
 ) -> dict[str, str]:
     """Emit direct Xtensa assembly plus CISC helper blocks compiled as Xtensa."""
     flag_liveness = d2e_flags.analyze(blocks)
-    native = d2e_xtensa.native_block_leaders(
-        blocks, image_format, load_segment
+    native = (
+        frozenset()
+        if force_c_fallback
+        else d2e_xtensa.native_block_leaders(
+            blocks, image_format, load_segment
+        )
     )
     fallback = frozenset(blocks) - native
     fallback_symbol = "d2e_generated_cisc_step" if fallback else None

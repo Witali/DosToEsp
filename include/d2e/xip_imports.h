@@ -54,13 +54,24 @@ extern "C" {
     X(41, D2E_XIP_IMPORT_X86_SUB16, d2e_x86_sub16)                             \
     X(42, D2E_XIP_IMPORT_X86_SUB8, d2e_x86_sub8)                               \
     X(43, D2E_XIP_IMPORT_X86_WRITE16_SEG, d2e_x86_write16_seg)                 \
-    X(44, D2E_XIP_IMPORT_X86_WRITE8, d2e_x86_write8)
+    X(44, D2E_XIP_IMPORT_X86_WRITE8, d2e_x86_write8)                           \
+    X(45, D2E_XIP_IMPORT_NATIVE_SERVICE_CONTROL_TARGET,                        \
+      d2e_native_service_control_target)                                       \
+    X(46, D2E_XIP_IMPORT_NATIVE_HELPER_MUL16, d2e_native_helper_mul16)          \
+    X(47, D2E_XIP_IMPORT_X86_ADC16, d2e_x86_adc16)                             \
+    X(48, D2E_XIP_IMPORT_X86_DIV16, d2e_x86_div16)                             \
+    X(49, D2E_XIP_IMPORT_X86_DIV8, d2e_x86_div8)                               \
+    X(50, D2E_XIP_IMPORT_X86_MUL16, d2e_x86_mul16)                             \
+    X(51, D2E_XIP_IMPORT_X86_PUSH_FAR_RETURN, d2e_x86_push_far_return)         \
+    X(52, D2E_XIP_IMPORT_X86_ROR16, d2e_x86_ror16)                             \
+    X(53, D2E_XIP_IMPORT_X86_ROR8, d2e_x86_ror8)                               \
+    X(54, D2E_XIP_IMPORT_X86_SBB16, d2e_x86_sbb16)
 
 typedef enum d2e_xip_import {
 #define D2E_XIP_ENUM_IMPORT(index, name, symbol) name = index,
     D2E_XIP_IMPORT_LIST(D2E_XIP_ENUM_IMPORT)
 #undef D2E_XIP_ENUM_IMPORT
-    D2E_XIP_IMPORT_COUNT = 45
+    D2E_XIP_IMPORT_COUNT = 55
 } d2e_xip_import;
 
 int d2e_xip_import_resolve(uint32_t index, uintptr_t *address);

@@ -61,6 +61,7 @@ d2e_x86_stop_reason d2e_native_run(d2e_x86_cpu *cpu,
                                    const d2e_native_program *program,
                                    uint32_t block_budget);
 void d2e_native_interrupt(d2e_x86_cpu *cpu, uint8_t interrupt_number);
+int d2e_native_service_control_target(d2e_x86_cpu *cpu);
 
 #ifdef __cplusplus
 }

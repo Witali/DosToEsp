@@ -769,7 +769,7 @@ def _emit_flag_control(instruction: Any) -> list[str]:
     flag = affected[mnemonic]
     lines = ["    l16ui a4, a2, D2E_ASM_CPU_FLAGS_OFFSET"]
     if mnemonic == "cmc":
-        lines.append(f"    xori a4, a4, {flag}")
+        lines.extend([f"    movi a5, {flag}", "    xor a4, a4, a5"])
     elif mnemonic.startswith("cl"):
         lines.extend([f"    movi a5, {-1 - flag}", "    and a4, a4, a5"])
     else:
@@ -1714,6 +1714,7 @@ def emit_program(
         '#include "d2e/native_asm_offsets.h"',
         "    .extern d2e_native_helper_mul16",
         "    .extern d2e_native_helper_push_near_return",
+        "    .extern d2e_native_service_control_target",
         "    .extern d2e_x86_pop16",
         "    .extern d2e_x86_push16",
         "    .extern d2e_x86_sub8",
@@ -1782,14 +1783,7 @@ def emit_program(
             f"maximum load {dispatch_hash_maximum_load}. */"
         )
     if image_format == "com":
-        dispatch.extend(
-            [
-            "    l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + (D2E_ASM_X86_CS_INDEX * 2)",
-            f"    l32r a5, {load_literal}",
-            "    bne a4, a5, .Lprogram_region_unknown",
-            "    l16ui a4, a2, D2E_ASM_CPU_IP_OFFSET",
-            ]
-        )
+        dispatch.append("    l16ui a4, a2, D2E_ASM_CPU_IP_OFFSET")
     else:
         dispatch.extend(
             [
@@ -1829,7 +1823,16 @@ def emit_program(
             ]
         )
     lines.extend(unknown)
-    lines.append("    j .Lprogram_region_untranslated")
+    lines.extend(
+        [
+            "    mov a10, a2",
+            "    call8 d2e_native_service_control_target",
+            "    beqz a10, .Lprogram_region_untranslated",
+            "    addi a6, a6, 1",
+            "    addi a7, a7, 1",
+            "    j .Lprogram_region_dispatch",
+        ]
+    )
     lines.append(".Lprogram_region_budget_finish:")
     if image_format == "mz":
         lines.extend(

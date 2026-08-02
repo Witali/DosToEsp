@@ -59,8 +59,9 @@ def build_sources(
     load_segment: int,
     output: pathlib.Path,
     backend: str = "c",
+    entry_targets: tuple[int, ...] = (),
 ) -> dict[str, Any]:
-    if backend not in ("c", "xtensa-asm"):
+    if backend not in ("c", "xtensa-asm", "xtensa-c"):
         raise ValueError(f"unknown translator backend: {backend}")
     image = d2e_analyze.identify(data, image_format, None, None)
     inventory = d2e_analyze.analyze(image, source_name)
@@ -125,8 +126,11 @@ def build_sources(
                 if image.format == "mz"
                 else None
             ),
+            entry_targets,
         )
-        blocks = d2e_translate.make_blocks(decoded, image.entry)
+        blocks = d2e_translate.make_blocks(
+            decoded, image.entry, entry_targets
+        )
         metadata = image.metadata
         if image.format == "mz":
             entry_cs = metadata["initial_cs"]
@@ -165,6 +169,7 @@ def build_sources(
                     entry_ip,
                     initial_ss,
                     initial_sp,
+                    backend == "xtensa-c",
                 )
             except d2e_xtensa.BackendError as error:
                 files = {}
@@ -193,6 +198,7 @@ def build_sources(
             "size": len(data),
         },
         "load_segment": load_segment,
+        "entry_targets": list(entry_targets),
         "backend": backend,
         "status": "complete" if not blockers else "blocked",
         "generated_sources": generated,
@@ -219,13 +225,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--load-segment", type=lambda value: int(value, 0), default=0x1000)
     parser.add_argument(
         "--backend",
-        choices=("c", "xtensa-asm"),
+        choices=("c", "xtensa-asm", "xtensa-c"),
         default="c",
     )
     parser.add_argument("--xip-module", type=pathlib.Path)
     parser.add_argument("--xtensa-toolchain-bin", type=pathlib.Path)
     parser.add_argument("--command")
     parser.add_argument("--title")
+    parser.add_argument(
+        "--entry-target",
+        action="append",
+        default=[],
+        type=lambda value: int(value, 0),
+        help="additional confirmed runtime control-flow target",
+    )
     return parser.parse_args()
 
 
@@ -245,11 +258,14 @@ def main() -> int:
             args.load_segment,
             args.output,
             args.backend,
+            tuple(args.entry_target),
         )
         module_size = None
         if args.xip_module is not None:
-            if args.backend != "xtensa-asm":
-                raise ValueError("XIP modules require --backend xtensa-asm")
+            if args.backend not in ("xtensa-asm", "xtensa-c"):
+                raise ValueError(
+                    "XIP modules require --backend xtensa-asm or xtensa-c"
+                )
             if args.xtensa_toolchain_bin is None:
                 raise ValueError("--xip-module requires --xtensa-toolchain-bin")
             if manifest["status"] != "complete":

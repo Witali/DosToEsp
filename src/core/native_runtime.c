@@ -1,5 +1,6 @@
 #include "d2e/native_runtime.h"
 #include "d2e/native_asm_offsets.h"
+#include "d2e/x86_control.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -51,8 +52,10 @@ static int load_program_image(d2e_x86_cpu *cpu,
         if (program->image_fragment_count != 0U) {
             return 0;
         }
-        memcpy(cpu->memory + image_address, program->image,
-               program->image_size);
+        for (index = 0U; index < program->image_size; ++index) {
+            d2e_x86_write8(cpu, image_address + (uint32_t)index,
+                           program->image[index]);
+        }
         return 1;
     }
     if (program->image_fragment_count != 0U &&
@@ -72,12 +75,18 @@ static int load_program_image(d2e_x86_cpu *cpu,
         previous_end = fragment->offset + fragment->size;
     }
 
-    memset(cpu->memory + image_address, 0, program->image_size);
+    for (index = 0U; index < program->image_size; ++index) {
+        d2e_x86_write8(cpu, image_address + (uint32_t)index, 0U);
+    }
     for (index = 0; index < program->image_fragment_count; ++index) {
         const d2e_native_image_fragment *const fragment =
             &program->image_fragments[index];
-        memcpy(cpu->memory + image_address + fragment->offset,
-               fragment->data, fragment->size);
+        size_t byte;
+        for (byte = 0U; byte < fragment->size; ++byte) {
+            d2e_x86_write8(cpu,
+                           image_address + fragment->offset + (uint32_t)byte,
+                           fragment->data[byte]);
+        }
     }
     return 1;
 }
@@ -121,6 +130,8 @@ int d2e_native_load_com(d2e_x86_cpu *cpu,
     }
     cpu->memory[psp] = UINT8_C(0xcd);
     cpu->memory[psp + 1U] = UINT8_C(0x20);
+    d2e_x86_write16(cpu, psp + 2U,
+                    (uint16_t)(cpu->memory_size >> 4U));
     cpu->segments[D2E_X86_CS] = program->load_segment;
     cpu->segments[D2E_X86_DS] = program->load_segment;
     cpu->segments[D2E_X86_ES] = program->load_segment;
@@ -168,6 +179,8 @@ int d2e_native_load_mz(d2e_x86_cpu *cpu,
     }
     cpu->memory[psp] = UINT8_C(0xcd);
     cpu->memory[psp + 1U] = UINT8_C(0x20);
+    d2e_x86_write16(cpu, psp + 2U,
+                    (uint16_t)(cpu->memory_size >> 4U));
 
     for (index = 0; index < program->relocation_count; ++index) {
         const d2e_mz_relocation *const relocation =
@@ -177,11 +190,9 @@ int d2e_native_load_mz(d2e_x86_cpu *cpu,
             relocation->offset;
         const uint32_t address = image + module_offset;
         uint16_t value;
-        value = (uint16_t)(cpu->memory[address] |
-                           ((uint16_t)cpu->memory[address + 1U] << 8U));
+        value = d2e_x86_read16(cpu, address);
         value = (uint16_t)(value + program->load_segment);
-        cpu->memory[address] = (uint8_t)value;
-        cpu->memory[address + 1U] = (uint8_t)(value >> 8U);
+        d2e_x86_write16(cpu, address, value);
     }
 
     cpu->segments[D2E_X86_CS] =
@@ -262,4 +273,20 @@ void d2e_native_interrupt(d2e_x86_cpu *cpu, uint8_t interrupt_number) {
     cpu->fault_address =
         ((uint32_t)interrupt_number << 8U) | d2e_x86_get_reg8(cpu, 4U);
     cpu->stop_reason = D2E_X86_UNHANDLED_INTERRUPT;
+}
+
+int d2e_native_service_control_target(d2e_x86_cpu *cpu) {
+    uint8_t character;
+    if (cpu == NULL || cpu->segments[D2E_X86_CS] != UINT16_C(0xf000) ||
+        cpu->ip != UINT16_C(0xff00)) {
+        return 0;
+    }
+    character = d2e_x86_get_reg8(cpu, 0U);
+    if (character >= (uint8_t)'a' && character <= (uint8_t)'z') {
+        d2e_x86_set_reg8(cpu, 0U,
+                         (uint8_t)(character - (uint8_t)'a' + (uint8_t)'A'));
+    }
+    cpu->regs[D2E_X86_SP] =
+        d2e_x86_return_far(cpu, cpu->regs[D2E_X86_SP], UINT16_C(0));
+    return 1;
 }

@@ -33,6 +33,7 @@ def main() -> int:
         ]
         assert manifest["generated_headers"] == ["game_native.h"]
         assert manifest["generated_data"] == ["game_image.inc"]
+        assert manifest["entry_targets"] == []
         image_source = (output / "game_image.c").read_text(encoding="utf-8")
         assert '#include "game_image.inc"' in image_source
         assert "UINT8_C(0x" not in image_source
@@ -41,9 +42,28 @@ def main() -> int:
         )
         native = (output / "game_native.c").read_text(encoding="utf-8")
         assert "program_region" in native
+        assert "d2e_native_service_control_target(cpu)" in native
         assert "D2E_NATIVE_IMAGE_COM" in native
+        assert "cpu->segments[D2E_X86_CS] != UINT16_C(0x1000)" not in native
         assert "block_0100:" not in native
         assert "block_0100:" in (output / "game_region_000.c").read_text(
+            encoding="utf-8"
+        )
+
+        extra_entry_fixture = bytes.fromhex("b8 00 4c cd 21 90 c3")
+        output = pathlib.Path(temporary) / "extra-entry"
+        manifest = d2e_build.build_sources(
+            extra_entry_fixture,
+            "extra-entry.com",
+            "com",
+            "extra_entry",
+            0x1000,
+            output,
+            "c",
+            (0x106,),
+        )
+        assert manifest["entry_targets"] == [0x106]
+        assert "block_0106:" in (output / "game_region_000.c").read_text(
             encoding="utf-8"
         )
 
@@ -179,6 +199,8 @@ def main() -> int:
         assert "l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in assembly
         assert "movi a12, 0 /* no MUL flags are live */" in assembly
         assert "add a4, a4, a5" in assembly
+        assert "bne a4, a5, .Lprogram_region_unknown" not in assembly
+        assert "call8 d2e_native_service_control_target" in assembly
         assert "does not yet materialize live ADD flags" not in assembly
         assert ".Lprogram_region_block_0100:" in assembly
         assert ".Lprogram_region_block_010b:" in assembly
@@ -342,6 +364,43 @@ def main() -> int:
         assert fallback_bridge.count("d2e_generated_cisc_region_001(") == 2
 
         direct_call_fixture = bytes.fromhex("e8 01 00 f4 c3")
+        all_c_files = d2e_translate.emit_xtensa_source_files(
+            direct_call_fixture,
+            (),
+            d2e_translate.make_blocks(
+                d2e_translate.discover(
+                    direct_call_fixture, 0x100, 0x100
+                ),
+                0x100,
+            ),
+            "all_c_router",
+            "com",
+            0x1000,
+            0x100,
+            0,
+            0x100,
+            0,
+            0xfffe,
+            True,
+        )
+        assert "game_cisc.c" in all_c_files
+        assert ".Lprogram_region_block_" not in all_c_files["game_native.S"]
+        assert "block_0100:" in all_c_files["game_cisc_region_000.c"]
+
+        output = pathlib.Path(temporary) / "xtensa-c"
+        manifest = d2e_build.build_sources(
+            direct_call_fixture,
+            "xtensa-c.com",
+            "com",
+            "xtensa_c",
+            0x1000,
+            output,
+            "xtensa-c",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["backend"] == "xtensa-c"
+        assert "game_cisc.c" in manifest["generated_sources"]
+
         output = pathlib.Path(temporary) / "asm-direct-call"
         manifest = d2e_build.build_sources(
             direct_call_fixture,
@@ -601,7 +660,8 @@ def main() -> int:
         assert "/* 0108: std  */" in direct_unary_assembly
         assert "/* 0109: cli  */" in direct_unary_assembly
         assert "/* 010a: sti  */" in direct_unary_assembly
-        assert "xori a4, a4, 1" in direct_unary_assembly
+        assert "movi a5, 1\n    xor a4, a4, a5" in direct_unary_assembly
+        assert "xori" not in direct_unary_assembly
 
         direct_shift_fixture = bytes.fromhex(
             "d0 2e 0a 01 74 01 f4 f4 00 00 81"
