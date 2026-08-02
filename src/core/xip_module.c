@@ -115,10 +115,12 @@ int d2e_xip_mz_relocation_at(const d2e_xip_module_view *view, size_t index,
 static int validate_records(const d2e_xip_module_view *view) {
     size_t index;
     uint32_t previous_image_end = 0U;
+    uint32_t previous_patch_end = 0U;
     for (index = 0U; index < view->manifest.relocation_count; ++index) {
         d2e_xip_relocation relocation;
         (void)d2e_xip_relocation_at(view, index, &relocation);
         if ((relocation.patch_offset & 3U) != 0U ||
+            relocation.patch_offset < previous_patch_end ||
             !in_mapped_segment(&view->manifest, relocation.patch_offset, 4U) ||
             relocation.target_kind > D2E_XIP_TARGET_IMPORT ||
             ((relocation.target_kind == D2E_XIP_TARGET_IROM &&
@@ -127,6 +129,7 @@ static int validate_records(const d2e_xip_module_view *view) {
               relocation.target >= view->manifest.drom_size))) {
             return 0;
         }
+        previous_patch_end = relocation.patch_offset + 4U;
     }
     for (index = 0U; index < view->manifest.fragment_count; ++index) {
         d2e_xip_fragment fragment;

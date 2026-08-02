@@ -22,6 +22,7 @@ add_library(d2e_core
     src/core/x86_cpu.c
     src/core/x86_memory.c
     src/core/xip_module.c
+    src/core/xip_imports.c
     src/shell/shell.c
 )
 target_include_directories(d2e_core PUBLIC include)

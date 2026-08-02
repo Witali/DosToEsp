@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import subprocess
 import sys
 from typing import Any
 
@@ -16,6 +17,7 @@ import d2e_analyze
 import d2e_coverage
 import d2e_translate
 import d2e_xtensa
+import d2e_pack_xip
 
 
 def write_text(path: pathlib.Path, value: str) -> None:
@@ -220,6 +222,10 @@ def parse_args() -> argparse.Namespace:
         choices=("c", "xtensa-asm"),
         default="c",
     )
+    parser.add_argument("--xip-module", type=pathlib.Path)
+    parser.add_argument("--xtensa-toolchain-bin", type=pathlib.Path)
+    parser.add_argument("--command")
+    parser.add_argument("--title")
     return parser.parse_args()
 
 
@@ -240,12 +246,35 @@ def main() -> int:
             args.output,
             args.backend,
         )
-    except (OSError, ValueError, d2e_translate.TranslationError) as error:
+        module_size = None
+        if args.xip_module is not None:
+            if args.backend != "xtensa-asm":
+                raise ValueError("XIP modules require --backend xtensa-asm")
+            if args.xtensa_toolchain_bin is None:
+                raise ValueError("--xip-module requires --xtensa-toolchain-bin")
+            if manifest["status"] != "complete":
+                raise ValueError("cannot pack an incomplete translation")
+            module_size = d2e_pack_xip.build_xip_module(
+                args.output,
+                manifest["generated_sources"],
+                args.xtensa_toolchain_bin,
+                args.xip_module,
+                args.command or (args.name or args.input.stem),
+                args.title or (args.name or args.input.stem),
+            )
+    except (
+        OSError,
+        ValueError,
+        subprocess.CalledProcessError,
+        d2e_translate.TranslationError,
+    ) as error:
         print(f"source build failed: {error}", file=sys.stderr)
         return 1
     print(
         f"EXE source build {manifest['status']}: {args.output / 'manifest.json'}"
     )
+    if module_size is not None:
+        print(f"XIP module complete: {args.xip_module} ({module_size} bytes)")
     if manifest["status"] != "complete":
         for blocker in manifest["blockers"]:
             print(f"blocker: {blocker['kind']}", file=sys.stderr)

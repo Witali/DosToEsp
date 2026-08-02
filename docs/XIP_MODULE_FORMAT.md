@@ -47,7 +47,7 @@ All integers are unsigned little-endian unless stated otherwise. The header is
 | 100 | 9 | shell command, at most eight characters |
 | 109 | 32 | internal program name |
 | 141 | 64 | display title |
-| 205 | 32 | SHA-256 digest |
+| 205 | 32 | SHA-256 module digest with this field treated as zero |
 | 237 | 19 | reserved; zero |
 
 IROM and DROM offsets are multiples of 64 KiB. Table and segment ranges must be
@@ -71,3 +71,19 @@ original executable code is not duplicated in conventional memory or DROM.
 
 MZ relocation records retain the original four-byte `offset, segment` layout.
 The resident native loader applies them after reconstructing the sparse image.
+
+## Translator output
+
+The unified translator performs source generation, Xtensa compilation, final
+relaxation, retained-relocation extraction, and container packing in one run:
+
+```powershell
+python tools/d2e_build.py CAT.EXE --name alley-cat --backend xtensa-asm `
+  --output out/generated/alley-cat --xip-module out/modules/ALLEY.D2E `
+  --xtensa-toolchain-bin C:\path\to\xtensa-esp-elf\bin `
+  --command ALLEY --title "Alley Cat"
+```
+
+The packer reads post-relaxation words for internal absolute references. This
+is required because Xtensa relaxation can merge literal pools and change final
+target offsets after input relocations were emitted.

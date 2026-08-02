@@ -49,6 +49,8 @@ if ($LASTEXITCODE -ne 0) { throw "8086 ISA audit tests failed" }
 if ($LASTEXITCODE -ne 0) { throw "Unified source build tests failed" }
 & $python (Join-Path $project "tests\test_qemu_frame.py")
 if ($LASTEXITCODE -ne 0) { throw "QEMU frame converter tests failed" }
+& $python (Join-Path $project "tests\test_xip_pack.py")
+if ($LASTEXITCODE -ne 0) { throw "XIP module packer tests failed" }
 $compiler = $null
 $vswhere = Join-Path ${env:ProgramFiles(x86)} `
     "Microsoft Visual Studio\Installer\vswhere.exe"
