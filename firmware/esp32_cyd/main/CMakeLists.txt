@@ -18,11 +18,6 @@ option(D2E_QEMU_BOARD_DEVICES
 set(D2E_QEMU_INTERACTIVE_FRAME_LIMIT "0" CACHE STRING
     "Optional interactive QEMU frame limit; zero runs continuously")
 
-set(d2e_board_device_sources)
-if(D2E_QEMU_BOARD_DEVICES)
-    list(APPEND d2e_board_device_sources "cyd_sd.c")
-endif()
-
 set(d2e_entry_source "main.c")
 if(D2E_SHELL)
     set(d2e_entry_source "d2e_shell_main.c")
@@ -45,10 +40,11 @@ endif()
 idf_component_register(
     SRCS
         ${d2e_entry_source}
+        "cyd_flash.c"
+        "cyd_sd.c"
         "cyd_display.c"
         "pc_speaker_audio.c"
         "qemu_frame_dump.c"
-        ${d2e_board_device_sources}
         ${d2e_generated_sources}
         "${d2e_root}/src/core/native_runtime.c"
         "${d2e_root}/src/core/native_patterns.c"
@@ -79,6 +75,7 @@ idf_component_register(
         freertos
         fatfs
         heap
+        littlefs
         sdmmc
         vfs
 )

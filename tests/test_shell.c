@@ -43,11 +43,20 @@ static const d2e_package *feed_text(d2e_shell *shell, const char *text) {
 static void test_commands(void) {
     d2e_shell shell;
     d2e_shell_init(&shell, packages, 1U);
+    d2e_shell_set_drive_available(&shell, 'A', 1);
+    d2e_shell_set_drive_available(&shell, 'C', 1);
     CHECK(feed_text(&shell, "run alley\r\n") == &packages[0]);
     CHECK(shell.input_length == 0U);
     CHECK(feed_text(&shell, "ALLEY\n") == &packages[0]);
     CHECK(feed_text(&shell, "HELP\r") == NULL);
-    CHECK(strcmp(shell.message, "Commands: DIR, RUN <name>, HELP") == 0);
+    CHECK(strcmp(shell.message, "DIR  A:  C:  RUN <name>  HELP") == 0);
+    CHECK(feed_text(&shell, "C:\r") == NULL);
+    CHECK(shell.current_drive == 'C');
+    CHECK(strcmp(shell.message, "Current drive is C:") == 0);
+    d2e_shell_set_drive_available(&shell, 'A', 0);
+    CHECK(feed_text(&shell, "A:\r") == NULL);
+    CHECK(shell.current_drive == 'C');
+    CHECK(strcmp(shell.message, "A: drive not ready") == 0);
     CHECK(feed_text(&shell, "DIR\r") == NULL);
     CHECK(strcmp(shell.message, "1 translated package(s)") == 0);
     CHECK(feed_text(&shell, "RUN MISSING\r") == NULL);
@@ -61,6 +70,8 @@ static void test_render(void) {
     uint8_t vram[D2E_SHELL_COLUMNS * D2E_SHELL_ROWS * 2U];
     d2e_shell shell;
     d2e_shell_init(&shell, packages, 1U);
+    d2e_shell_set_drive_available(&shell, 'A', 1);
+    d2e_shell_set_drive_available(&shell, 'C', 1);
     CHECK(feed_text(&shell, "RUN ") == NULL);
     d2e_shell_render(&shell, vram, sizeof(vram));
     CHECK(memcmp(vram, "D\x0f" "2\x0f" "E\x0f", 6U) == 0);

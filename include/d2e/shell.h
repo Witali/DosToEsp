@@ -24,12 +24,16 @@ typedef struct d2e_shell {
     char message[D2E_SHELL_COLUMNS + 1U];
     uint8_t dirty;
     uint8_t ignore_line_feed;
+    uint8_t drive_mask;
+    char current_drive;
 } d2e_shell;
 
 void d2e_shell_init(d2e_shell *shell, const d2e_package *packages,
                     size_t package_count);
 const d2e_package *d2e_shell_feed(d2e_shell *shell, uint8_t byte);
 void d2e_shell_set_message(d2e_shell *shell, const char *message);
+void d2e_shell_set_drive_available(d2e_shell *shell, char drive,
+                                   int available);
 void d2e_shell_render(d2e_shell *shell, uint8_t *text_vram,
                       size_t vram_size);
 

@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 
 #include "board_config.h"
+#include "cyd_flash.h"
 #include "cyd_display.h"
 #include "d2e/cga.h"
 #include "d2e/native_runtime.h"
@@ -23,9 +24,7 @@
 #include "d2e/shell.h"
 #include "d2e/supervisor.h"
 #include "d2e/text_video.h"
-#if D2E_QEMU_BOARD_DEVICES
 #include "cyd_sd.h"
-#endif
 #include "pc_speaker_audio.h"
 #include "qemu_frame_dump.h"
 
@@ -411,9 +410,11 @@ void app_main(void) {
                    sizeof(packages) / sizeof(packages[0]));
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES
     ESP_ERROR_CHECK(cyd_display_init(&display));
-#endif
-#if D2E_QEMU_BOARD_DEVICES
-    ESP_ERROR_CHECK(cyd_sd_mount_and_probe());
+    ESP_ERROR_CHECK(cyd_flash_mount());
+    d2e_shell_set_drive_available(&shell, 'A', 1);
+    if (cyd_sd_mount_and_probe() == ESP_OK) {
+        d2e_shell_set_drive_available(&shell, 'C', 1);
+    }
 #endif
     ESP_ERROR_CHECK(init_input());
 #if !D2E_QEMU_SMOKE || D2E_QEMU_BOARD_DEVICES

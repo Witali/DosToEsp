@@ -44,8 +44,9 @@ CYD ST7789, SDSPI, audio, reset and SDL keyboard models:
 The command builds `C:\Work\QEMU-ESP32` when its cached runtime is stale. The
 default visible run opens an SDL window at the `D2E DOS 0.1` prompt.
 Enter `DIR`, `HELP`, `RUN ALLEY`, or simply `ALLEY`; `Ctrl+]` returns from a
-running program to the prompt. The firmware renders through the same SPI2 DMA driver
-used on the board, mounts the HLV-codec FAT fixture through SPI3 and stores UART
+running program to the prompt. `A:` selects the LittleFS volume in the remaining
+internal flash and `C:` selects the SD-card FAT volume. The firmware renders
+through the same SPI2 DMA driver used on the board, mounts the HLV-codec FAT fixture through SPI3 and stores UART
 telemetry in `out/qemu/alley-cat-board-windows.log`. PIT channel 2 and port
 `61h` PC-speaker output is synthesized at 16 kHz and sent through the ESP32
 continuous DAC on GPIO26; patched QEMU routes it to DirectSound. Visible runs use a large

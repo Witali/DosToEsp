@@ -38,6 +38,20 @@ static char *trim(char *text) {
     return text;
 }
 
+static uint8_t drive_bit(char drive) {
+    const unsigned char upper =
+        (unsigned char)toupper((unsigned char)drive);
+    if (upper < (unsigned char)'A' || upper > (unsigned char)'H') {
+        return 0U;
+    }
+    return (uint8_t)(1U << (upper - (unsigned char)'A'));
+}
+
+static int drive_available(const d2e_shell *shell, char drive) {
+    const uint8_t bit = drive_bit(drive);
+    return bit != 0U && (shell->drive_mask & bit) != 0U;
+}
+
 static const d2e_package *execute_line(d2e_shell *shell) {
     char command[D2E_SHELL_INPUT_CAPACITY + 1U];
     char *argument;
@@ -59,8 +73,22 @@ static const d2e_package *execute_line(d2e_shell *shell) {
         *argument++ = '\0';
         argument = trim(argument);
     }
+    if (text[0] != '\0' && text[1] == ':' && text[2] == '\0' &&
+        argument == NULL) {
+        if (!drive_available(shell, text[0])) {
+            (void)snprintf(shell->message, sizeof(shell->message),
+                           "%c: drive not ready", text[0]);
+            shell->dirty = 1U;
+            return NULL;
+        }
+        shell->current_drive = text[0];
+        (void)snprintf(shell->message, sizeof(shell->message),
+                       "Current drive is %c:", shell->current_drive);
+        shell->dirty = 1U;
+        return NULL;
+    }
     if (strcmp(text, "HELP") == 0) {
-        d2e_shell_set_message(shell, "Commands: DIR, RUN <name>, HELP");
+        d2e_shell_set_message(shell, "DIR  A:  C:  RUN <name>  HELP");
         return NULL;
     }
     if (strcmp(text, "DIR") == 0) {
@@ -92,6 +120,7 @@ void d2e_shell_init(d2e_shell *shell, const d2e_package *packages,
     memset(shell, 0, sizeof(*shell));
     shell->packages = packages;
     shell->package_count = package_count;
+    shell->current_drive = 'A';
     d2e_shell_set_message(shell, "Type HELP for commands");
 }
 
@@ -133,6 +162,20 @@ void d2e_shell_set_message(d2e_shell *shell, const char *message) {
     shell->dirty = 1U;
 }
 
+void d2e_shell_set_drive_available(d2e_shell *shell, char drive,
+                                   int available) {
+    const uint8_t bit = drive_bit(drive);
+    if (bit == 0U) {
+        return;
+    }
+    if (available) {
+        shell->drive_mask = (uint8_t)(shell->drive_mask | bit);
+    } else {
+        shell->drive_mask = (uint8_t)(shell->drive_mask & (uint8_t)~bit);
+    }
+    shell->dirty = 1U;
+}
+
 void d2e_shell_render(d2e_shell *shell, uint8_t *vram, size_t vram_size) {
     size_t index;
     char package_line[D2E_SHELL_COLUMNS + 1U];
@@ -146,7 +189,13 @@ void d2e_shell_render(d2e_shell *shell, uint8_t *vram, size_t vram_size) {
     write_text(vram, vram_size, 0U, 0U, "D2E DOS 0.1", k_heading_attribute);
     write_text(vram, vram_size, 1U, 0U,
                "Ahead-of-time translated programs", k_default_attribute);
-    write_text(vram, vram_size, 3U, 0U, "Internal flash:",
+    write_text(vram, vram_size, 2U, 0U, "A: LittleFS",
+               drive_available(shell, 'A') ? k_package_attribute
+                                           : k_default_attribute);
+    write_text(vram, vram_size, 2U, 16U, "C: SD card",
+               drive_available(shell, 'C') ? k_package_attribute
+                                           : k_default_attribute);
+    write_text(vram, vram_size, 3U, 0U, "Resident programs:",
                k_heading_attribute);
     for (index = 0U; index < shell->package_count && index < 14U; ++index) {
         (void)snprintf(package_line, sizeof(package_line), "%-8s %s",
@@ -157,7 +206,8 @@ void d2e_shell_render(d2e_shell *shell, uint8_t *vram, size_t vram_size) {
     }
     write_text(vram, vram_size, 20U, 0U, shell->message,
                k_default_attribute);
-    (void)snprintf(prompt, sizeof(prompt), "A:\\>%s", shell->input);
+    (void)snprintf(prompt, sizeof(prompt), "%c:\\>%s",
+                   shell->current_drive, shell->input);
     write_text(vram, vram_size, 22U, 0U, prompt, k_prompt_attribute);
     shell->dirty = 0U;
 }

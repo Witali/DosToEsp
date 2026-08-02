@@ -10,8 +10,8 @@
 
 #include "board_config.h"
 
-static const char k_mount_point[] = "/sdcard";
-static const char k_probe_path[] = "/sdcard/HLV/qemu.txt";
+static const char k_mount_point[] = "/C";
+static const char k_probe_path[] = "/C/HLV/qemu.txt";
 
 esp_err_t cyd_sd_mount_and_probe(void) {
     spi_bus_config_t bus = {
@@ -30,7 +30,7 @@ esp_err_t cyd_sd_mount_and_probe(void) {
     sdspi_device_config_t device = SDSPI_DEVICE_CONFIG_DEFAULT();
     esp_vfs_fat_sdmmc_mount_config_t mount = {
         .format_if_mount_failed = false,
-        .max_files = 2,
+        .max_files = 8,
         .allocation_unit_size = 16 * 1024,
     };
     sdmmc_card_t *card = NULL;
@@ -68,5 +68,7 @@ esp_err_t cyd_sd_mount_and_probe(void) {
     esp_rom_printf("D2E_SD_READY,sectors=%u,marker=%s\n",
                    (unsigned)card->csd.capacity,
                    bytes != 0U ? marker : "<missing>");
+    esp_rom_printf("D2E_DRIVE_READY,drive=C,type=sd-fat,sectors=%u\n",
+                   (unsigned)card->csd.capacity);
     return ESP_OK;
 }

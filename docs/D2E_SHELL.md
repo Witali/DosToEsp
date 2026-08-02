@@ -38,6 +38,9 @@ hooks, memory contents or register state into the next program.
 ## Initial commands
 
 - `DIR` lists packages in the compiled catalog.
+- `A:` selects the writable LittleFS volume in the unused portion of internal
+  ESP32 flash.
+- `C:` selects the FAT-formatted SD card when one is inserted.
 - `RUN <name>` starts one package.
 - `HELP` prints the available commands.
 
@@ -46,5 +49,7 @@ program, `Ctrl+]` requests an immediate return to the shell. On the physical
 CYD board, pressing BOOT at the shell starts the first catalog entry.
 
 The first ESP32 catalog contains `ALLEY`, backed by the generated Alley Cat
-translation in internal flash. SD-card discovery and external native module
-loading are subsequent milestones.
+translation in the application partition of internal flash. The drive volumes
+are mounted in ESP-IDF VFS as `/A` and `/C`; resident packages are kept separate
+from files on either volume. External native module loading remains a subsequent
+milestone.
