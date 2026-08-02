@@ -244,12 +244,12 @@ def main() -> int:
             0x100,
         )
         assert (
-            "/* Register-cache selection: 1 runs, estimated 2 Xtensa "
+            "/* Register-cache selection: 1 runs, estimated 4 Xtensa "
             "instructions and 3 CPU accesses saved. */"
         ) in cached_assembly
         assert (
             "/* Register cache: AX=a4, BX=a5, CX=a8, DX=a9; estimated "
-            "saving 2 instructions, 3 CPU accesses. */"
+            "saving 4 instructions, 3 CPU accesses. */"
         ) in cached_assembly
         assert "l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in cached_assembly
         assert "l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in cached_assembly
@@ -259,6 +259,93 @@ def main() -> int:
         assert "mov a9, a4" in cached_assembly
         assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in cached_assembly
         assert "s16i a9, a2, D2E_ASM_CPU_REGS_OFFSET + 4" in cached_assembly
+        assert "extui a4, a4, 0, 16" not in cached_assembly
+
+        fused_fixture = bytes.fromhex(
+            "89 c2 01 da f4"
+        )  # mov dx,ax; add dx,bx; hlt
+        fused_decoded = d2e_translate.discover(fused_fixture, 0x100, 0x100)
+        fused_blocks = d2e_translate.make_blocks(fused_decoded, 0x100)
+        fused_assembly = d2e_xtensa.emit_program(
+            fused_fixture,
+            fused_blocks,
+            "fused_registers",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: add dx, bx; fused with preceding MOV. */" in (
+            fused_assembly
+        )
+        assert "add a5, a4, a8" in fused_assembly
+        assert "mov a5, a4" not in fused_assembly
+        assert "extui a5, a5, 0, 16" not in fused_assembly
+
+        fused_immediate_fixture = bytes.fromhex(
+            "89 c2 83 c2 05 f4"
+        )  # mov dx,ax; add dx,5; hlt
+        fused_immediate_decoded = d2e_translate.discover(
+            fused_immediate_fixture, 0x100, 0x100
+        )
+        fused_immediate_blocks = d2e_translate.make_blocks(
+            fused_immediate_decoded, 0x100
+        )
+        fused_immediate_assembly = d2e_xtensa.emit_program(
+            fused_immediate_fixture,
+            fused_immediate_blocks,
+            "fused_immediate_registers",
+            0x1000,
+            0x100,
+        )
+        assert "addi a5, a4, 5" in fused_immediate_assembly
+        assert "mov a5, a4" not in fused_immediate_assembly
+
+        fused_alias_fixture = bytes.fromhex(
+            "89 c2 01 d2 f4"
+        )  # mov dx,ax; add dx,dx; hlt
+        fused_alias_decoded = d2e_translate.discover(
+            fused_alias_fixture, 0x100, 0x100
+        )
+        fused_alias_blocks = d2e_translate.make_blocks(
+            fused_alias_decoded, 0x100
+        )
+        fused_alias_assembly = d2e_xtensa.emit_program(
+            fused_alias_fixture,
+            fused_alias_blocks,
+            "fused_alias_registers",
+            0x1000,
+            0x100,
+        )
+        assert "add a5, a4, a4" in fused_alias_assembly
+        assert "add a5, a4, a5" not in fused_alias_assembly
+
+        fused_operations_fixture = bytes.fromhex(
+            "89 c2 29 da "
+            "89 c2 21 da "
+            "89 c2 09 da "
+            "89 c2 31 da "
+            "89 c2 4a "
+            "89 c2 83 e2 1f "
+            "f4"
+        )
+        fused_operations_decoded = d2e_translate.discover(
+            fused_operations_fixture, 0x100, 0x100
+        )
+        fused_operations_blocks = d2e_translate.make_blocks(
+            fused_operations_decoded, 0x100
+        )
+        fused_operations_assembly = d2e_xtensa.emit_program(
+            fused_operations_fixture,
+            fused_operations_blocks,
+            "fused_operations",
+            0x1000,
+            0x100,
+        )
+        assert "sub a5, a4, a8" in fused_operations_assembly
+        assert "and a5, a4, a8" in fused_operations_assembly
+        assert "or a5, a4, a8" in fused_operations_assembly
+        assert "xor a5, a4, a8" in fused_operations_assembly
+        assert "addi a5, a4, -1" in fused_operations_assembly
+        assert "extui a5, a4, 0, 5" in fused_operations_assembly
 
         uncached_fixture = bytes.fromhex("89 d8 f4")  # mov ax,bx; hlt
         uncached_decoded = d2e_translate.discover(
@@ -397,8 +484,9 @@ def main() -> int:
         pressure_runs, pressure_score = d2e_xtensa._plan_cached_register_runs(
             pressure_block, pressure_liveness.live_defined
         )
-        assert pressure_score == (4, 4)
-        assert set(pressure_runs) == {1}
+        assert pressure_score == (8, 4)
+        assert set(pressure_runs) == {0, 1}
+        assert pressure_runs[0][0] == 1
         assert pressure_runs[1][0] == 4
 
         dispatch_probe_emitter = d2e_xtensa._Emitter("com", 0x1000)

@@ -1655,6 +1655,9 @@ def _emit_cached_register_operation(
     instruction: Any,
     registers: Mapping[str, str],
 ) -> list[str]:
+    # Supported cached operations preserve the exact low 16 bits even when an
+    # arithmetic result is not canonicalized after every instruction. The run
+    # ends with S16I stores, so emitting EXTUI here would only add work.
     mnemonic = instruction.mnemonic
     operands = instruction.operands
     destination = str(operands[0][1])
@@ -1670,10 +1673,7 @@ def _emit_cached_register_operation(
 
     if mnemonic in ("inc", "dec"):
         delta = 1 if mnemonic == "inc" else -1
-        return [
-            f"    addi {target}, {target}, {delta}",
-            f"    extui {target}, {target}, 0, 16",
-        ]
+        return [f"    addi {target}, {target}, {delta}"]
     if mnemonic == "not":
         return [
             "    movi a10, -1",
@@ -1691,16 +1691,73 @@ def _emit_cached_register_operation(
         signed = value if value < 0x8000 else value - 0x10000
         addi_value = signed if mnemonic == "add" else -signed
         if mnemonic in ("add", "sub") and -128 <= addi_value <= 127:
-            return [
-                f"    addi {target}, {target}, {addi_value}",
-                f"    extui {target}, {target}, 0, 16",
-            ]
+            return [f"    addi {target}, {target}, {addi_value}"]
         lines.append(f"    movi a10, {value}")
         source_register = "a10"
     lines.append(f"    {operation} {target}, {target}, {source_register}")
-    if mnemonic in ("add", "sub"):
-        lines.append(f"    extui {target}, {target}, 0, 16")
     return lines
+
+
+def _emit_cached_register_pair(
+    first: Any,
+    second: Any,
+    registers: Mapping[str, str],
+) -> list[str] | None:
+    """Fuse a cached 16-bit MOV and its dependent operation when possible."""
+    if first.mnemonic != "mov" or len(first.operands) != 2:
+        return None
+    destination, move_source = first.operands
+    if (
+        destination[0] != "reg"
+        or destination[1] not in REG16_OFFSETS
+        or move_source[0] != "reg"
+        or move_source[1] not in REG16_OFFSETS
+    ):
+        return None
+
+    destination_name = str(destination[1])
+    source_name = str(move_source[1])
+    target = registers[destination_name]
+    source_register = registers[source_name]
+    if not second.operands or second.operands[0] != destination:
+        return None
+
+    if second.mnemonic in ("inc", "dec") and len(second.operands) == 1:
+        delta = 1 if second.mnemonic == "inc" else -1
+        return [f"    addi {target}, {source_register}, {delta}"]
+
+    if (
+        second.mnemonic not in ("add", "sub", "and", "or", "xor")
+        or len(second.operands) != 2
+    ):
+        return None
+    right = second.operands[1]
+    if right[0] == "reg" and right[1] in REG16_OFFSETS:
+        right_name = str(right[1])
+        if right_name == destination_name:
+            right_name = source_name
+        return [
+            f"    {second.mnemonic} {target}, {source_register}, "
+            f"{registers[right_name]}"
+        ]
+    if right[0] != "imm":
+        return None
+
+    value = int(right[1]) & 0xFFFF
+    signed = value if value < 0x8000 else value - 0x10000
+    if second.mnemonic in ("add", "sub"):
+        addi_value = signed if second.mnemonic == "add" else -signed
+        if -128 <= addi_value <= 127:
+            return [f"    addi {target}, {source_register}, {addi_value}"]
+        return None
+    if second.mnemonic == "and":
+        if value == 0:
+            return [f"    movi {target}, 0"]
+        if value & (value + 1) == 0:
+            return [
+                f"    extui {target}, {source_register}, 0, {value.bit_length()}"
+            ]
+    return None
 
 
 def _build_cached_register_run(
@@ -1745,12 +1802,28 @@ def _build_cached_register_run(
             f"    l16ui {registers[register]}, a2, "
             f"D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS[register]}"
         )
-    for instruction in instructions:
+    index = 0
+    while index < len(instructions):
+        instruction = instructions[index]
         lines.append(
             f"    /* {instruction.address:04x}: {instruction.mnemonic} "
             f"{instruction.op_str} */"
         )
+        if index + 1 < len(instructions):
+            following = instructions[index + 1]
+            fused = _emit_cached_register_pair(
+                instruction, following, registers
+            )
+            if fused is not None:
+                lines.append(
+                    f"    /* {following.address:04x}: {following.mnemonic} "
+                    f"{following.op_str}; fused with preceding MOV. */"
+                )
+                lines.extend(fused)
+                index += 2
+                continue
         lines.extend(_emit_cached_register_operation(instruction, registers))
+        index += 1
     for register in dirty:
         lines.append(
             f"    s16i {registers[register]}, a2, "

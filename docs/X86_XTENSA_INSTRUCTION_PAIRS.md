@@ -101,6 +101,30 @@ The semantic direct pair is `ADDI CX,-1; BNEZ`. Xtensa zero-overhead `LOOP`
 becomes appropriate only after trace formation proves one native loop body,
 entry semantics, trip count and supervisor-budget checks.
 
+## Preferred adjacent-instruction fusion
+
+Xtensa's three-register operations can eliminate an x86 copy whose destination
+is immediately consumed. These fusions require both instructions to be in one
+basic block, the ALU flags to be dead or fused with their consumer, and partial
+register aliases to be resolved explicitly.
+
+| Adjacent 8086 operations | Preferred Xtensa lowering |
+|---|---|
+| `MOV d,s; ADD d,t` | `ADD d,s,t` |
+| `MOV d,s; SUB d,t` | `SUB d,s,t` |
+| `MOV d,s; AND/OR/XOR d,t` | `AND/OR/XOR d,s,t` |
+| `MOV d,s; ADD/SUB d,imm8` | `ADDI d,s,+/-imm8` |
+| `MOV d,s; INC/DEC d` | `ADDI d,s,+1/-1` |
+| `MOV d,s; AND d,(2^n-1)` | `EXTUI d,s,0,n` |
+| `MOV d,s; SHL/SHR d,n` | `SLLI/SRLI d,s,n` |
+| `SHL d,1/2/3; ADD d,t` | `ADDX2/4/8 d,d,t` |
+
+There is no general Xtensa integer instruction for `d = s + t + immediate`.
+`ADDX2/4/8` supplies only an implicit scale factor, not a third additive input.
+Inside a helper-free dead-flags run, operations may retain noncanonical upper
+bits: the low 16 bits remain exact modulo 2^16 through the supported arithmetic
+and logical operations, and the final `S16I` performs the required truncation.
+
 ## Preferred compare and branch fusion
 
 This is the highest-value pairing because Xtensa compare-and-branch
@@ -137,7 +161,8 @@ the result and avoid a FLAGS load/store entirely.
 
 ## Implementation order
 
-1. Use `ADDI` for eligible `SUB immediate` forms.
+1. Expand adjacent copy/ALU fusion from cached 16-bit runs to proven 8-bit and
+   trace-level operations.
 2. Add `CMP`/`TEST` plus `Jcc` fusion before expanding flag materialization.
 3. Add direct `CBW`, `CWD` and `NEG` sequences.
 4. Replace word and byte multiply helpers with `MUL16U`/`MUL16S` sequences.

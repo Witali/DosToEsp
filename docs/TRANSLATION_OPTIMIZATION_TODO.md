@@ -114,6 +114,12 @@ bounded workload.
   `NOT`. Use `a10` only as a temporary inside a run that cannot call a helper.
 - [x] Load only values read before their first write and spill only dirty x86
   registers at the selected run boundary.
+- [x] Fuse a cached 16-bit `MOV` with a dependent dead-flags `ADD`, `SUB`,
+  logical operation, `INC` or `DEC` by using Xtensa's three-address form.
+  Recognize low contiguous `AND` masks as `EXTUI`, substitute the copied source
+  when the second operand aliases the x86 destination, and defer modulo-16-bit
+  truncation to the final `S16I`. Alley Cat selected 183 runs and 20 fused
+  pairs, saving an estimated 290 instructions and 116 CPU-state accesses.
 - [ ] Introduce a backend-neutral micro-operation IR for one basic block before
   extending it across control-flow edges.
 - [ ] Add constant propagation, redundant load/store removal, dead guest-register
@@ -205,3 +211,4 @@ bounded workload.
 | Direct `INT imm8` and `INT3` | 281,974 | 31,420 | 424,636 | 132 | 46,381-60,946 cycles/1K instructions | Keep: IROM -11,840 and fallback -113; repeated identical-build QEMU values exposed virtual-counter variability, physical profile pending |
 | Direct all-form `IN`/`OUT` | 277,322 | 31,420 | 424,636 | 89 | 58,238 cycles/1K instructions | Keep: IROM -4,652 and fallback -43; median of three direct QEMU runs is below the surrounding 58,565-cycle control median; physical profile pending |
 | `SUB immediate` via `ADDI` | 277,302 | 31,420 | 424,636 | 89 | 55,974 cycles/1K instructions | Keep: IROM -20; 60-frame QEMU run passed with 12,881,855 retired guest instructions and 259 Hz audio; virtual-counter variance requires physical confirmation |
+| Cached three-address `MOV` fusion | 276,794 | 31,420 | 424,636 | 89 | 58,758 cycles/1K instructions | Keep: IROM -508; median of three identical-build QEMU runs (60,052, 57,811, 58,758) is within the build's 3.9% virtual-counter spread; all 60-frame runs returned cleanly with 259 Hz audio; physical confirmation pending |
