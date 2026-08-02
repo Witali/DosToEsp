@@ -1,5 +1,12 @@
 # Project workflow
 
+## Product language
+
+- The application is English-only. Keep all user-facing UI, commands, prompts,
+  status messages, errors, help text and product documentation in English.
+- Developer conversations and external notes may use another language, but
+  text shipped as part of the application must remain English.
+
 ## Git commits
 
 - Commit every logically complete, meaningful change as a separate focused
