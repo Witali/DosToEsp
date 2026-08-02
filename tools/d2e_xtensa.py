@@ -531,6 +531,65 @@ def _emit_retired(emitter: _Emitter, count: int) -> list[str]:
     return [f"    l32r a4, {count_literal}", "    add a7, a7, a4"]
 
 
+def _emit_dispatch_tree(
+    emitter: _Emitter,
+    leaders: Sequence[int],
+    leader_literals: Mapping[int, str],
+) -> list[str]:
+    """Emit bounded address comparisons without a retained guest jump table."""
+    if not leaders:
+        return ["    j .Lprogram_region_unknown"]
+    if len(leaders) <= 16:
+        lines: list[str] = []
+        for leader in leaders:
+            lines.extend(
+                [
+                    f"    l32r a5, {leader_literals[leader]}",
+                    f"    beq a4, a5, {_block_label(leader)}",
+                ]
+            )
+        lines.append("    j .Lprogram_region_unknown")
+        return lines
+
+    middle = len(leaders) // 2
+    leader = leaders[middle]
+    left = leaders[:middle]
+    right = leaders[middle + 1 :]
+    lines = [
+        f"    l32r a5, {leader_literals[leader]}",
+        f"    beq a4, a5, {_block_label(leader)}",
+    ]
+    if left and right:
+        dispatch_left = emitter.local("dispatch_left")
+        lines.append(f"    bltu a4, a5, {dispatch_left}")
+        lines.extend(_emit_dispatch_tree(emitter, right, leader_literals))
+        lines.append(f"{dispatch_left}:")
+        lines.extend(_emit_dispatch_tree(emitter, left, leader_literals))
+    elif left:
+        dispatch_left = emitter.local("dispatch_left")
+        lines.extend(
+            [
+                f"    bltu a4, a5, {dispatch_left}",
+                "    j .Lprogram_region_unknown",
+                f"{dispatch_left}:",
+            ]
+        )
+        lines.extend(_emit_dispatch_tree(emitter, left, leader_literals))
+    elif right:
+        dispatch_right = emitter.local("dispatch_right")
+        lines.extend(
+            [
+                f"    bgeu a4, a5, {dispatch_right}",
+                "    j .Lprogram_region_unknown",
+                f"{dispatch_right}:",
+            ]
+        )
+        lines.extend(_emit_dispatch_tree(emitter, right, leader_literals))
+    else:
+        lines.append("    j .Lprogram_region_unknown")
+    return lines
+
+
 def _emit_condition(emitter: _Emitter, instruction: Any, taken: str) -> list[str]:
     supported = {
         "jb",
@@ -960,14 +1019,11 @@ def emit_program(
             ]
         )
     lines.extend(dispatch)
-    for leader in sorted(native_blocks):
-        lines.extend(
-            [
-                f"    l32r a5, {leader_literals[leader]}",
-                f"    beq a4, a5, {_block_label(leader)}",
-            ]
+    lines.extend(
+        _emit_dispatch_tree(
+            emitter, tuple(sorted(native_blocks)), leader_literals
         )
-    lines.append("    j .Lprogram_region_unknown")
+    )
     lines.extend(body)
     unknown: list[str] = [".Lprogram_region_unknown:"]
     if fallback_symbol is not None:

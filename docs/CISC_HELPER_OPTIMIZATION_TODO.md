@@ -41,6 +41,8 @@ bounded QEMU workload.
   preceding operation cannot fault.
 - [ ] Partition CISC blocks by CFG locality and estimated linked byte size,
   rather than fixed address-ordered groups of 256 blocks.
+- [x] Bound direct-address redispatch with a generated comparison tree and
+  short linear leaves, without retaining the guest address table.
 - [ ] Expand high-impact direct Xtensa lowerings after dispatch is scalable:
   - [x] direct near `call` with a specialized return-stack helper;
   - [ ] near `ret` and stack operations;
@@ -61,6 +63,9 @@ bounded QEMU workload.
 | Share direct assembly budget-exhaustion path | 562,704 (-11,664) | 308,545 (+0) | Pass | Keep: removes duplicated cold MZ formulas and edge-target literals |
 | Prove register control-target reads cannot stop | 562,704 (+0) | 308,545 (+0) | Alley output unchanged; host pass | Keep: removes checks in programs with register-indirect control flow; Alley Cat has none |
 | Direct near `call` with specialized stack helper | 540,832 (-21,872) | 226,493 (-82,052) | Pass | Keep: same helper-call count, less caller code, exact `SP`-then-write order |
+| Full balanced comparison tree before stack-helper specialization | 567,648 (+5,312 from matching linear build) | 226,493 (+0) | Pass | Supersede: fast lookup but excessive code growth |
+| Hybrid tree with 16-address leaves | 541,808 (+976 from linear) | 226,493 (+0) | Pass | Keep: bounds lookup to about 23 comparisons and restores normal melody tempo |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
-they can trade execution speed for size.
+they can trade execution speed for size. The full comparison tree was measured
+and replaced by the smaller bounded hybrid above.

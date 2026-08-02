@@ -189,6 +189,22 @@ def main() -> int:
         assert assembly.count("j .Lprogram_region_budget_finish") == len(blocks)
         assert assembly.count(".Lprogram_region_untranslated:") == 1
 
+        dispatch_probe_emitter = d2e_xtensa._Emitter("com", 0x1000)
+        dispatch_probe_leaders = tuple(range(0x100, 0x111))
+        dispatch_probe_literals = {
+            leader: dispatch_probe_emitter.literal(leader, "leader")
+            for leader in dispatch_probe_leaders
+        }
+        dispatch_probe = "\n".join(
+            d2e_xtensa._emit_dispatch_tree(
+                dispatch_probe_emitter,
+                dispatch_probe_leaders,
+                dispatch_probe_literals,
+            )
+        )
+        assert ".Lprogram_region_dispatch_left_" in dispatch_probe
+        assert "bltu a4, a5, .Lprogram_region_dispatch_left_" in dispatch_probe
+
         add_start = assembly.index("/* 0103: add ax, 1 */")
         cmp_start = assembly.index("/* 0106: cmp ax, 0x1235 */")
         assert "D2E_ASM_CPU_FLAGS_OFFSET" not in assembly[add_start:cmp_start]
