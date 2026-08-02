@@ -17,8 +17,9 @@ bounded QEMU workload.
 
 ## Work items
 
-- [ ] Route a translated target directly to its CISC region and local block;
-  remove sequential probing of up to eleven region functions.
+- [x] Route a translated target directly to its CISC region; remove sequential
+  probing of up to eleven region functions. Dense local block routing remains
+  a separate item below.
 - [ ] Replace sparse module-address switches with compact dense block IDs.
 - [ ] Let a CISC region execute connected blocks until it reaches an assembly
   handoff, a runtime boundary, or the shared block budget.
@@ -43,6 +44,7 @@ bounded QEMU workload.
 | Change | App bytes | CISC bytes | QEMU result | Decision |
 |---|---:|---:|---|---|
 | Baseline | 694,000 | 427,537 | Pass | Keep |
+| Direct region range routing | 694,016 (+16) | 427,537 (+0) | Pass | Keep: size-neutral, removes failed region calls |
 
 Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
 semantics are not default solutions because they can trade execution speed for

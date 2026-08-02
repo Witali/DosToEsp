@@ -2146,16 +2146,34 @@ def emit_xtensa_source_files(
         [
             "",
             "uint32_t d2e_generated_cisc_step(d2e_x86_cpu *cpu, uint32_t retired) {",
-            "    uint32_t step;",
             "    cpu->instructions_retired += retired;",
         ]
     )
-    for symbol in region_symbols:
+    if image_format == "com":
         bridge.extend(
             [
-                f"    step = {symbol}(cpu, UINT32_C(1));",
-                "    if (step != 0U || cpu->stop_reason != D2E_X86_RUNNING) {",
-                "        return step;",
+                f"    if (cpu->segments[D2E_X86_CS] != UINT16_C(0x{load_segment:04x})) {{",
+                "        return 0;",
+                "    }",
+                "    const uint32_t module_target = cpu->ip;",
+            ]
+        )
+    else:
+        bridge.extend(
+            [
+                f"    if (cpu->segments[D2E_X86_CS] < UINT16_C(0x{load_segment:04x})) {{",
+                "        return 0;",
+                "    }",
+                "    const uint32_t module_target =",
+                f"        ((uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - UINT16_C(0x{load_segment:04x})) << 4U) + cpu->ip;",
+            ]
+        )
+    for symbol, partition in zip(region_symbols, partitions, strict=True):
+        final_leader = max(partition)
+        bridge.extend(
+            [
+                f"    if (module_target <= UINT32_C(0x{final_leader:05x})) {{",
+                f"        return {symbol}(cpu, UINT32_C(1));",
                 "    }",
             ]
         )

@@ -252,6 +252,35 @@ def main() -> int:
         assert "r_sp, r_ax);" in mixed_region
         assert "block_0103:" not in mixed_region
         assert "UINT32_C(1)" in mixed_cisc
+        assert "uint32_t step;" not in mixed_cisc
+        assert "const uint32_t module_target = cpu->ip;" in mixed_cisc
+
+        fallback_image = bytes([0x50] * 257)
+        fallback_decoded = d2e_translate.discover(
+            fallback_image, 0x100, 0x100
+        )
+        fallback_blocks = {
+            instruction.address: [instruction]
+            for instruction in fallback_decoded.values()
+        }
+        fallback_files = d2e_translate.emit_xtensa_source_files(
+            fallback_image,
+            (),
+            fallback_blocks,
+            "fallback_router",
+            "com",
+            0x1000,
+            0x100,
+            0,
+            0x100,
+            0,
+            0xfffe,
+        )
+        fallback_bridge = fallback_files["game_cisc.c"]
+        assert "module_target <= UINT32_C(0x001ff)" in fallback_bridge
+        assert "module_target <= UINT32_C(0x00200)" in fallback_bridge
+        assert fallback_bridge.count("d2e_generated_cisc_region_000(") == 2
+        assert fallback_bridge.count("d2e_generated_cisc_region_001(") == 2
 
         asm_mz_module = bytes.fromhex("b8 10 00 f4")
         asm_mz = bytearray(32 + len(asm_mz_module))
