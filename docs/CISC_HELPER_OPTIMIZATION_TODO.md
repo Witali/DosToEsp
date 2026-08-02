@@ -49,7 +49,8 @@ bounded QEMU workload.
   discarded.
 - [ ] Expand high-impact direct Xtensa lowerings after dispatch is scalable:
   - [x] direct near `call` with a specialized return-stack helper;
-  - [ ] near `ret` and stack operations;
+  - [x] near `ret` through the existing wrap-safe stack pop helper;
+  - [ ] stack operations;
   - [ ] memory and byte forms of `cmp`/`sub`;
   - [ ] common logical and increment/decrement instructions.
 
@@ -70,9 +71,15 @@ bounded QEMU workload.
 | Full balanced comparison tree before stack-helper specialization | 567,648 (+5,312 from matching linear build) | 226,493 (+0) | Pass | Supersede: fast lookup but excessive code growth |
 | Hybrid tree with 16-address leaves | 541,808 (+976 from linear) | 226,493 (+0) | Pass | Keep: bounds lookup to about 23 comparisons and restores normal melody tempo |
 | Checked hash dispatch (128 buckets, shift 9, maximum load 17) | 541,792 (-16 from hybrid) | 226,493 (+0) | Pass; 41.8 s versus hybrid 41.7 s | Keep: fewer expected dispatch comparisons, normal melody tempo, no measurable QEMU regression |
+| Fresh no-direct-`RET` control after CMake reconfigure | 691,024 | 226,493 | Build control | Compare only with the following row |
+| Direct near `RET` and `RET imm16` | 682,400 (-8,624 from fresh control) | 204,691 (-21,802) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 320 more native blocks, no new C wrapper, and a net size reduction |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
 and replaced first by the bounded hybrid, then by the slightly smaller checked
 hash dispatch. The coarse whole-run QEMU timing does not establish a measurable
 speedup; a target-cycle benchmark remains necessary to quantify it on ESP32.
+The full CMake reconfigure changed the common linked firmware size while the
+226,493-byte generated CISC control stayed unchanged. Consequently, the direct
+`RET` decision uses its immediately preceding fresh control rather than the
+older absolute application-image rows.

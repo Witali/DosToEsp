@@ -350,6 +350,28 @@ def main() -> int:
         assert "/* 0100: call 0x104 */" in direct_call_assembly
         assert "call8 d2e_native_helper_push_near_return" in direct_call_assembly
         assert "0x00000103" in direct_call_assembly
+        assert "/* 0104: ret  */" in direct_call_assembly
+        assert "call8 d2e_x86_pop16" in direct_call_assembly
+
+        direct_return_fixture = bytes.fromhex("c2 80 00")
+        output = pathlib.Path(temporary) / "asm-direct-return"
+        manifest = d2e_build.build_sources(
+            direct_return_fixture,
+            "direct-return.com",
+            "com",
+            "direct_return",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_return_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: ret 0x80 */" in direct_return_assembly
+        assert "call8 d2e_x86_pop16" in direct_return_assembly
+        assert "0x00000080" in direct_return_assembly
+        assert "extui a4, a4, 0, 16" in direct_return_assembly
 
         dead_cisc_fixture = bytes.fromhex(
             "50 83 c0 01 d1 e0 f7 e3 f4"

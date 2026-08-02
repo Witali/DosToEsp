@@ -514,6 +514,42 @@ def _emit_near_call(emitter: _Emitter, instruction: Any) -> list[str]:
     ]
 
 
+def _emit_near_return(emitter: _Emitter, instruction: Any) -> list[str]:
+    if not instruction.operands:
+        cleanup = 0
+    elif len(instruction.operands) == 1 and instruction.operands[0][0] == "imm":
+        cleanup = int(instruction.operands[0][1]) & 0xFFFF
+    else:
+        raise _error(instruction, "requires no operand or an immediate cleanup")
+
+    lines = [
+        "    mov a10, a2",
+        "    call8 d2e_x86_pop16",
+        "    s16i a10, a2, D2E_ASM_CPU_IP_OFFSET",
+    ]
+    if cleanup:
+        lines.append(
+            f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS['sp']}"
+        )
+        if cleanup <= 127:
+            lines.append(f"    addi a4, a4, {cleanup}")
+        else:
+            cleanup_literal = emitter.literal(cleanup, "return_cleanup")
+            lines.extend(
+                [f"    l32r a5, {cleanup_literal}", "    add a4, a4, a5"]
+            )
+        lines.extend(
+            [
+                "    extui a4, a4, 0, 16",
+                (
+                    "    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + "
+                    f"{REG16_OFFSETS['sp']}"
+                ),
+            ]
+        )
+    return lines
+
+
 def _emit_edge(
     emitter: _Emitter,
     target: int,
@@ -751,6 +787,10 @@ def native_block_leaders(
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires CALL to end its block")
                     _emit_near_call(emitter, instruction)
+                elif mnemonic == "ret":
+                    if index != len(sequence) - 1:
+                        raise _error(instruction, "requires RET to end its block")
+                    _emit_near_return(emitter, instruction)
                 elif mnemonic == "hlt":
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires HLT to end its block")
@@ -960,6 +1000,13 @@ def emit_program(
                     )
                 )
                 terminated = True
+            elif mnemonic == "ret":
+                if index != len(block) - 1:
+                    raise _error(instruction, "requires RET to end its block")
+                body.extend(_emit_near_return(emitter, instruction))
+                body.extend(_emit_retired(emitter, len(block)))
+                body.append("    j .Lprogram_region_dispatch")
+                terminated = True
             elif mnemonic == "hlt":
                 if index != len(block) - 1:
                     raise _error(instruction, "requires HLT to end its block")
@@ -1042,6 +1089,7 @@ def emit_program(
         '#include "d2e/native_asm_offsets.h"',
         "    .extern d2e_native_helper_mul16",
         "    .extern d2e_native_helper_push_near_return",
+        "    .extern d2e_x86_pop16",
         "    .extern d2e_native_helper_read8",
         "    .extern d2e_native_helper_read16",
         "    .extern d2e_native_helper_write8",

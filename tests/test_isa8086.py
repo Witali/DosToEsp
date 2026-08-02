@@ -164,6 +164,8 @@ KNOWN_XTENSA_DIRECT = {
     "mov-reg",
     "mul-word",
     "nop",
+    "ret",
+    "ret-immediate",
 }
 
 
