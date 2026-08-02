@@ -603,6 +603,46 @@ def main() -> int:
         assert "/* 010a: sti  */" in direct_unary_assembly
         assert "xori a4, a4, 1" in direct_unary_assembly
 
+        direct_shift_fixture = bytes.fromhex(
+            "d0 2e 0a 01 74 01 f4 f4 00 00 81"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-shift"
+        manifest = d2e_build.build_sources(
+            direct_shift_fixture,
+            "direct-shift.com",
+            "com",
+            "direct_shift",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_shift_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: shr byte ptr [0x10a], 1 */" in direct_shift_assembly
+        assert "call8 d2e_x86_shr8" in direct_shift_assembly
+        assert "call8 d2e_native_helper_write8" in direct_shift_assembly
+
+        dead_shift_fixture = bytes.fromhex("d1 f8 b8 01 00 f4")
+        output = pathlib.Path(temporary) / "asm-direct-dead-shift"
+        manifest = d2e_build.build_sources(
+            dead_shift_fixture,
+            "direct-dead-shift.com",
+            "com",
+            "direct_dead_shift",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        dead_shift_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: sar ax, 1 */" in dead_shift_assembly
+        assert "call8 d2e_x86_sar16" not in dead_shift_assembly
+        assert "srai a4, a4, 17" in dead_shift_assembly
+
         dead_cisc_fixture = bytes.fromhex(
             "27 83 c0 01 d1 e0 f7 e3 f4"
         )

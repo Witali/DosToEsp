@@ -778,23 +778,90 @@ def _emit_flag_control(instruction: Any) -> list[str]:
     return lines
 
 
-def _emit_shl16(instruction: Any, live_flags: int) -> list[str]:
-    if (
-        len(instruction.operands) != 2
-        or instruction.operands[0][0] != "reg"
-        or instruction.operands[0][1] not in REG16_OFFSETS
-        or instruction.operands[1] != ("imm", 1)
-    ):
-        raise _error(instruction, "currently supports only 16-bit register SHL by one")
-    if live_flags != 0:
-        raise _error(instruction, "does not yet materialize live SHL flags")
-    destination_offset = REG16_OFFSETS[str(instruction.operands[0][1])]
-    return [
-        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-        "    slli a4, a4, 1",
-        "    extui a4, a4, 0, 16",
-        f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-    ]
+def _emit_shift_rotate(
+    emitter: _Emitter,
+    instruction: Any,
+    live_flags: int,
+) -> list[str]:
+    if len(instruction.operands) != 2:
+        raise _error(instruction, "requires a destination and shift count")
+    destination, count = instruction.operands
+    width = _binary_operand_width(instruction, destination)
+    if destination[0] == "reg":
+        lines = _emit_nonmemory_value(
+            emitter, instruction, destination, width, "a4"
+        )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, width)
+        lines = [
+            *_emit_memory_arguments(emitter, instruction, memory),
+            f"    call8 d2e_native_helper_read{width}",
+            "    mov a4, a10",
+        ]
+    else:
+        raise _error(instruction, "requires a register or memory shift destination")
+
+    direct_dead = (
+        live_flags == 0
+        and count == ("imm", 1)
+        and instruction.mnemonic in ("shl", "shr", "sar")
+    )
+    if direct_dead:
+        if instruction.mnemonic == "shl":
+            lines.append("    slli a4, a4, 1")
+        elif instruction.mnemonic == "shr":
+            lines.append("    srli a4, a4, 1")
+        else:
+            lines.extend(
+                [
+                    f"    slli a4, a4, {32 - width}",
+                    f"    srai a4, a4, {33 - width}",
+                ]
+            )
+        lines.append(f"    extui a4, a4, 0, {width}")
+        result_register = "a4"
+    else:
+        if live_flags == 0:
+            raise _error(
+                instruction,
+                "does not lower dead variable-count shifts through a slower helper",
+            )
+        lines.extend(["    mov a10, a2", "    mov a11, a4"])
+        if count[0] == "imm":
+            value = int(count[1]) & 0xFF
+            lines.append(f"    movi a12, {value}")
+        elif count == ("reg", "cl"):
+            lines.append(
+                f"    l8ui a12, a2, D2E_ASM_CPU_REGS_OFFSET + {REG8_OFFSETS['cl']}"
+            )
+        else:
+            raise _error(instruction, "requires an immediate or CL shift count")
+        lines.append(f"    call8 d2e_x86_{instruction.mnemonic}{width}")
+        result_register = "a10"
+
+    if destination[0] == "reg":
+        register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+        destination_offset = register_offsets[str(destination[1])]
+        store = "s8i" if width == 8 else "s16i"
+        lines.append(
+            f"    {store} {result_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    else:
+        memory = _memory_operand(instruction, destination, width)
+        completed = emitter.local("shift_write_completed")
+        lines.extend(
+            [
+                f"    mov a13, {result_register}",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_write{width}",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
+        )
+    return lines
 
 
 def _direct_target(instruction: Any) -> int:
@@ -1273,8 +1340,8 @@ def native_block_leaders(
                     _emit_not(emitter, instruction)
                 elif mnemonic in ("clc", "cmc", "stc", "cld", "std", "cli", "sti"):
                     _emit_flag_control(instruction)
-                elif mnemonic == "shl":
-                    _emit_shl16(instruction, live)
+                elif mnemonic in ("shl", "shr", "sar", "rol", "ror", "rcl", "rcr"):
+                    _emit_shift_rotate(emitter, instruction, live)
                 elif mnemonic == "mul":
                     _emit_mul16(emitter, instruction, live)
                 elif mnemonic == "nop" and not instruction.operands:
@@ -1547,9 +1614,10 @@ def emit_program(
                 body.extend(_emit_not(emitter, instruction))
             elif mnemonic in ("clc", "cmc", "stc", "cld", "std", "cli", "sti"):
                 body.extend(_emit_flag_control(instruction))
-            elif mnemonic == "shl":
+            elif mnemonic in ("shl", "shr", "sar", "rol", "ror", "rcl", "rcr"):
                 body.extend(
-                    _emit_shl16(
+                    _emit_shift_rotate(
+                        emitter,
                         instruction,
                         flag_liveness.live_defined[instruction.address],
                     )
@@ -1598,6 +1666,20 @@ def emit_program(
         "    .extern d2e_x86_dec16",
         "    .extern d2e_x86_logic8",
         "    .extern d2e_x86_logic16",
+        "    .extern d2e_x86_shl8",
+        "    .extern d2e_x86_shl16",
+        "    .extern d2e_x86_shr8",
+        "    .extern d2e_x86_shr16",
+        "    .extern d2e_x86_sar8",
+        "    .extern d2e_x86_sar16",
+        "    .extern d2e_x86_rol8",
+        "    .extern d2e_x86_rol16",
+        "    .extern d2e_x86_ror8",
+        "    .extern d2e_x86_ror16",
+        "    .extern d2e_x86_rcl8",
+        "    .extern d2e_x86_rcl16",
+        "    .extern d2e_x86_rcr8",
+        "    .extern d2e_x86_rcr16",
         "    .extern d2e_native_helper_read8",
         "    .extern d2e_native_helper_read16",
         "    .extern d2e_native_helper_write8",
