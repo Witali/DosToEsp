@@ -1683,6 +1683,17 @@ def _cached_register_operation(
             return None
         destination = str(operands[0][1])
         return (destination,), (destination,)
+    if mnemonic in ("shl", "shr"):
+        if (
+            live_flags != 0
+            or len(operands) != 2
+            or operands[0][0] != "reg"
+            or operands[0][1] not in REG16_OFFSETS
+            or operands[1] != ("imm", 1)
+        ):
+            return None
+        destination = str(operands[0][1])
+        return (destination,), (destination,)
     return None
 
 
@@ -1703,6 +1714,8 @@ def _cached_baseline_instruction_count(instruction: Any) -> int:
         return 5
     if instruction.mnemonic in ("inc", "dec"):
         return 4
+    if instruction.mnemonic in ("shl", "shr"):
+        return 4
     raise AssertionError(f"unexpected cached operation: {instruction.mnemonic}")
 
 
@@ -1713,6 +1726,8 @@ def _cached_baseline_memory_access_count(instruction: Any) -> int:
     if instruction.mnemonic in ("add", "sub", "and", "or", "xor"):
         return 2 if instruction.operands[1][0] == "imm" else 3
     if instruction.mnemonic in ("inc", "dec", "not"):
+        return 2
+    if instruction.mnemonic in ("shl", "shr"):
         return 2
     raise AssertionError(f"unexpected cached operation: {instruction.mnemonic}")
 
@@ -1744,8 +1759,11 @@ def _emit_cached_register_operation(
         return [
             "    movi a10, -1",
             f"    xor {target}, {target}, a10",
-            f"    extui {target}, {target}, 0, 16",
         ]
+    if mnemonic == "shl":
+        return [f"    slli {target}, {target}, 1"]
+    if mnemonic == "shr":
+        return [f"    extui {target}, {target}, 1, 15"]
 
     source = operands[1]
     operation = mnemonic
@@ -1769,7 +1787,28 @@ def _emit_cached_register_pair(
     second: Any,
     registers: Mapping[str, str],
 ) -> list[str] | None:
-    """Fuse a cached 16-bit MOV and its dependent operation when possible."""
+    """Fuse two dependent cached 16-bit operations when possible."""
+    if (
+        first.mnemonic == "shl"
+        and len(first.operands) == 2
+        and first.operands[0][0] == "reg"
+        and first.operands[0][1] in REG16_OFFSETS
+        and first.operands[1] == ("imm", 1)
+        and second.mnemonic == "add"
+        and len(second.operands) == 2
+        and second.operands[0] == first.operands[0]
+        and second.operands[1][0] == "reg"
+        and second.operands[1][1] in REG16_OFFSETS
+    ):
+        destination_name = str(first.operands[0][1])
+        right_name = str(second.operands[1][1])
+        target = registers[destination_name]
+        if right_name == destination_name:
+            return [f"    slli {target}, {target}, 2"]
+        return [
+            f"    addx2 {target}, {target}, {registers[right_name]}"
+        ]
+
     if first.mnemonic != "mov" or len(first.operands) != 2:
         return None
     destination, move_source = first.operands
@@ -1791,6 +1830,15 @@ def _emit_cached_register_pair(
     if second.mnemonic in ("inc", "dec") and len(second.operands) == 1:
         delta = 1 if second.mnemonic == "inc" else -1
         return [f"    addi {target}, {source_register}, {delta}"]
+
+    if (
+        second.mnemonic in ("shl", "shr")
+        and len(second.operands) == 2
+        and second.operands[1] == ("imm", 1)
+    ):
+        if second.mnemonic == "shl":
+            return [f"    slli {target}, {source_register}, 1"]
+        return [f"    extui {target}, {source_register}, 1, 15"]
 
     if (
         second.mnemonic not in ("add", "sub", "and", "or", "xor")
@@ -1883,7 +1931,8 @@ def _build_cached_register_run(
             if fused is not None:
                 lines.append(
                     f"    /* {following.address:04x}: {following.mnemonic} "
-                    f"{following.op_str}; fused with preceding MOV. */"
+                    f"{following.op_str}; fused with preceding "
+                    f"{instruction.mnemonic.upper()}. */"
                 )
                 lines.extend(fused)
                 index += 2

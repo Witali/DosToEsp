@@ -347,6 +347,65 @@ def main() -> int:
         assert "addi a5, a4, -1" in fused_operations_assembly
         assert "extui a5, a4, 0, 5" in fused_operations_assembly
 
+        fused_shift_fixture = bytes.fromhex(
+            "89 c2 d1 e2 "  # mov dx,ax; shl dx,1
+            "89 c2 d1 ea "  # mov dx,ax; shr dx,1
+            "f4"
+        )
+        fused_shift_decoded = d2e_translate.discover(
+            fused_shift_fixture, 0x100, 0x100
+        )
+        fused_shift_blocks = d2e_translate.make_blocks(
+            fused_shift_decoded, 0x100
+        )
+        fused_shift_assembly = d2e_xtensa.emit_program(
+            fused_shift_fixture,
+            fused_shift_blocks,
+            "fused_shifts",
+            0x1000,
+            0x100,
+        )
+        assert "slli a5, a4, 1" in fused_shift_assembly
+        assert "extui a5, a4, 1, 15" in fused_shift_assembly
+        assert "mov a5, a4" not in fused_shift_assembly
+
+        fused_scaled_add_fixture = bytes.fromhex("d1 e0 01 d8 f4")
+        fused_scaled_add_decoded = d2e_translate.discover(
+            fused_scaled_add_fixture, 0x100, 0x100
+        )
+        fused_scaled_add_blocks = d2e_translate.make_blocks(
+            fused_scaled_add_decoded, 0x100
+        )
+        fused_scaled_add_assembly = d2e_xtensa.emit_program(
+            fused_scaled_add_fixture,
+            fused_scaled_add_blocks,
+            "fused_scaled_add",
+            0x1000,
+            0x100,
+        )
+        assert "/* 0102: add ax, bx; fused with preceding SHL. */" in (
+            fused_scaled_add_assembly
+        )
+        assert "addx2 a4, a4, a5" in fused_scaled_add_assembly
+        assert "slli a4, a4, 1" not in fused_scaled_add_assembly
+
+        fused_scaled_alias_fixture = bytes.fromhex("d1 e0 01 c0 f4")
+        fused_scaled_alias_decoded = d2e_translate.discover(
+            fused_scaled_alias_fixture, 0x100, 0x100
+        )
+        fused_scaled_alias_blocks = d2e_translate.make_blocks(
+            fused_scaled_alias_decoded, 0x100
+        )
+        fused_scaled_alias_assembly = d2e_xtensa.emit_program(
+            fused_scaled_alias_fixture,
+            fused_scaled_alias_blocks,
+            "fused_scaled_alias",
+            0x1000,
+            0x100,
+        )
+        assert "slli a4, a4, 2" in fused_scaled_alias_assembly
+        assert "addx2 a4, a4, a4" not in fused_scaled_alias_assembly
+
         uncached_fixture = bytes.fromhex("89 d8 f4")  # mov ax,bx; hlt
         uncached_decoded = d2e_translate.discover(
             uncached_fixture, 0x100, 0x100

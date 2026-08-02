@@ -116,7 +116,8 @@ bounded workload.
   memory traffic. Equal instruction counts prefer fewer CPU accesses.
 - [x] Cache up to four 16-bit x86 registers in `a4`, `a5`, `a8` and `a9` for
   helper-free `MOV`, dead-flag `ADD`/`SUB`/logical operations, `INC`, `DEC` and
-  `NOT`. Use `a10` only as a temporary inside a run that cannot call a helper.
+  `NOT`, plus single-bit `SHL` and `SHR`. Use `a10` only as a temporary inside
+  a run that cannot call a helper.
 - [x] Load only values read before their first write and spill only dirty x86
   registers at the selected run boundary.
 - [x] Fuse a cached 16-bit `MOV` with a dependent dead-flags `ADD`, `SUB`,
@@ -125,6 +126,12 @@ bounded workload.
   when the second operand aliases the x86 destination, and defer modulo-16-bit
   truncation to the final `S16I`. Alley Cat selected 183 runs and 20 fused
   pairs, saving an estimated 290 instructions and 116 CPU-state accesses.
+- [x] Fuse cached `MOV d,s; SHL d,1` to `SLLI`, `MOV d,s; SHR d,1` to the exact
+  `EXTUI d,s,1,15`, and `SHL d,1; ADD d,t` to `ADDX2`. Handle an aliased add
+  source as `SLLI d,d,2`. Alley Cat has no register-source scaled-add pair, but
+  shift caching increased its selected estimate to 390 instructions and 159
+  CPU-state accesses saved, with 31 total `MOV` fusions. IROM fell by another
+  292 bytes without changing the QEMU cycle median materially.
 - [ ] Introduce a backend-neutral micro-operation IR for one basic block before
   extending it across control-flow edges.
 - [ ] Add constant propagation, redundant load/store removal, dead guest-register
@@ -218,3 +225,4 @@ bounded workload.
 | `SUB immediate` via `ADDI` | 277,302 | 31,420 | 424,636 | 89 | 55,974 cycles/1K instructions | Keep: IROM -20; 60-frame QEMU run passed with 12,881,855 retired guest instructions and 259 Hz audio; virtual-counter variance requires physical confirmation |
 | Cached three-address `MOV` fusion | 276,794 | 31,420 | 424,636 | 89 | 58,758 cycles/1K instructions | Keep: IROM -508; median of three identical-build QEMU runs (60,052, 57,811, 58,758) is within the build's 3.9% virtual-counter spread; all 60-frame runs returned cleanly with 259 Hz audio; physical confirmation pending |
 | Terminal `CMP`/`TEST` plus `Jcc` fusion | 272,422 | 31,420 | 424,636 | 89 | 54,740 cycles/1K instructions | Keep: 134 fused pairs, IROM -4,372 and QEMU median -6.8%; three 60-frame runs (53,727, 54,740, 55,277) returned cleanly with 259 Hz audio; physical confirmation pending |
+| Cached shift and scaled-add fusion | 272,130 | 31,420 | 424,636 | 89 | 54,716 cycles/1K instructions | Keep: IROM -292 and no measured cycle regression; three 60-frame runs (55,108, 53,947, 54,716) returned cleanly with 259 Hz audio; `ADDX2` is covered but unused by Alley Cat |
