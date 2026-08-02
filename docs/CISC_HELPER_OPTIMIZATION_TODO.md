@@ -42,8 +42,10 @@ bounded QEMU workload.
 - [ ] Partition CISC blocks by CFG locality and estimated linked byte size,
   rather than fixed address-ordered groups of 256 blocks.
 - [ ] Expand high-impact direct Xtensa lowerings after dispatch is scalable:
-  near `call`/`ret`, stack operations, memory and byte forms of `cmp`/`sub`,
-  then common logical and increment/decrement instructions.
+  - [x] direct near `call` with a specialized return-stack helper;
+  - [ ] near `ret` and stack operations;
+  - [ ] memory and byte forms of `cmp`/`sub`;
+  - [ ] common logical and increment/decrement instructions.
 
 ## Evaluation log
 
@@ -58,7 +60,7 @@ bounded QEMU workload.
 | Share static MZ PC materialization per region | 574,368 (-33,840) | 308,545 (-33,838) | Pass | Keep: replaces more than 4,000 repeated CS-relative expressions |
 | Share direct assembly budget-exhaustion path | 562,704 (-11,664) | 308,545 (+0) | Pass | Keep: removes duplicated cold MZ formulas and edge-target literals |
 | Prove register control-target reads cannot stop | 562,704 (+0) | 308,545 (+0) | Alley output unchanged; host pass | Keep: removes checks in programs with register-indirect control flow; Alley Cat has none |
+| Direct near `call` with specialized stack helper | 540,832 (-21,872) | 226,493 (-82,052) | Pass | Keep: same helper-call count, less caller code, exact `SP`-then-write order |
 
-Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
-semantics are not default solutions because they can trade execution speed for
-size. They may be reconsidered only with measured QEMU evidence.
+Blanket `-Os` and outlining hot instruction semantics remain excluded because
+they can trade execution speed for size.

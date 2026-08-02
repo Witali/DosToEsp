@@ -188,6 +188,7 @@ def main() -> int:
         assert assembly.count(".Lprogram_region_budget_finish:") == 1
         assert assembly.count("j .Lprogram_region_budget_finish") == len(blocks)
         assert assembly.count(".Lprogram_region_untranslated:") == 1
+
         add_start = assembly.index("/* 0103: add ax, 1 */")
         cmp_start = assembly.index("/* 0106: cmp ax, 0x1235 */")
         assert "D2E_ASM_CPU_FLAGS_OFFSET" not in assembly[add_start:cmp_start]
@@ -292,6 +293,25 @@ def main() -> int:
         assert "module_target <= UINT32_C(0x00200)" in fallback_bridge
         assert fallback_bridge.count("d2e_generated_cisc_region_000(") == 2
         assert fallback_bridge.count("d2e_generated_cisc_region_001(") == 2
+
+        direct_call_fixture = bytes.fromhex("e8 01 00 f4 c3")
+        output = pathlib.Path(temporary) / "asm-direct-call"
+        manifest = d2e_build.build_sources(
+            direct_call_fixture,
+            "direct-call.com",
+            "com",
+            "direct_call",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_call_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: call 0x104 */" in direct_call_assembly
+        assert "call8 d2e_native_helper_push_near_return" in direct_call_assembly
+        assert "0x00000103" in direct_call_assembly
 
         dead_cisc_fixture = bytes.fromhex(
             "50 83 c0 01 d1 e0 f7 e3 f4"

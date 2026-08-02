@@ -22,6 +22,9 @@ void d2e_native_helper_write16(d2e_x86_cpu *cpu, uint16_t segment,
                                uint16_t offset, uint16_t value);
 void d2e_native_helper_write8(d2e_x86_cpu *cpu, uint16_t segment,
                               uint16_t offset, uint8_t value);
+void d2e_native_helper_push_near_return(d2e_x86_cpu *cpu,
+                                        uint32_t module_return,
+                                        uint16_t load_segment);
 
 #ifdef __cplusplus
 }

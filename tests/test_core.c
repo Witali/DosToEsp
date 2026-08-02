@@ -1,5 +1,6 @@
 #include "d2e/x86_cpu.h"
 #include "d2e/x86_alu.h"
+#include "d2e/native_helpers.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,6 +73,17 @@ static void test_stack(d2e_x86_cpu *cpu) {
           UINT16_C(0xbeef));
     CHECK(d2e_x86_pop16(cpu) == UINT16_C(0xbeef));
     CHECK(cpu->regs[D2E_X86_SP] == 1U);
+}
+
+static void test_native_near_return_push(d2e_x86_cpu *cpu) {
+    cpu->segments[D2E_X86_CS] = UINT16_C(0x1234);
+    cpu->segments[D2E_X86_SS] = UINT16_C(0x2000);
+    cpu->regs[D2E_X86_SP] = UINT16_C(0x0100);
+    d2e_native_helper_push_near_return(cpu, UINT32_C(0x2345),
+                                       UINT16_C(0x1200));
+    CHECK(cpu->regs[D2E_X86_SP] == UINT16_C(0x00fe));
+    CHECK(d2e_x86_read16_seg(cpu, UINT16_C(0x2000), UINT16_C(0x00fe)) ==
+          UINT16_C(0x2005));
 }
 
 static void test_alu_flags(d2e_x86_cpu *cpu) {
@@ -317,6 +329,7 @@ int main(void) {
     test_address_wrap(&cpu);
     test_fetch_wrap(&cpu);
     test_stack(&cpu);
+    test_native_near_return_push(&cpu);
     test_alu_flags(&cpu);
     test_shift_flags(&cpu);
     test_multiply_and_adjust(&cpu);

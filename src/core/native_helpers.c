@@ -32,3 +32,17 @@ void d2e_native_helper_write8(d2e_x86_cpu *cpu, uint16_t segment,
                               uint16_t offset, uint8_t value) {
     d2e_x86_write8(cpu, d2e_x86_linear(segment, offset), value);
 }
+
+void d2e_native_helper_push_near_return(d2e_x86_cpu *cpu,
+                                        uint32_t module_return,
+                                        uint16_t load_segment) {
+    const uint32_t cs_module_base =
+        (uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - load_segment) << 4U;
+    const uint16_t return_ip = (uint16_t)(module_return - cs_module_base);
+    const uint16_t stack_pointer =
+        (uint16_t)(cpu->regs[D2E_X86_SP] - UINT16_C(2));
+
+    cpu->regs[D2E_X86_SP] = stack_pointer;
+    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], stack_pointer,
+                        return_ip);
+}
