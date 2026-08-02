@@ -27,6 +27,9 @@ bounded workload.
 - [x] Add an optional ESP32 profiling build that reads the Xtensa cycle counter
   around each bounded translated supervisor step and reports calls, total,
   minimum and maximum cycles plus cycles per 1,000 retired guest instructions.
+  QEMU values are useful only for repeated paired comparisons: the virtual
+  counter varied materially between identical builds, so physical-board
+  measurements remain the acceptance authority.
 - [ ] Extend cycle attribution to native blocks, CISC regions and shared
   helpers after the region-level counter identifies a regression.
 - [ ] Report mixed-backend crossings, memory-helper traffic, interrupt and port
@@ -66,8 +69,11 @@ bounded workload.
   interrupt helper. This moved 113 Alley Cat blocks out of fallback, primarily
   BIOS `INT 1Ah` and `INT 10h` calls, while preserving the architectural next
   IP before entering the shell service.
-- [ ] Lower `IN` and `OUT` as direct calls to the shared port helpers. The audit
-  found 44 fallback blocks.
+- [x] Lower all 8/16-bit immediate/DX forms of `IN` and `OUT` as direct calls
+  to shared port helpers. This reduced IROM by 4,652 bytes and fallback by 43
+  blocks. Three direct QEMU profiles had a 58,238 cycles-per-1,000 median,
+  below the 58,565 median of the surrounding identical-workload controls;
+  retain it, with physical-board confirmation still required.
 - [ ] Lower variable-count shifts directly or through shared ALU helpers. The
   audit found 33 fallback blocks.
 - [ ] Route `MOVS`, `STOS`, `LODS` and `SCAS`, including `REP` forms, to common
@@ -188,4 +194,5 @@ bounded workload.
 | Automatic block-local register cache | 299,512 | 31,420 | 424,636 | 382 | Not measured | Keep: 126 runs, IROM -412, 133 instructions and 101 CPU accesses removed; QEMU passed at 259 Hz |
 | Optional supervisor-step cycle profile | 299,512 | 31,420 | 424,636 | 382 | 70,358 cycles/1K instructions | Keep: opt-in instrumentation; 60-frame QEMU control retired 12,882,251 guest instructions at 259 Hz |
 | Direct byte/memory/live-flags `ADD` | 293,814 | 31,420 | 424,636 | 245 | 68,688 cycles/1K instructions | Keep: IROM -5,698, fallback -137 and measured cycles -2.4%; 60-frame QEMU run passed at 259 Hz |
-| Direct `INT imm8` and `INT3` | 281,974 | 31,420 | 424,636 | 132 | 46,381 cycles/1K instructions | Keep: IROM -11,840, fallback -113 and measured cycles -32.5%; 60-frame QEMU run passed at 259 Hz |
+| Direct `INT imm8` and `INT3` | 281,974 | 31,420 | 424,636 | 132 | 46,381-60,946 cycles/1K instructions | Keep: IROM -11,840 and fallback -113; repeated identical-build QEMU values exposed virtual-counter variability, physical profile pending |
+| Direct all-form `IN`/`OUT` | 277,322 | 31,420 | 424,636 | 89 | 58,238 cycles/1K instructions | Keep: IROM -4,652 and fallback -43; median of three direct QEMU runs is below the surrounding 58,565-cycle control median; physical profile pending |

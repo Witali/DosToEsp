@@ -1024,6 +1024,71 @@ def _emit_interrupt(emitter: _Emitter, instruction: Any) -> list[str]:
     ]
 
 
+def _emit_port_operand(
+    emitter: _Emitter,
+    instruction: Any,
+    operand: tuple[Any, Any],
+    target_register: str,
+) -> list[str]:
+    if operand[0] == "imm":
+        return _emit_load_constant(
+            emitter, target_register, int(operand[1]) & 0xFFFF, "port"
+        )
+    if operand == ("reg", "dx"):
+        return [
+            f"    l16ui {target_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {REG16_OFFSETS['dx']}"
+        ]
+    raise _error(instruction, "requires an immediate port or DX")
+
+
+def _emit_port_io(emitter: _Emitter, instruction: Any) -> list[str]:
+    if len(instruction.operands) != 2:
+        raise _error(instruction, "requires two IN/OUT operands")
+    first, second = instruction.operands
+    completed = emitter.local("port_completed")
+
+    if instruction.mnemonic == "in":
+        if first == ("reg", "al"):
+            width = 8
+        elif first == ("reg", "ax"):
+            width = 16
+        else:
+            raise _error(instruction, "requires AL or AX as the IN destination")
+        store = "s8i" if width == 8 else "s16i"
+        return [
+            "    mov a10, a2",
+            *_emit_port_operand(emitter, instruction, second, "a11"),
+            f"    call8 d2e_x86_port_in{width}",
+            f"    {store} a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0",
+            "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+            f"    beqz a4, {completed}",
+            "    j .Lprogram_region_finish",
+            f"{completed}:",
+        ]
+
+    if instruction.mnemonic == "out":
+        if second == ("reg", "al"):
+            width = 8
+        elif second == ("reg", "ax"):
+            width = 16
+        else:
+            raise _error(instruction, "requires AL or AX as the OUT source")
+        load = "l8ui" if width == 8 else "l16ui"
+        return [
+            "    mov a10, a2",
+            *_emit_port_operand(emitter, instruction, first, "a11"),
+            f"    {load} a12, a2, D2E_ASM_CPU_REGS_OFFSET + 0",
+            f"    call8 d2e_x86_port_out{width}",
+            "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+            f"    beqz a4, {completed}",
+            "    j .Lprogram_region_finish",
+            f"{completed}:",
+        ]
+
+    raise _error(instruction, "requires IN or OUT")
+
+
 def _emit_near_call(emitter: _Emitter, instruction: Any) -> list[str]:
     _direct_target(instruction)
     completed = emitter.local("call_push_completed")
@@ -1766,6 +1831,8 @@ def native_block_leaders(
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires INT to end its block")
                     _emit_interrupt(emitter, instruction)
+                elif mnemonic in ("in", "out"):
+                    _emit_port_io(emitter, instruction)
                 elif mnemonic == "push":
                     _emit_stack_push(emitter, instruction)
                 elif mnemonic == "pop":
@@ -2032,6 +2099,8 @@ def emit_program(
                     _emit_edge(emitter, instruction.next_address, native_blocks)
                 )
                 terminated = True
+            elif mnemonic in ("in", "out"):
+                body.extend(_emit_port_io(emitter, instruction))
             elif mnemonic == "push":
                 body.extend(_emit_stack_push(emitter, instruction))
             elif mnemonic == "pop":
@@ -2149,6 +2218,10 @@ def emit_program(
         "    .extern d2e_native_helper_mul16",
         "    .extern d2e_native_helper_push_near_return",
         "    .extern d2e_native_interrupt",
+        "    .extern d2e_x86_port_in8",
+        "    .extern d2e_x86_port_in16",
+        "    .extern d2e_x86_port_out8",
+        "    .extern d2e_x86_port_out16",
         "    .extern d2e_x86_pop16",
         "    .extern d2e_x86_push16",
         "    .extern d2e_x86_add8",

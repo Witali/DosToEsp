@@ -19,10 +19,12 @@ def main() -> None:
     imports = d2e_pack_xip.parse_imports(
         PROJECT_ROOT / "include" / "d2e" / "xip_imports.h"
     )
-    assert len(imports) == 45
-    assert sorted(imports.values()) == list(range(45))
+    assert len(imports) == 47
+    assert sorted(imports.values()) == list(range(47))
     assert imports["d2e_native_interrupt"] == 5
     assert imports["d2e_x86_write8"] == 44
+    assert imports["d2e_x86_port_in16"] == 45
+    assert imports["d2e_x86_port_out16"] == 46
     assert d2e_pack_xip.align_up(0x10001, 0x10000) == 0x20000
     with tempfile.TemporaryDirectory() as directory:
         temporary = pathlib.Path(directory)

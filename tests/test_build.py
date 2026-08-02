@@ -600,6 +600,41 @@ def main() -> int:
                 direct_int_assembly
             )
 
+        direct_port_fixture = bytes.fromhex(
+            "e4 60 e5 61 ec ed e6 62 e7 63 ee ef f4"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-port"
+        manifest = d2e_build.build_sources(
+            direct_port_fixture,
+            "direct-port.com",
+            "com",
+            "direct_port",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == ["game_native.S"]
+        direct_port_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "call8 d2e_x86_port_in8" in direct_port_assembly
+        assert "call8 d2e_x86_port_in16" in direct_port_assembly
+        assert "call8 d2e_x86_port_out8" in direct_port_assembly
+        assert "call8 d2e_x86_port_out16" in direct_port_assembly
+        assert "movi a11, 96" in direct_port_assembly
+        assert "movi a11, 99" in direct_port_assembly
+        assert direct_port_assembly.count(
+            f"l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + "
+            f"{d2e_xtensa.REG16_OFFSETS['dx']}"
+        ) == 4
+        assert "s8i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in (
+            direct_port_assembly
+        )
+        assert "s16i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in (
+            direct_port_assembly
+        )
+
         direct_return_fixture = bytes.fromhex("c2 80 00")
         output = pathlib.Path(temporary) / "asm-direct-return"
         manifest = d2e_build.build_sources(

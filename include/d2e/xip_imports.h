@@ -54,13 +54,15 @@ extern "C" {
     X(41, D2E_XIP_IMPORT_X86_SUB16, d2e_x86_sub16)                             \
     X(42, D2E_XIP_IMPORT_X86_SUB8, d2e_x86_sub8)                               \
     X(43, D2E_XIP_IMPORT_X86_WRITE16_SEG, d2e_x86_write16_seg)                 \
-    X(44, D2E_XIP_IMPORT_X86_WRITE8, d2e_x86_write8)
+    X(44, D2E_XIP_IMPORT_X86_WRITE8, d2e_x86_write8)                           \
+    X(45, D2E_XIP_IMPORT_X86_PORT_IN16, d2e_x86_port_in16)                     \
+    X(46, D2E_XIP_IMPORT_X86_PORT_OUT16, d2e_x86_port_out16)
 
 typedef enum d2e_xip_import {
 #define D2E_XIP_ENUM_IMPORT(index, name, symbol) name = index,
     D2E_XIP_IMPORT_LIST(D2E_XIP_ENUM_IMPORT)
 #undef D2E_XIP_ENUM_IMPORT
-    D2E_XIP_IMPORT_COUNT = 45
+    D2E_XIP_IMPORT_COUNT = 47
 } d2e_xip_import;
 
 int d2e_xip_import_resolve(uint32_t index, uintptr_t *address);
