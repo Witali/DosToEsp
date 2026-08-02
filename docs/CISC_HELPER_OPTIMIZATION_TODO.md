@@ -20,6 +20,9 @@ bounded QEMU workload.
 - [x] Route a translated target directly to its CISC region; remove sequential
   probing of up to eleven region functions. Dense local block routing remains
   a separate item below.
+- [x] Pass the Xtensa dispatcher's already materialized module target through
+  the CISC bridge and region ABI instead of reconstructing it twice from
+  `CS:IP`.
 - [ ] Replace sparse module-address switches with compact dense block IDs.
 - [ ] Let a CISC region execute connected blocks until it reaches an assembly
   handoff, a runtime boundary, or the shared block budget.
@@ -90,6 +93,7 @@ bounded QEMU workload.
 | Direct byte/memory `SUB` with inline small immediates | 672,368 (-704 from CMP control) | 126,800 (-12,598) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 136 more native blocks and one fewer flash load for common immediates |
 | Direct byte/memory `INC` and `DEC` | 669,680 (-2,688) | 111,745 (-15,055) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 124 more native blocks and helper-backed carry preservation when required |
 | Direct byte/memory `AND`, `OR`, `XOR`, and `TEST` | 665,280 (-4,400) | 91,091 (-20,654) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 169 more native blocks and full helpers only when flags beyond the direct `CF`/`ZF`/`OF` subset are live |
+| Pass the materialized module target into CISC regions | 662,512 (-2,768) | 88,381 (-2,710) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: removes duplicate `CS:IP` address reconstruction in both the bridge and selected region |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured

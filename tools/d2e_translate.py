@@ -1256,7 +1256,10 @@ def emit_region(
     storage: str = "static ",
     single_step: bool = False,
     live_defined_flags: dict[int, int] | None = None,
+    entry_target_parameter: bool = False,
 ) -> list[str]:
+    if entry_target_parameter and not single_step:
+        raise ValueError("entry target parameter requires single-step lowering")
     registers = cached_registers(blocks)
     post_block_handoff = (
         "    goto finish;" if single_step else "    goto dispatch;"
@@ -1264,11 +1267,12 @@ def emit_region(
     nested_post_block_handoff = (
         "        goto finish;" if single_step else "        goto dispatch;"
     )
-    parameters = (
-        "d2e_x86_cpu *cpu"
-        if single_step
-        else "d2e_x86_cpu *cpu, uint32_t block_budget"
-    )
+    if entry_target_parameter:
+        parameters = "d2e_x86_cpu *cpu, uint32_t module_target"
+    elif single_step:
+        parameters = "d2e_x86_cpu *cpu"
+    else:
+        parameters = "d2e_x86_cpu *cpu, uint32_t block_budget"
     retired_type = "uint32_t" if single_step else "uint64_t"
     retired_constant = "UINT32_C" if single_step else "UINT64_C"
     lines = [
@@ -1276,8 +1280,9 @@ def emit_region(
         "    uint32_t executed = 0;",
         f"    {retired_type} retired = 0;",
     ]
-    if image_format == "mz":
+    if image_format == "mz" and not entry_target_parameter:
         lines.append("    uint32_t module_target;")
+    if image_format == "mz":
         if single_step:
             lines.append("    uint32_t next_module_target = UINT32_MAX;")
     if any(
@@ -1334,7 +1339,9 @@ def emit_region(
         lines.append(f"    uint16_t r_{name};")
     lines.extend(emit_cached_load(registers))
     lines.extend(["", "    goto dispatch;", "dispatch:"])
-    if image_format == "com":
+    if entry_target_parameter:
+        lines.append("    switch (module_target) {")
+    elif image_format == "com":
         lines.extend(
             [
                 f"    if (cpu->segments[D2E_X86_CS] != UINT16_C(0x{load_segment:04x})) {{",
@@ -2279,41 +2286,22 @@ def emit_xtensa_source_files(
     for symbol in region_symbols:
         bridge.extend(
             [
-                f"uint32_t {symbol}(d2e_x86_cpu *cpu);",
+                f"uint32_t {symbol}(d2e_x86_cpu *cpu, uint32_t module_target);",
             ]
         )
     bridge.extend(
         [
             "",
-            "uint32_t d2e_generated_cisc_step(d2e_x86_cpu *cpu, uint32_t retired) {",
+            "uint32_t d2e_generated_cisc_step(d2e_x86_cpu *cpu, uint32_t retired, uint32_t module_target) {",
             "    cpu->instructions_retired += retired;",
         ]
     )
-    if image_format == "com":
-        bridge.extend(
-            [
-                f"    if (cpu->segments[D2E_X86_CS] != UINT16_C(0x{load_segment:04x})) {{",
-                "        return 0;",
-                "    }",
-                "    const uint32_t module_target = cpu->ip;",
-            ]
-        )
-    else:
-        bridge.extend(
-            [
-                f"    if (cpu->segments[D2E_X86_CS] < UINT16_C(0x{load_segment:04x})) {{",
-                "        return 0;",
-                "    }",
-                "    const uint32_t module_target =",
-                f"        ((uint32_t)(uint16_t)(cpu->segments[D2E_X86_CS] - UINT16_C(0x{load_segment:04x})) << 4U) + cpu->ip;",
-            ]
-        )
     for symbol, partition in zip(region_symbols, partitions, strict=True):
         final_leader = max(partition)
         bridge.extend(
             [
                 f"    if (module_target <= UINT32_C(0x{final_leader:05x})) {{",
-                f"        return {symbol}(cpu);",
+                f"        return {symbol}(cpu, module_target);",
                 "    }",
             ]
         )
@@ -2338,6 +2326,7 @@ def emit_xtensa_source_files(
                 storage="",
                 single_step=True,
                 live_defined_flags=flag_liveness.live_defined,
+                entry_target_parameter=True,
             )
         )
         region.append("")

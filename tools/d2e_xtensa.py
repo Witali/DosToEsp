@@ -1593,6 +1593,7 @@ def emit_program(
                 ".Lprogram_region_fallback_execute:",
                 "    mov a10, a2",
                 "    mov a11, a7",
+                "    mov a12, a4 /* already computed module target */",
                 f"    call8 {fallback_symbol}",
                 "    mov a4, a10 /* packed retired delta and success bit */",
                 "    extui a10, a4, 0, 1",

@@ -279,6 +279,7 @@ def main() -> int:
         )
         assert ".extern d2e_generated_cisc_step" in mixed_assembly
         assert "call8 d2e_generated_cisc_step" in mixed_assembly
+        assert "mov a12, a4 /* already computed module target */" in mixed_assembly
         assert "/* 0103: hlt  */" in mixed_assembly
         assert ".byte 0x27" not in mixed_assembly
         assert ".byte 0xeb" not in mixed_assembly
@@ -293,7 +294,17 @@ def main() -> int:
         assert "block_0103:" not in mixed_region
         assert "UINT32_C(1)" not in mixed_cisc
         assert "uint32_t step;" not in mixed_cisc
-        assert "const uint32_t module_target = cpu->ip;" in mixed_cisc
+        assert (
+            "d2e_generated_cisc_step(d2e_x86_cpu *cpu, uint32_t retired, "
+            "uint32_t module_target)"
+        ) in mixed_cisc
+        assert "const uint32_t module_target = cpu->ip;" not in mixed_cisc
+        assert "d2e_generated_cisc_region_000(cpu, module_target)" in mixed_cisc
+        assert (
+            "d2e_generated_cisc_region_000(d2e_x86_cpu *cpu, "
+            "uint32_t module_target)"
+        ) in mixed_region
+        assert "switch (module_target)" in mixed_region
         assert "uint32_t block_budget" not in mixed_region
         assert "executed >= block_budget" not in mixed_region
         assert mixed_region.count("goto dispatch;") == 1
