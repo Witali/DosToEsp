@@ -103,6 +103,7 @@ bounded QEMU workload.
 | Direct shifts and rotates | 651,856 (-5,312) | 68,757 (-12,720) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: 76 more native blocks, 413 fallback blocks remain, and dead one-bit shifts avoid slower helpers |
 | Direct `LOOP` family | 649,856 (-2,000) | 65,620 (-3,137) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: 31 more native blocks, 382 fallback blocks remain, and no helper is required |
 | Initial direct `CBW`/`CWD`/`LAHF`/`SAHF` | 650,944 (+1,088) | 66,273 (+653) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Revert: only three blocks moved, while the fixed 256-block partition boundary made the first CISC region larger |
+| Fixed 128-block CISC regions | 651,040 (+1,184) | 66,776 (+1,156) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Revert: a third prologue, epilogue and bridge route outweigh smaller individual sparse switches |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
