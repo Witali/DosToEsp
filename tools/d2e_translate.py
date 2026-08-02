@@ -373,13 +373,19 @@ def successors(instruction: Instruction) -> tuple[int, ...]:
     if mnemonic == "jmp":
         if instruction.indirect_targets:
             return instruction.indirect_targets
-        return (direct_target(instruction),)
+        if instruction.operands and instruction.operands[0][0] == "imm":
+            return (direct_target(instruction),)
+        return ()
     if mnemonic in CONDITIONS or mnemonic in ("loop", "loope", "loopne", "jcxz"):
         return (direct_target(instruction), instruction.next_address)
     if mnemonic in ("ret", "retf", "iret", "hlt"):
         return ()
     if mnemonic == "call":
-        return (direct_target(instruction), instruction.next_address)
+        if instruction.operands and instruction.operands[0][0] == "imm":
+            return (direct_target(instruction), instruction.next_address)
+        return (instruction.next_address,)
+    if mnemonic == "lcall":
+        return (instruction.next_address,)
     return (instruction.next_address,)
 
 
@@ -389,7 +395,7 @@ def is_terminator(instruction: Instruction) -> bool:
         or instruction.mnemonic
         in (
             "jmp", "loop", "loope", "loopne", "jcxz", "call", "ret",
-            "retf", "iret", "ljmp", "int", "hlt"
+            "retf", "iret", "ljmp", "lcall", "int", "int3", "into", "hlt"
         )
     )
 
@@ -1080,7 +1086,7 @@ def cached_registers(blocks: dict[int, list[Instruction]]) -> list[str]:
             if instruction.mnemonic in ("loop", "loope", "loopne", "jcxz"):
                 used.add("cx")
             if instruction.mnemonic in (
-                "call", "ret", "retf", "iret", "push", "pop", "pushf",
+                "call", "lcall", "ret", "retf", "iret", "push", "pop", "pushf",
                 "popf"
             ):
                 used.add("sp")
@@ -1203,6 +1209,22 @@ def emit_region(
         for instruction in block
     ):
         lines.append("    uint32_t divide_value;")
+    if any(
+        instruction.mnemonic in ("lcall", "ljmp")
+        for block in blocks.values()
+        for instruction in block
+    ):
+        lines.extend(
+            ["    uint16_t control_offset;", "    uint16_t control_segment;"]
+        )
+    elif any(
+        instruction.mnemonic == "call"
+        and len(instruction.operands) == 1
+        and instruction.operands[0][0] != "imm"
+        for block in blocks.values()
+        for instruction in block
+    ):
+        lines.append("    uint16_t control_offset;")
     for name in registers:
         lines.append(f"    uint16_t r_{name};")
     lines.extend(emit_cached_load(registers))
@@ -1287,7 +1309,10 @@ def emit_region(
                 terminated = True
             elif mnemonic == "jmp":
                 lines.append(f"    retired += UINT64_C({len(block)});")
-                if instruction.indirect_targets:
+                if (
+                    len(instruction.operands) == 1
+                    and instruction.operands[0][0] != "imm"
+                ):
                     operand = instruction.operands[0]
                     target = value_expression(operand, 16, cached=True)
                     lines.append(f"    cpu->ip = (uint16_t)({target});")
@@ -1361,8 +1386,12 @@ def emit_region(
                     load_segment,
                 )
                 terminated = True
-            elif mnemonic == "int":
-                interrupt_number = direct_target(instruction) & 0xFF
+            elif mnemonic in ("int", "int3"):
+                interrupt_number = (
+                    3
+                    if mnemonic == "int3"
+                    else direct_target(instruction) & 0xFF
+                )
                 lines.append(
                     f"    cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
                 )
@@ -1381,6 +1410,35 @@ def emit_region(
                 lines.extend(emit_cached_load(registers))
                 lines.append("    goto dispatch;")
                 terminated = True
+            elif mnemonic == "into":
+                lines.append(f"    retired += UINT64_C({len(block)});")
+                lines.append("    if ((cpu->flags & D2E_X86_FLAG_OF) != 0U) {")
+                lines.append(
+                    f"        cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
+                )
+                lines.extend(emit_cached_store(registers, "        "))
+                lines.extend(
+                    [
+                        "        cpu->instructions_retired += retired;",
+                        "        retired = 0;",
+                        "        d2e_native_interrupt(cpu, UINT8_C(0x04));",
+                        "        if (cpu->stop_reason != D2E_X86_RUNNING) {",
+                        "            return executed;",
+                        "        }",
+                    ]
+                )
+                lines.extend(emit_cached_load(registers, "        "))
+                lines.append("        goto dispatch;")
+                lines.append("    }")
+                emit_native_target(
+                    lines,
+                    instruction.next_address,
+                    blocks,
+                    "    ",
+                    image_format,
+                    load_segment,
+                )
+                terminated = True
             elif mnemonic == "hlt":
                 lines.append(
                     f"    cpu->ip = {guest_ip_expression(instruction.next_address, image_format, load_segment)};"
@@ -1390,6 +1448,20 @@ def emit_region(
                 lines.append("    goto finish;")
                 terminated = True
             elif mnemonic == "call":
+                indirect_call = (
+                    len(instruction.operands) == 1
+                    and instruction.operands[0][0] != "imm"
+                )
+                if indirect_call:
+                    target = value_expression(
+                        instruction.operands[0], 16, cached=True
+                    )
+                    lines.extend(
+                        [
+                            f"    control_offset = (uint16_t)({target});",
+                            "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+                        ]
+                    )
                 lines.extend(
                     [
                         "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",
@@ -1401,13 +1473,65 @@ def emit_region(
                     ]
                 )
                 lines.append(f"    retired += UINT64_C({len(block)});")
-                emit_native_target(
-                    lines,
-                    direct_target(instruction),
-                    blocks,
-                    "    ",
-                    image_format,
-                    load_segment,
+                if indirect_call:
+                    lines.append("    cpu->ip = control_offset;")
+                    lines.append("    goto dispatch;")
+                else:
+                    emit_native_target(
+                        lines,
+                        direct_target(instruction),
+                        blocks,
+                        "    ",
+                        image_format,
+                        load_segment,
+                    )
+                terminated = True
+            elif mnemonic == "lcall":
+                if len(instruction.operands) == 2 and all(
+                    operand[0] == "imm" for operand in instruction.operands
+                ):
+                    segment = int(instruction.operands[0][1]) & 0xFFFF
+                    offset = int(instruction.operands[1][1]) & 0xFFFF
+                    lines.extend(
+                        [
+                            f"    control_segment = UINT16_C(0x{segment:04x});",
+                            f"    control_offset = UINT16_C(0x{offset:04x});",
+                        ]
+                    )
+                elif (
+                    len(instruction.operands) == 1
+                    and instruction.operands[0][0] == "mem"
+                    and isinstance(instruction.operands[0][1], MemoryOperand)
+                ):
+                    memory = instruction.operands[0][1]
+                    pointer_segment = memory_segment_expression(memory)
+                    pointer_offset = memory_offset_expression(memory, True)
+                    lines.extend(
+                        [
+                            f"    control_offset = d2e_x86_read16_seg(cpu, {pointer_segment}, {pointer_offset});",
+                            f"    control_segment = d2e_x86_read16_seg(cpu, {pointer_segment}, (uint16_t)({pointer_offset} + UINT16_C(2)));",
+                            "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+                        ]
+                    )
+                else:
+                    raise TranslationError(
+                        f"unsupported far call {instruction.address:04x}: {instruction.op_str}"
+                    )
+                lines.extend(
+                    [
+                        "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",
+                        "    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], r_sp, cpu->segments[D2E_X86_CS]);",
+                        "    r_sp = (uint16_t)(r_sp - UINT16_C(2));",
+                        (
+                            "    d2e_x86_write16_seg(cpu, cpu->segments[D2E_X86_SS], "
+                            f"r_sp, {guest_ip_expression(instruction.next_address, image_format, load_segment)});"
+                        ),
+                        "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+                        "    cpu->segments[D2E_X86_CS] = control_segment;",
+                        "    cpu->ip = control_offset;",
+                        f"    retired += UINT64_C({len(block)});",
+                        "    goto dispatch;",
+                    ]
                 )
                 terminated = True
             elif mnemonic == "ret":
@@ -1459,24 +1583,42 @@ def emit_region(
                 )
                 terminated = True
             elif mnemonic == "ljmp":
-                if (
-                    len(instruction.operands) != 2
-                    or any(operand[0] != "imm" for operand in instruction.operands)
+                if len(instruction.operands) == 2 and all(
+                    operand[0] == "imm" for operand in instruction.operands
                 ):
+                    segment = int(instruction.operands[0][1]) & 0xFFFF
+                    offset = int(instruction.operands[1][1]) & 0xFFFF
+                    lines.extend(
+                        [
+                            f"    control_segment = UINT16_C(0x{segment:04x});",
+                            f"    control_offset = UINT16_C(0x{offset:04x});",
+                        ]
+                    )
+                elif (
+                    len(instruction.operands) == 1
+                    and instruction.operands[0][0] == "mem"
+                    and isinstance(instruction.operands[0][1], MemoryOperand)
+                ):
+                    memory = instruction.operands[0][1]
+                    pointer_segment = memory_segment_expression(memory)
+                    pointer_offset = memory_offset_expression(memory, True)
+                    lines.extend(
+                        [
+                            f"    control_offset = d2e_x86_read16_seg(cpu, {pointer_segment}, {pointer_offset});",
+                            f"    control_segment = d2e_x86_read16_seg(cpu, {pointer_segment}, (uint16_t)({pointer_offset} + UINT16_C(2)));",
+                            "    if (cpu->stop_reason != D2E_X86_RUNNING) { goto finish; }",
+                        ]
+                    )
+                else:
                     raise TranslationError(
                         f"unsupported far jump {instruction.address:04x}: {instruction.op_str}"
                     )
-                segment = int(instruction.operands[0][1]) & 0xFFFF
-                offset = int(instruction.operands[1][1]) & 0xFFFF
                 lines.extend(
                     [
-                        f"    cpu->segments[D2E_X86_CS] = UINT16_C(0x{segment:04x});",
-                        f"    cpu->ip = UINT16_C(0x{offset:04x});",
-                        "    cpu->fault_cs = cpu->segments[D2E_X86_CS];",
-                        "    cpu->fault_ip = cpu->ip;",
-                        "    cpu->stop_reason = D2E_X86_UNTRANSLATED_TARGET;",
+                        "    cpu->segments[D2E_X86_CS] = control_segment;",
+                        "    cpu->ip = control_offset;",
                         f"    retired += UINT64_C({len(block)});",
-                        "    goto finish;",
+                        "    goto dispatch;",
                     ]
                 )
                 terminated = True

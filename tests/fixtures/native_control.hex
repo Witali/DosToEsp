@@ -1,0 +1,6 @@
+# Generated from native_control.asm; ORG 0100.
+31 d2 75 10 75 10 75 24 75 24 b8 14 01 ff d0 bb 16 01 ff e3
+41 c3 cc ce b8 ff 7f 05 01 00 ce 9a 2c 01 00 10
+ff 1e 2f 01 ff 2e 33 01 46 cb f4
+# Far call pointer 1000:012c and far jump pointer 1000:012e.
+2c 01 00 10 2e 01 00 10

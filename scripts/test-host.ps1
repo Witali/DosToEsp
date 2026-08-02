@@ -164,6 +164,9 @@ if ($LASTEXITCODE -ne 0) { throw "Native rare-instruction tests failed" }
 & (Join-Path $build "d2e_native_indirect_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native indirect jump-table tests failed" }
 
+& (Join-Path $build "d2e_native_control_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "Native complete control-flow tests failed" }
+
 & (Join-Path $build "d2e_native_adc_flags_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native ADC/flags-stack tests failed" }
 

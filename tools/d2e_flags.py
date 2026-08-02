@@ -113,7 +113,7 @@ def effects(instruction: Any) -> FlagEffects:
         return FlagEffects(defines=STATUS)
     if mnemonic in ("loope", "loopne"):
         return FlagEffects(reads=ZF)
-    if mnemonic in ("int", "iret"):
+    if mnemonic in ("int", "int3", "into", "iret"):
         return FlagEffects(reads=ALL)
 
     operation = mnemonic.removeprefix("rep ").removeprefix(
@@ -142,6 +142,7 @@ def effects(instruction: Any) -> FlagEffects:
         "loop",
         "jcxz",
         "call",
+        "lcall",
         "ret",
         "retf",
         "ljmp",
@@ -216,6 +217,14 @@ def analyze(blocks: Mapping[int, Sequence[Any]]) -> FlagLiveness:
             target for target in targets if target in leaders
         )
         has_external_edge = any(target not in leaders for target in targets)
+        if final.mnemonic in ("call", "lcall") and _direct_target(final) is None:
+            has_external_edge = True
+        if (
+            final.mnemonic == "jmp"
+            and _direct_target(final) is None
+            and not final.indirect_targets
+        ):
+            has_external_edge = True
         if final.mnemonic in ("ret", "retf", "iret", "ljmp"):
             has_external_edge = True
         # HLT has no subsequent guest consumer, so it does not force flags live.

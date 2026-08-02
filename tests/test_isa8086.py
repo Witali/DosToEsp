@@ -34,8 +34,12 @@ CASES = (
     Case("xlat", "d7", "xlatb"),
     Case("in-byte", "e4 60", "in"),
     Case("in-word", "e5 60", "in"),
+    Case("in-byte-dx", "ec", "in"),
+    Case("in-word-dx", "ed", "in"),
     Case("out-byte", "e6 60", "out"),
     Case("out-word", "e7 60", "out"),
+    Case("out-byte-dx", "ee", "out"),
+    Case("out-word-dx", "ef", "out"),
     Case("lea", "8d 00", "lea"),
     Case("lds", "c5 18", "lds"),
     Case("les", "c4 00", "les"),
@@ -95,9 +99,11 @@ CASES = (
     Case("call-near", "e8 00 00", "call", control=True),
     Case("call-indirect", "ff d0", "call", control=True),
     Case("call-far", "9a 34 12 78 56", "lcall", control=True),
+    Case("call-far-indirect", "ff 18", "lcall", control=True),
     Case("jmp-short", "eb 00", "jmp", control=True),
     Case("jmp-indirect", "ff e0", "jmp", control=True),
     Case("jmp-far", "ea 34 12 78 56", "ljmp", control=True),
+    Case("jmp-far-indirect", "ff 28", "ljmp", control=True),
     Case("ret", "c3", "ret", control=True),
     Case("ret-immediate", "c2 04 00", "ret", control=True),
     Case("retf", "cb", "retf", control=True),
@@ -143,13 +149,7 @@ CASES = (
 
 # These are verified coverage gaps, not accepted semantics. Each implementation
 # change removes its labels and adds behavioral assertions before committing.
-KNOWN_GAPS = {
-    "call-far",
-    "call-indirect",
-    "int3",
-    "into",
-    "jmp-indirect",
-}
+KNOWN_GAPS: set[str] = set()
 
 
 def decode(case: Case) -> d2e_translate.Instruction:
