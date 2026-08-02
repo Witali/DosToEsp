@@ -115,28 +115,40 @@ the complete module should be approximately 680-750 KiB.
 
 ## Stage 3: enable safe Xtensa call relaxation
 
-The current module compiler uses `-mlongcalls`, and the final linker retains
-the resulting absolute literal references. Test final linking with:
+The initial automatic-call-sizing rollout is complete. Native C modules are
+compiled with:
+
+```text
+-mno-longcalls -Wa,--longcalls
+```
+
+GCC therefore emits normal direct calls, while the assembler preserves a
+full-range sequence for destinations not yet known to be reachable. Final
+linking uses:
 
 ```text
 --relax --size-opt --emit-relocs
 ```
 
-The linker should convert reachable internal long-call sequences back to
-PC-relative `call8` instructions. Keep unresolved resident-shell calls in a
-long-call form until import veneers are available.
+The linker can convert reachable inter-object long-call sequences back to
+PC-relative `call8` instructions. Unresolved resident-shell calls remain in a
+full-range form. Volkov Commander host and XIP QEMU tests pass in this mode.
 
-Before enabling this by default:
+The rollout does not change the current Volkov Commander module size, IROM
+size, DROM size, or 28,805-record relocation count. Most retained IROM records
+belong to absolute dispatch targets and literal tables rather than relaxable
+call sites. Stages 4 and 5 remain necessary for a material reduction.
+
+Any further call-generation changes must:
 
 - verify that all relocation kinds remaining after relaxation are supported;
 - verify post-relaxation literal values, because literal pools may be merged;
-- compare generated code and relocation counts with and without relaxation;
+- compare generated code and relocation counts with the automatic baseline;
 - run native control-flow tests and both XIP QEMU targets;
 - confirm that `--emit-relocs` describes the final patch words.
 
-If global `-mlongcalls` still blocks useful relaxation, compile internal calls
-normally and mark only external import declarations as long calls. Do not emit
-an out-of-range direct call to an unresolved import.
+Do not restore global `-mlongcalls` or emit an out-of-range direct call to an
+unresolved import.
 
 ## Stage 4: replace absolute dispatch pointers
 
