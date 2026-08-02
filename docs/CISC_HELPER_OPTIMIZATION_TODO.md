@@ -114,3 +114,16 @@ The full CMake reconfigure changed the common linked firmware size while the
 226,493-byte generated CISC control stayed unchanged. Consequently, the direct
 `RET` decision uses its immediately preceding fresh control rather than the
 older absolute application-image rows.
+
+## Current checkpoint
+
+- Application image: 649,856 bytes, 44,144 bytes below the original absolute
+  baseline despite the later common-component size increase.
+- Generated direct assembly: 228,178 linked bytes, including literals.
+- Generated CISC regions and bridge: 65,620 linked bytes, down 361,917 bytes
+  from the baseline CISC contribution and only 84 bytes above 64 KiB.
+- Total translated code: 293,798 linked bytes, down 192,700 bytes (39.6%) from
+  the original 486,498-byte direct-plus-CISC contribution.
+- Direct/fallback split: 2,850/382 blocks, versus 548/2,684 at baseline.
+- Bounded board QEMU: 60 rendered frames, LittleFS A: and SD FAT C: mounted,
+  active 259 Hz PC-speaker tone, clean shell return and `D2E_QEMU_DONE,0`.
