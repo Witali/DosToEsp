@@ -169,8 +169,10 @@ def main() -> int:
         )
         assert ".global program_region" in assembly
         assert ".global d2e_generated_program" in assembly
-        assert "l32r a4, .Lprogram_region_immediate_" in assembly
-        assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in assembly
+        assert "call8 d2e_native_helper_read16" in assembly
+        assert "call8 d2e_native_helper_write16" in assembly
+        assert "(D2E_ASM_X86_DS_INDEX * 2)" in assembly
+        assert "s16i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in assembly
         assert "l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in assembly
         assert "s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + 6" in assembly
         assert "call8 d2e_native_helper_mul16" in assembly
@@ -180,15 +182,17 @@ def main() -> int:
         assert "does not yet materialize live ADD flags" not in assembly
         assert ".Lprogram_region_block_0100:" in assembly
         assert ".Lprogram_region_block_010b:" in assembly
-        assert ".Lprogram_region_block_0113:" in assembly
+        assert ".Lprogram_region_block_0119:" in assembly
         assert "movi a8, -65" in assembly
         assert "beqz a4, .Lprogram_region_branch_taken_" in assembly
         add_start = assembly.index("/* 0103: add ax, 1 */")
         cmp_start = assembly.index("/* 0106: cmp ax, 0x1235 */")
         assert "D2E_ASM_CPU_FLAGS_OFFSET" not in assembly[add_start:cmp_start]
         assert ".Lprogram_image" not in assembly
-        assert ".Lprogram_fragments" not in assembly
-        assert ".byte 0xb8, 0x34, 0x12, 0x89, 0xc3" not in assembly
+        assert ".Lprogram_fragments" in assembly
+        assert ".long 29" in assembly
+        assert ".byte 0x34, 0x12" in assembly
+        assert ".byte 0xa1, 0x1d, 0x01" not in assembly
         assert ".long 0 /* full image omitted */" in assembly
 
         c_default = d2e_translate.emit_program(

@@ -12,3 +12,13 @@ void d2e_native_helper_mul16(d2e_x86_cpu *cpu, uint16_t operand,
     cpu->regs[D2E_X86_AX] = (uint16_t)result;
     cpu->regs[D2E_X86_DX] = (uint16_t)(result >> 16U);
 }
+
+uint16_t d2e_native_helper_read16(const d2e_x86_cpu *cpu, uint16_t segment,
+                                  uint16_t offset) {
+    return d2e_x86_read16_seg(cpu, segment, offset);
+}
+
+void d2e_native_helper_write16(d2e_x86_cpu *cpu, uint16_t segment,
+                               uint16_t offset, uint16_t value) {
+    d2e_x86_write16_seg(cpu, segment, offset, value);
+}
