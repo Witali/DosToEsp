@@ -185,6 +185,9 @@ def main() -> int:
         assert ".Lprogram_region_block_0119:" in assembly
         assert "movi a9, -65" in assembly
         assert "beqz a4, .Lprogram_region_branch_taken_" in assembly
+        assert assembly.count(".Lprogram_region_budget_finish:") == 1
+        assert assembly.count("j .Lprogram_region_budget_finish") == len(blocks)
+        assert assembly.count(".Lprogram_region_untranslated:") == 1
         add_start = assembly.index("/* 0103: add ax, 1 */")
         cmp_start = assembly.index("/* 0106: cmp ax, 0x1235 */")
         assert "D2E_ASM_CPU_FLAGS_OFFSET" not in assembly[add_start:cmp_start]

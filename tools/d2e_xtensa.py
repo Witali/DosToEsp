@@ -757,8 +757,8 @@ def emit_program(
             [
                 f"{_block_label(leader)}:",
                 f"    bltu a6, a3, {execute}",
-                *_emit_store_ip(emitter, leader),
-                "    j .Lprogram_region_finish",
+                f"    l32r a4, {leader_literals[leader]}",
+                "    j .Lprogram_region_budget_finish",
                 f"{execute}:",
             ]
         )
@@ -954,8 +954,31 @@ def emit_program(
             ]
         )
     lines.extend(unknown)
+    lines.append("    j .Lprogram_region_untranslated")
+    lines.append(".Lprogram_region_budget_finish:")
+    if image_format == "mz":
+        lines.extend(
+            [
+                (
+                    "    l16ui a5, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + "
+                    "(D2E_ASM_X86_CS_INDEX * 2)"
+                ),
+                f"    l32r a8, {load_literal}",
+                "    sub a5, a5, a8",
+                "    extui a5, a5, 0, 16",
+                "    slli a5, a5, 4",
+                "    sub a4, a4, a5",
+            ]
+        )
     lines.extend(
         [
+            "    s16i a4, a2, D2E_ASM_CPU_IP_OFFSET",
+            "    j .Lprogram_region_finish",
+        ]
+    )
+    lines.extend(
+        [
+            ".Lprogram_region_untranslated:",
             "    l16ui a4, a2, D2E_ASM_CPU_SEGMENTS_OFFSET + (D2E_ASM_X86_CS_INDEX * 2)",
             "    s16i a4, a2, D2E_ASM_CPU_FAULT_CS_OFFSET",
             "    l16ui a4, a2, D2E_ASM_CPU_IP_OFFSET",

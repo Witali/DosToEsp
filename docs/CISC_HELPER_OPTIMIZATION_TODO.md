@@ -35,7 +35,7 @@ bounded QEMU workload.
   counter only at synchronization points.
 - [x] Share static MZ guest-PC materialization at each CISC region boundary
   instead of repeating the CS-relative formula on every control-flow edge.
-- [ ] Share cold budget-exhaustion paths instead of repeating them in every
+- [x] Share cold budget-exhaustion paths instead of repeating them in every
   direct assembly block.
 - [ ] Remove stop-reason checks only after translator-backed proof that the
   preceding operation cannot fault.
@@ -56,6 +56,7 @@ bounded QEMU workload.
 | Shared ZF-only result helper | 622,880 (+48) | 356,695 (+0) | Not run | Revert: call sites do not shrink and the helper adds flash code |
 | Pack CISC retired delta into the assembly handoff | 608,208 (-14,624) | 342,383 (-14,312) | Pass | Keep: one shared 64-bit synchronization path |
 | Share static MZ PC materialization per region | 574,368 (-33,840) | 308,545 (-33,838) | Pass | Keep: replaces more than 4,000 repeated CS-relative expressions |
+| Share direct assembly budget-exhaustion path | 562,704 (-11,664) | 308,545 (+0) | Pass | Keep: removes duplicated cold MZ formulas and edge-target literals |
 
 Blanket `-Os`, binary-search dispatch, and outlining of hot instruction
 semantics are not default solutions because they can trade execution speed for
