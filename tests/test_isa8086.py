@@ -162,6 +162,8 @@ KNOWN_XTENSA_DIRECT = {
     "dec",
     "hlt",
     "inc",
+    "int",
+    "int3",
     "jcxz",
     "ja",
     "jae",

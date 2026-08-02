@@ -999,6 +999,31 @@ def _emit_store_ip(emitter: _Emitter, target: int) -> list[str]:
     return lines
 
 
+def _emit_interrupt(emitter: _Emitter, instruction: Any) -> list[str]:
+    if instruction.mnemonic == "int3":
+        if instruction.operands:
+            raise _error(instruction, "requires operand-free INT3")
+        interrupt_number = 3
+    elif instruction.mnemonic == "int":
+        interrupt_number = _direct_target(instruction)
+        if interrupt_number > 0xFF:
+            raise _error(instruction, "requires an 8-bit interrupt number")
+    else:
+        raise _error(instruction, "requires INT or INT3")
+
+    completed = emitter.local("interrupt_completed")
+    return [
+        *_emit_store_ip(emitter, instruction.next_address),
+        "    mov a10, a2",
+        f"    movi a11, {interrupt_number}",
+        "    call8 d2e_native_interrupt",
+        "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+        f"    beqz a4, {completed}",
+        "    j .Lprogram_region_finish",
+        f"{completed}:",
+    ]
+
+
 def _emit_near_call(emitter: _Emitter, instruction: Any) -> list[str]:
     _direct_target(instruction)
     completed = emitter.local("call_push_completed")
@@ -1737,6 +1762,10 @@ def native_block_leaders(
                     if index != len(sequence) - 1:
                         raise _error(instruction, "requires RET to end its block")
                     _emit_near_return(emitter, instruction)
+                elif mnemonic in ("int", "int3"):
+                    if index != len(sequence) - 1:
+                        raise _error(instruction, "requires INT to end its block")
+                    _emit_interrupt(emitter, instruction)
                 elif mnemonic == "push":
                     _emit_stack_push(emitter, instruction)
                 elif mnemonic == "pop":
@@ -1994,6 +2023,15 @@ def emit_program(
                 body.extend(_emit_retired(emitter, len(block)))
                 body.append("    j .Lprogram_region_dispatch")
                 terminated = True
+            elif mnemonic in ("int", "int3"):
+                if index != len(block) - 1:
+                    raise _error(instruction, "requires INT to end its block")
+                body.extend(_emit_retired(emitter, len(block)))
+                body.extend(_emit_interrupt(emitter, instruction))
+                body.extend(
+                    _emit_edge(emitter, instruction.next_address, native_blocks)
+                )
+                terminated = True
             elif mnemonic == "push":
                 body.extend(_emit_stack_push(emitter, instruction))
             elif mnemonic == "pop":
@@ -2110,6 +2148,7 @@ def emit_program(
         '#include "d2e/native_asm_offsets.h"',
         "    .extern d2e_native_helper_mul16",
         "    .extern d2e_native_helper_push_near_return",
+        "    .extern d2e_native_interrupt",
         "    .extern d2e_x86_pop16",
         "    .extern d2e_x86_push16",
         "    .extern d2e_x86_add8",

@@ -62,8 +62,10 @@ bounded workload.
   Direct `CF`/`ZF` subsets stay inline, full live flags use the common x86
   helpers, and small immediates use `addi` when carry is dead. This moved 137
   Alley Cat blocks out of fallback and reduced IROM by 5,698 bytes.
-- [ ] Lower `INT` as a direct call to the program-independent interrupt helper.
-  The audit found 111 blocks, primarily `INT 1Ah` and `INT 10h`.
+- [x] Lower `INT imm8` and `INT3` as direct calls to the program-independent
+  interrupt helper. This moved 113 Alley Cat blocks out of fallback, primarily
+  BIOS `INT 1Ah` and `INT 10h` calls, while preserving the architectural next
+  IP before entering the shell service.
 - [ ] Lower `IN` and `OUT` as direct calls to the shared port helpers. The audit
   found 44 fallback blocks.
 - [ ] Lower variable-count shifts directly or through shared ALU helpers. The
@@ -186,3 +188,4 @@ bounded workload.
 | Automatic block-local register cache | 299,512 | 31,420 | 424,636 | 382 | Not measured | Keep: 126 runs, IROM -412, 133 instructions and 101 CPU accesses removed; QEMU passed at 259 Hz |
 | Optional supervisor-step cycle profile | 299,512 | 31,420 | 424,636 | 382 | 70,358 cycles/1K instructions | Keep: opt-in instrumentation; 60-frame QEMU control retired 12,882,251 guest instructions at 259 Hz |
 | Direct byte/memory/live-flags `ADD` | 293,814 | 31,420 | 424,636 | 245 | 68,688 cycles/1K instructions | Keep: IROM -5,698, fallback -137 and measured cycles -2.4%; 60-frame QEMU run passed at 259 Hz |
+| Direct `INT imm8` and `INT3` | 281,974 | 31,420 | 424,636 | 132 | 46,381 cycles/1K instructions | Keep: IROM -11,840, fallback -113 and measured cycles -32.5%; 60-frame QEMU run passed at 259 Hz |

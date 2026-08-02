@@ -574,6 +574,32 @@ def main() -> int:
         assert "/* 0104: ret  */" in direct_call_assembly
         assert "call8 d2e_x86_pop16" in direct_call_assembly
 
+        for fixture, expected_comment, expected_number in (
+            (bytes.fromhex("cd 10 f4"), "/* 0100: int 0x10 */", 16),
+            (bytes.fromhex("cc f4"), "/* 0100: int3  */", 3),
+        ):
+            output = pathlib.Path(temporary) / f"asm-direct-int-{expected_number}"
+            manifest = d2e_build.build_sources(
+                fixture,
+                f"direct-int-{expected_number}.com",
+                "com",
+                f"direct_int_{expected_number}",
+                0x1000,
+                output,
+                "xtensa-asm",
+            )
+            assert manifest["status"] == "complete"
+            assert manifest["generated_sources"] == ["game_native.S"]
+            direct_int_assembly = (output / "game_native.S").read_text(
+                encoding="utf-8"
+            )
+            assert expected_comment in direct_int_assembly
+            assert f"movi a11, {expected_number}" in direct_int_assembly
+            assert "call8 d2e_native_interrupt" in direct_int_assembly
+            assert "l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET" in (
+                direct_int_assembly
+            )
+
         direct_return_fixture = bytes.fromhex("c2 80 00")
         output = pathlib.Path(temporary) / "asm-direct-return"
         manifest = d2e_build.build_sources(
