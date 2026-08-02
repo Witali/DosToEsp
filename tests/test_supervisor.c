@@ -50,7 +50,7 @@ static void test_catalog(void) {
     CHECK(!d2e_package_validate(&invalid));
     invalid = packages[0];
     invalid.storage = D2E_PACKAGE_EXTERNAL_MODULE;
-    CHECK(!d2e_package_validate(&invalid));
+    CHECK(d2e_package_validate(&invalid));
 }
 
 static void test_lifecycle(void) {

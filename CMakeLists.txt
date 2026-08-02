@@ -21,6 +21,7 @@ add_library(d2e_core
     src/core/x86_control.c
     src/core/x86_cpu.c
     src/core/x86_memory.c
+    src/core/xip_module.c
     src/shell/shell.c
 )
 target_include_directories(d2e_core PUBLIC include)
@@ -154,6 +155,17 @@ if(BUILD_TESTING)
         )
     endif()
     add_test(NAME d2e_loader_tests COMMAND d2e_loader_tests)
+
+    add_executable(d2e_xip_module_tests tests/test_xip_module.c)
+    target_link_libraries(d2e_xip_module_tests PRIVATE d2e_core)
+    if(MSVC)
+        target_compile_options(d2e_xip_module_tests PRIVATE /W4 /WX)
+    else()
+        target_compile_options(d2e_xip_module_tests PRIVATE
+            -Wall -Wextra -Wpedantic -Werror
+        )
+    endif()
+    add_test(NAME d2e_xip_module_tests COMMAND d2e_xip_module_tests)
 
     set(D2E_PYTHON "" CACHE FILEPATH "Python used by the host translator")
     set(D2E_ALLEY_CAT_EXE "" CACHE FILEPATH "Optional local Alley Cat MZ image")

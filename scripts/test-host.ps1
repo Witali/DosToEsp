@@ -134,6 +134,9 @@ if ($LASTEXITCODE -ne 0) { throw "PC keyboard input tests failed" }
 & (Join-Path $build "d2e_loader_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "MZ loader tests failed" }
 
+& (Join-Path $build "d2e_xip_module_tests.exe")
+if ($LASTEXITCODE -ne 0) { throw "XIP module format tests failed" }
+
 & (Join-Path $build "d2e_native_tests.exe")
 if ($LASTEXITCODE -ne 0) { throw "Native translation tests failed" }
 

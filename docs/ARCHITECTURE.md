@@ -1,5 +1,11 @@
 # Architecture
 
+Translated applications may be linked into a development firmware or installed
+as `D2EXIP1` modules on the raw `A:` Flash volume. In the installed model the
+shell maps application IROM/DROM directly from SPI Flash and supplies the
+shared CPU, device, supervisor, and CISC-helper ABI. See
+[`XIP_MODULE_FORMAT.md`](XIP_MODULE_FORMAT.md) for the on-Flash contract.
+
 ## Native translation contract
 
 Directly converting a whole DOS executable into fixed Xtensa addresses is not

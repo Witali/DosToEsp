@@ -38,7 +38,8 @@ int d2e_package_validate(const d2e_package *package) {
         package->title[0] == '\0' || package->program == NULL) {
         return 0;
     }
-    return package->storage == D2E_PACKAGE_BUILTIN_FLASH;
+    return package->storage == D2E_PACKAGE_BUILTIN_FLASH ||
+           package->storage == D2E_PACKAGE_EXTERNAL_MODULE;
 }
 
 const d2e_package *d2e_package_find(const d2e_package *packages,
