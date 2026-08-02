@@ -702,6 +702,82 @@ def _emit_logical(
     return lines
 
 
+def _emit_not(emitter: _Emitter, instruction: Any) -> list[str]:
+    if len(instruction.operands) != 1:
+        raise _error(instruction, "requires one NOT operand")
+    destination = instruction.operands[0]
+    width = _binary_operand_width(instruction, destination)
+    if destination[0] == "reg":
+        lines = _emit_nonmemory_value(
+            emitter, instruction, destination, width, "a4"
+        )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, width)
+        lines = [
+            *_emit_memory_arguments(emitter, instruction, memory),
+            f"    call8 d2e_native_helper_read{width}",
+            "    mov a4, a10",
+        ]
+    else:
+        raise _error(instruction, "requires a register or memory NOT operand")
+    lines.extend(
+        [
+            "    movi a5, -1",
+            "    xor a4, a4, a5",
+            f"    extui a4, a4, 0, {width}",
+        ]
+    )
+    if destination[0] == "reg":
+        register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+        destination_offset = register_offsets[str(destination[1])]
+        store = "s8i" if width == 8 else "s16i"
+        lines.append(
+            f"    {store} a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    else:
+        memory = _memory_operand(instruction, destination, width)
+        completed = emitter.local("not_write_completed")
+        lines.extend(
+            [
+                "    mov a13, a4",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_write{width}",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
+        )
+    return lines
+
+
+def _emit_flag_control(instruction: Any) -> list[str]:
+    if instruction.operands:
+        raise _error(instruction, "requires no flag-control operands")
+    mnemonic = instruction.mnemonic
+    affected = {
+        "clc": d2e_flags.CF,
+        "cmc": d2e_flags.CF,
+        "stc": d2e_flags.CF,
+        "cld": d2e_flags.DF,
+        "std": d2e_flags.DF,
+        "cli": d2e_flags.IF,
+        "sti": d2e_flags.IF,
+    }
+    if mnemonic not in affected:
+        raise _error(instruction, "uses an unsupported flag-control instruction")
+    flag = affected[mnemonic]
+    lines = ["    l16ui a4, a2, D2E_ASM_CPU_FLAGS_OFFSET"]
+    if mnemonic == "cmc":
+        lines.append(f"    xori a4, a4, {flag}")
+    elif mnemonic.startswith("cl"):
+        lines.extend([f"    movi a5, {-1 - flag}", "    and a4, a4, a5"])
+    else:
+        lines.extend([f"    movi a5, {flag}", "    or a4, a4, a5"])
+    lines.append("    s16i a4, a2, D2E_ASM_CPU_FLAGS_OFFSET")
+    return lines
+
+
 def _emit_shl16(instruction: Any, live_flags: int) -> list[str]:
     if (
         len(instruction.operands) != 2
@@ -1193,6 +1269,10 @@ def native_block_leaders(
                     _emit_inc_dec(emitter, instruction, live)
                 elif mnemonic in ("and", "or", "xor", "test"):
                     _emit_logical(emitter, instruction, live)
+                elif mnemonic == "not":
+                    _emit_not(emitter, instruction)
+                elif mnemonic in ("clc", "cmc", "stc", "cld", "std", "cli", "sti"):
+                    _emit_flag_control(instruction)
                 elif mnemonic == "shl":
                     _emit_shl16(instruction, live)
                 elif mnemonic == "mul":
@@ -1463,6 +1543,10 @@ def emit_program(
                         flag_liveness.live_defined[instruction.address],
                     )
                 )
+            elif mnemonic == "not":
+                body.extend(_emit_not(emitter, instruction))
+            elif mnemonic in ("clc", "cmc", "stc", "cld", "std", "cli", "sti"):
+                body.extend(_emit_flag_control(instruction))
             elif mnemonic == "shl":
                 body.extend(
                     _emit_shl16(

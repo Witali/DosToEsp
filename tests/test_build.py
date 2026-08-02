@@ -573,6 +573,36 @@ def main() -> int:
         assert "and a4, a4, a5" in direct_test_assembly
         assert "movi a9, -65" in direct_test_assembly
 
+        direct_unary_fixture = bytes.fromhex(
+            "f6 16 0f 01 f8 f5 f9 fc fd fa fb f4 00 00 00 ff"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-unary"
+        manifest = d2e_build.build_sources(
+            direct_unary_fixture,
+            "direct-unary.com",
+            "com",
+            "direct_unary",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_unary_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: not byte ptr [0x10f] */" in direct_unary_assembly
+        assert "call8 d2e_native_helper_read8" in direct_unary_assembly
+        assert "call8 d2e_native_helper_write8" in direct_unary_assembly
+        assert "xor a4, a4, a5" in direct_unary_assembly
+        assert "/* 0104: clc  */" in direct_unary_assembly
+        assert "/* 0105: cmc  */" in direct_unary_assembly
+        assert "/* 0106: stc  */" in direct_unary_assembly
+        assert "/* 0107: cld  */" in direct_unary_assembly
+        assert "/* 0108: std  */" in direct_unary_assembly
+        assert "/* 0109: cli  */" in direct_unary_assembly
+        assert "/* 010a: sti  */" in direct_unary_assembly
+        assert "xori a4, a4, 1" in direct_unary_assembly
+
         dead_cisc_fixture = bytes.fromhex(
             "27 83 c0 01 d1 e0 f7 e3 f4"
         )

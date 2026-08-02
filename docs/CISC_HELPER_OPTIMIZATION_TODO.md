@@ -64,7 +64,9 @@ bounded QEMU workload.
   - [x] byte/memory `inc` and `dec`, preserving `CF` through helpers whenever
     more than direct `ZF` materialization is live;
   - [x] byte/memory `and`, `or`, `xor`, and `test`, with direct
-    `CF`/`ZF`/`OF` materialization and full-flag helper fallback.
+    `CF`/`ZF`/`OF` materialization and full-flag helper fallback;
+  - [x] byte/memory `not` and direct `clc`/`cmc`/`stc`,
+    `cld`/`std`, and `cli`/`sti` status control.
 
 ## Evaluation log
 
@@ -94,6 +96,7 @@ bounded QEMU workload.
 | Direct byte/memory `INC` and `DEC` | 669,680 (-2,688) | 111,745 (-15,055) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 124 more native blocks and helper-backed carry preservation when required |
 | Direct byte/memory `AND`, `OR`, `XOR`, and `TEST` | 665,280 (-4,400) | 91,091 (-20,654) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 169 more native blocks and full helpers only when flags beyond the direct `CF`/`ZF`/`OF` subset are live |
 | Pass the materialized module target into CISC regions | 662,512 (-2,768) | 88,381 (-2,710) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: removes duplicate `CS:IP` address reconstruction in both the bridge and selected region |
+| Direct `NOT` and status-control instructions | 657,168 (-5,344) | 81,477 (-6,904) | Pass; 60 frames, A:/C: mounted, 259 Hz, clean shell return | Keep: 86 more native blocks, 489 fallback blocks remain, and one CISC region disappears |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
