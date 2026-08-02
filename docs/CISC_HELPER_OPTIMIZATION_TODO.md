@@ -54,7 +54,9 @@ bounded QEMU workload.
     - [x] register and segment `push`/`pop`, including 8086 `push sp`;
     - [x] `pushf`/`popf` with the 8086 writable-flags mask;
     - [x] memory forms (neutral on the current Alley Cat block set);
-  - [ ] memory and byte forms of `cmp`/`sub`;
+  - [x] memory and byte forms of `cmp`, using ALU helpers only for flags beyond
+    the direct `CF`/`ZF` subset;
+  - [ ] memory and byte forms of `sub`;
   - [ ] common logical and increment/decrement instructions.
 
 ## Evaluation log
@@ -79,6 +81,7 @@ bounded QEMU workload.
 | Direct register/segment `PUSH` and `POP` | 681,424 (-976) | 197,093 (-7,598) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 73 more native blocks, explicit 8086 `PUSH SP`, and no new helper |
 | Direct `PUSHF` and `POPF` | 681,328 (-96) | 196,906 (-187) | Pass; 60 frames, 259 Hz, clean shell return | Keep: one more native block and the existing `0x0fd5` writable-flags contract |
 | Direct memory `PUSH` and `POP` | 681,328 (+0) | 196,906 (+0) | Host pass; Alley Cat QEMU unchanged | Keep: general translator coverage with no Alley Cat image cost |
+| Direct byte/memory `CMP` and full-flags helper fallback | 673,072 (-8,256) | 139,398 (-57,508) | Pass; 60 frames, 259 Hz, clean shell return | Keep: 557 more native blocks and helpers only when partial direct flags are insufficient |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured

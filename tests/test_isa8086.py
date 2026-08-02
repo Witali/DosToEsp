@@ -152,6 +152,7 @@ CASES = (
 KNOWN_GAPS: set[str] = set()
 KNOWN_XTENSA_DIRECT = {
     "call-near",
+    "cmp",
     "hlt",
     "ja",
     "jae",

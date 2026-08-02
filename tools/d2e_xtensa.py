@@ -388,28 +388,92 @@ def _emit_compare_flags(
     return lines
 
 
+def _binary_operand_width(instruction: Any, operand: tuple[Any, Any]) -> int:
+    if operand[0] == "reg" and operand[1] in REG8_OFFSETS:
+        return 8
+    if operand[0] == "reg" and operand[1] in REG16_OFFSETS:
+        return 16
+    if operand[0] == "mem" and int(getattr(operand[1], "width", 0)) in (8, 16):
+        return int(getattr(operand[1], "width"))
+    raise _error(instruction, "requires an 8/16-bit binary operand")
+
+
+def _emit_nonmemory_value(
+    emitter: _Emitter,
+    instruction: Any,
+    operand: tuple[Any, Any],
+    width: int,
+    target_register: str,
+) -> list[str]:
+    register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+    load = "l8ui" if width == 8 else "l16ui"
+    if operand[0] == "reg" and operand[1] in register_offsets:
+        offset = register_offsets[str(operand[1])]
+        return [
+            f"    {load} {target_register}, a2, D2E_ASM_CPU_REGS_OFFSET + {offset}"
+        ]
+    if operand[0] == "imm":
+        mask = 0xFF if width == 8 else 0xFFFF
+        literal = emitter.literal(int(operand[1]) & mask, "immediate")
+        return [f"    l32r {target_register}, {literal}"]
+    raise _error(instruction, "uses mismatched or unsupported binary operands")
+
+
+def _emit_binary_values(
+    emitter: _Emitter,
+    instruction: Any,
+    left: tuple[Any, Any],
+    right: tuple[Any, Any],
+    width: int,
+) -> list[str]:
+    if left[0] == "mem" and right[0] == "mem":
+        raise _error(instruction, "cannot use two memory operands")
+    if right[0] == "mem":
+        memory = _memory_operand(instruction, right, width)
+        return [
+            *_emit_memory_arguments(emitter, instruction, memory),
+            f"    call8 d2e_native_helper_read{width}",
+            "    mov a5, a10",
+            *_emit_nonmemory_value(emitter, instruction, left, width, "a4"),
+        ]
+    lines: list[str] = []
+    if left[0] == "mem":
+        memory = _memory_operand(instruction, left, width)
+        lines.extend(
+            [
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_read{width}",
+                "    mov a4, a10",
+            ]
+        )
+    else:
+        lines.extend(
+            _emit_nonmemory_value(emitter, instruction, left, width, "a4")
+        )
+    lines.extend(_emit_nonmemory_value(emitter, instruction, right, width, "a5"))
+    return lines
+
+
 def _emit_cmp16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[str]:
     if len(instruction.operands) != 2:
         raise _error(instruction, "requires a two-operand CMP")
     left, right = instruction.operands
-    if left[0] != "reg" or left[1] not in REG16_OFFSETS:
-        raise _error(instruction, "currently supports only 16-bit register CMP left operands")
-    if live_flags & ~(d2e_flags.CF | d2e_flags.ZF):
-        raise _error(instruction, "does not yet materialize these live CMP flags")
+    width = _binary_operand_width(instruction, left)
     if live_flags == 0:
         return ["    /* CMP result and all flags are dead. */"]
 
-    left_offset = REG16_OFFSETS[str(left[1])]
-    lines = [f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {left_offset}"]
-    if right[0] == "imm":
-        right_literal = emitter.literal(int(right[1]) & 0xFFFF, "immediate")
-        lines.append(f"    l32r a5, {right_literal}")
-    elif right[0] == "reg" and right[1] in REG16_OFFSETS:
-        right_offset = REG16_OFFSETS[str(right[1])]
-        lines.append(f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {right_offset}")
+    lines = _emit_binary_values(emitter, instruction, left, right, width)
+    if live_flags & ~(d2e_flags.CF | d2e_flags.ZF):
+        lines.extend(
+            [
+                "    mov a10, a2",
+                "    mov a11, a4",
+                "    mov a12, a5",
+                f"    call8 d2e_x86_sub{width} /* CMP result discarded */",
+            ]
+        )
     else:
-        raise _error(instruction, "currently supports only immediate/register CMP right operands")
-    lines.extend(_emit_compare_flags(emitter, "a4", "a5", live_flags))
+        lines.extend(_emit_compare_flags(emitter, "a4", "a5", live_flags))
     return lines
 
 
@@ -1230,6 +1294,8 @@ def emit_program(
         "    .extern d2e_native_helper_push_near_return",
         "    .extern d2e_x86_pop16",
         "    .extern d2e_x86_push16",
+        "    .extern d2e_x86_sub8",
+        "    .extern d2e_x86_sub16",
         "    .extern d2e_native_helper_read8",
         "    .extern d2e_native_helper_read16",
         "    .extern d2e_native_helper_write8",

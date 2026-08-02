@@ -440,6 +440,31 @@ def main() -> int:
         assert "call8 d2e_native_helper_write16" in direct_memory_stack_assembly
         assert ".byte 0xef, 0xbe, 0x00, 0x00" in direct_memory_stack_assembly
 
+        direct_byte_compare_fixture = bytes.fromhex(
+            "80 3e 09 01 01 72 01 f4 f4 00"
+        )
+        output = pathlib.Path(temporary) / "asm-direct-byte-compare"
+        manifest = d2e_build.build_sources(
+            direct_byte_compare_fixture,
+            "direct-byte-compare.com",
+            "com",
+            "direct_byte_compare",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        direct_byte_compare_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: cmp byte ptr [0x109], 1 */" in direct_byte_compare_assembly
+        assert "call8 d2e_native_helper_read8" in direct_byte_compare_assembly
+        assert "call8 d2e_x86_sub8 /* CMP result discarded */" not in (
+            direct_byte_compare_assembly
+        )
+        assert "D2E_ASM_CPU_FLAGS_OFFSET" in direct_byte_compare_assembly
+        assert ".byte 0x00" in direct_byte_compare_assembly
+
         dead_cisc_fixture = bytes.fromhex(
             "27 83 c0 01 d1 e0 f7 e3 f4"
         )
