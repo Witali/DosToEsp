@@ -338,37 +338,74 @@ def _emit_add16(emitter: _Emitter, instruction: Any, live_flags: int) -> list[st
     if len(instruction.operands) != 2:
         raise _error(instruction, "requires a two-operand ADD")
     destination, source = instruction.operands
-    if destination[0] != "reg" or destination[1] not in REG16_OFFSETS:
-        raise _error(instruction, "currently supports only 16-bit register ADD destinations")
-    if live_flags not in (0, d2e_flags.ZF):
-        raise _error(instruction, "does not yet materialize live ADD flags")
-
-    destination_offset = REG16_OFFSETS[str(destination[1])]
-    lines = [
-        f"    l16ui a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-    ]
-    if source[0] == "imm":
-        lines.extend(
-            _emit_load_constant(
-                emitter, "a5", int(source[1]) & 0xFFFF, "immediate"
-            )
-        )
-    elif source[0] == "reg" and source[1] in REG16_OFFSETS:
-        source_offset = REG16_OFFSETS[str(source[1])]
-        lines.append(
-            f"    l16ui a5, a2, D2E_ASM_CPU_REGS_OFFSET + {source_offset}"
+    width = _binary_operand_width(instruction, destination)
+    direct_flags = (live_flags & ~(d2e_flags.CF | d2e_flags.ZF)) == 0
+    immediate_add: int | None = None
+    if (
+        direct_flags
+        and (live_flags & d2e_flags.CF) == 0
+        and destination[0] == "reg"
+        and source[0] == "imm"
+    ):
+        value = int(source[1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        if -128 <= signed <= 127:
+            immediate_add = signed
+    if immediate_add is not None:
+        lines = _emit_nonmemory_value(
+            emitter, instruction, destination, width, "a4"
         )
     else:
-        raise _error(instruction, "currently supports only immediate/register ADD sources")
-    lines.extend(
-        [
-            "    add a4, a4, a5",
-            "    extui a4, a4, 0, 16",
-            f"    s16i a4, a2, D2E_ASM_CPU_REGS_OFFSET + {destination_offset}",
-        ]
-    )
-    if live_flags == d2e_flags.ZF:
-        lines.extend(_emit_zero_flag(emitter, "a4"))
+        lines = _emit_binary_values(
+            emitter, instruction, destination, source, width
+        )
+
+    if direct_flags:
+        if immediate_add is not None:
+            lines.append(f"    addi a4, a4, {immediate_add}")
+        else:
+            lines.append("    add a4, a4, a5")
+        lines.append(f"    extui a4, a4, 0, {width}")
+        if live_flags:
+            lines.extend(_emit_add_flags(emitter, "a4", "a5", live_flags))
+        result_register = "a4"
+    else:
+        lines.extend(
+            [
+                "    mov a10, a2",
+                "    mov a11, a4",
+                "    mov a12, a5",
+                f"    call8 d2e_x86_add{width}",
+            ]
+        )
+        result_register = "a10"
+
+    if destination[0] == "reg":
+        register_offsets = REG8_OFFSETS if width == 8 else REG16_OFFSETS
+        if destination[1] not in register_offsets:
+            raise _error(instruction, "uses a mismatched ADD destination")
+        destination_offset = register_offsets[str(destination[1])]
+        store = "s8i" if width == 8 else "s16i"
+        lines.append(
+            f"    {store} {result_register}, a2, "
+            f"D2E_ASM_CPU_REGS_OFFSET + {destination_offset}"
+        )
+    elif destination[0] == "mem":
+        memory = _memory_operand(instruction, destination, width)
+        completed = emitter.local("add_write_completed")
+        lines.extend(
+            [
+                f"    mov a13, {result_register}",
+                *_emit_memory_arguments(emitter, instruction, memory),
+                f"    call8 d2e_native_helper_write{width}",
+                "    l32i a4, a2, D2E_ASM_CPU_STOP_REASON_OFFSET",
+                f"    beqz a4, {completed}",
+                "    j .Lprogram_region_finish",
+                f"{completed}:",
+            ]
+        )
+    else:
+        raise _error(instruction, "requires a register or memory ADD destination")
     return lines
 
 
@@ -384,6 +421,41 @@ def _emit_zero_flag(emitter: _Emitter, result_register: str) -> list[str]:
         f"{done}:",
         "    s16i a5, a2, D2E_ASM_CPU_FLAGS_OFFSET",
     ]
+
+
+def _emit_add_flags(
+    emitter: _Emitter,
+    result_register: str,
+    right_register: str,
+    live_flags: int,
+) -> list[str]:
+    lines = [
+        "    l16ui a8, a2, D2E_ASM_CPU_FLAGS_OFFSET",
+        f"    movi a9, {-1 - live_flags}",
+        "    and a8, a8, a9",
+    ]
+    if live_flags & d2e_flags.CF:
+        carry_done = emitter.local("add_carry_done")
+        lines.extend(
+            [
+                f"    bgeu {result_register}, {right_register}, {carry_done}",
+                f"    movi a9, {d2e_flags.CF}",
+                "    or a8, a8, a9",
+                f"{carry_done}:",
+            ]
+        )
+    if live_flags & d2e_flags.ZF:
+        zero_done = emitter.local("add_zero_done")
+        lines.extend(
+            [
+                f"    bnez {result_register}, {zero_done}",
+                f"    movi a9, {d2e_flags.ZF}",
+                "    or a8, a8, a9",
+                f"{zero_done}:",
+            ]
+        )
+    lines.append("    s16i a8, a2, D2E_ASM_CPU_FLAGS_OFFSET")
+    return lines
 
 
 def _emit_compare_flags(
@@ -1421,6 +1493,14 @@ def _cached_baseline_instruction_count(instruction: Any) -> int:
     """Estimate existing direct-lowering instructions for a cacheable op."""
     if instruction.mnemonic == "mov":
         return 2
+    if (
+        instruction.mnemonic == "add"
+        and instruction.operands[1][0] == "imm"
+    ):
+        value = int(instruction.operands[1][1]) & 0xFFFF
+        signed = value if value < 0x8000 else value - 0x10000
+        if -128 <= signed <= 127:
+            return 4
     if instruction.mnemonic in ("add", "sub", "and", "or", "xor", "not"):
         return 5
     if instruction.mnemonic in ("inc", "dec"):
@@ -2032,6 +2112,8 @@ def emit_program(
         "    .extern d2e_native_helper_push_near_return",
         "    .extern d2e_x86_pop16",
         "    .extern d2e_x86_push16",
+        "    .extern d2e_x86_add8",
+        "    .extern d2e_x86_add16",
         "    .extern d2e_x86_sub8",
         "    .extern d2e_x86_sub16",
         "    .extern d2e_x86_inc8",

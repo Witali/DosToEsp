@@ -178,10 +178,6 @@ def main() -> int:
         assert "call8 d2e_native_helper_mul16" in assembly
         assert "l16ui a11, a2, D2E_ASM_CPU_REGS_OFFSET + 2" in assembly
         assert "movi a12, 0 /* no MUL flags are live */" in assembly
-        assert (
-            "/* Register cache: AX=a4; estimated saving 1 instructions, "
-            "0 CPU accesses. */"
-        ) in assembly
         assert "addi a4, a4, 1" in assembly
         assert "does not yet materialize live ADD flags" not in assembly
         assert ".Lprogram_region_block_0100:" in assembly
@@ -297,7 +293,97 @@ def main() -> int:
             0x100,
         )
         assert "/* Register cache:" not in live_add_assembly
-        assert "s16i a5, a2, D2E_ASM_CPU_FLAGS_OFFSET" in live_add_assembly
+        assert "s16i a8, a2, D2E_ASM_CPU_FLAGS_OFFSET" in live_add_assembly
+
+        live_immediate_add_fixture = bytes.fromhex(
+            "83 c0 01 74 01 f4 f4"
+        )  # add ax,1; jz taken
+        live_immediate_add_decoded = d2e_translate.discover(
+            live_immediate_add_fixture, 0x100, 0x100
+        )
+        live_immediate_add_blocks = d2e_translate.make_blocks(
+            live_immediate_add_decoded, 0x100
+        )
+        live_immediate_add_assembly = d2e_xtensa.emit_program(
+            live_immediate_add_fixture,
+            live_immediate_add_blocks,
+            "live_immediate_add",
+            0x1000,
+            0x100,
+        )
+        assert "addi a4, a4, 1" in live_immediate_add_assembly
+        assert "movi a5, 1" not in live_immediate_add_assembly
+        assert "l32r a5, .Lprogram_region_immediate" not in (
+            live_immediate_add_assembly
+        )
+
+        full_flags_add_fixture = bytes.fromhex(
+            "00 d8 9c f4"
+        )  # add al,bl; pushf; hlt
+        output = pathlib.Path(temporary) / "asm-direct-full-flags-add"
+        manifest = d2e_build.build_sources(
+            full_flags_add_fixture,
+            "direct-full-flags-add.com",
+            "com",
+            "direct_full_flags_add",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == ["game_native.S"]
+        full_flags_add_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "/* 0100: add al, bl */" in full_flags_add_assembly
+        assert "call8 d2e_x86_add8" in full_flags_add_assembly
+        assert "s8i a10, a2, D2E_ASM_CPU_REGS_OFFSET + 0" in (
+            full_flags_add_assembly
+        )
+
+        memory_add_fixture = bytes.fromhex(
+            "83 06 08 01 01 f4 00 00 34 12"
+        )  # add word ptr [0108h],1; hlt; data
+        output = pathlib.Path(temporary) / "asm-direct-memory-add"
+        manifest = d2e_build.build_sources(
+            memory_add_fixture,
+            "direct-memory-add.com",
+            "com",
+            "direct_memory_add",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        assert manifest["generated_sources"] == ["game_native.S"]
+        memory_add_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert "call8 d2e_native_helper_read16" in memory_add_assembly
+        assert "call8 d2e_native_helper_write16" in memory_add_assembly
+        assert "add a4, a4, a5" in memory_add_assembly
+        assert "0x34, 0x12" in memory_add_assembly
+
+        carry_zero_add_fixture = bytes.fromhex(
+            "01 d8 76 01 f4 f4"
+        )  # add ax,bx; jbe taken
+        output = pathlib.Path(temporary) / "asm-direct-carry-zero-add"
+        manifest = d2e_build.build_sources(
+            carry_zero_add_fixture,
+            "direct-carry-zero-add.com",
+            "com",
+            "direct_carry_zero_add",
+            0x1000,
+            output,
+            "xtensa-asm",
+        )
+        assert manifest["status"] == "complete"
+        carry_zero_add_assembly = (output / "game_native.S").read_text(
+            encoding="utf-8"
+        )
+        assert ".Lprogram_region_add_carry_done_" in carry_zero_add_assembly
+        assert ".Lprogram_region_add_zero_done_" in carry_zero_add_assembly
+        assert "call8 d2e_x86_add16" not in carry_zero_add_assembly
 
         pressure_fixture = bytes.fromhex(
             "01 d8 01 c8 01 d0 01 f0 f4"

@@ -151,6 +151,7 @@ CASES = (
 # change removes its labels and adds behavioral assertions before committing.
 KNOWN_GAPS: set[str] = set()
 KNOWN_XTENSA_DIRECT = {
+    "add",
     "and",
     "call-near",
     "cmp",
@@ -171,6 +172,7 @@ KNOWN_XTENSA_DIRECT = {
     "jne",
     "loop",
     "loope",
+    "lock-add",
     "loopne",
     "mov-memory",
     "mov-reg",
