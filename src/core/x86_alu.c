@@ -110,6 +110,44 @@ uint16_t d2e_x86_adc16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right) {
     return result;
 }
 
+uint8_t d2e_x86_sbb8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right) {
+    const uint16_t borrow =
+        (cpu->flags & D2E_X86_FLAG_CF) != 0U ? UINT16_C(1) : 0U;
+    const uint16_t subtrahend = (uint16_t)right + borrow;
+    const uint8_t result = (uint8_t)((uint16_t)left - subtrahend);
+    uint16_t flags = common_flags8(result);
+    if ((uint16_t)left < subtrahend) {
+        flags |= D2E_X86_FLAG_CF;
+    }
+    if (((left ^ right ^ result) & UINT8_C(0x10)) != 0U) {
+        flags |= D2E_X86_FLAG_AF;
+    }
+    if (((left ^ right) & (left ^ result) & UINT8_C(0x80)) != 0U) {
+        flags |= D2E_X86_FLAG_OF;
+    }
+    replace_arithmetic_flags(cpu, flags);
+    return result;
+}
+
+uint16_t d2e_x86_sbb16(d2e_x86_cpu *cpu, uint16_t left, uint16_t right) {
+    const uint32_t borrow =
+        (cpu->flags & D2E_X86_FLAG_CF) != 0U ? UINT32_C(1) : 0U;
+    const uint32_t subtrahend = (uint32_t)right + borrow;
+    const uint16_t result = (uint16_t)((uint32_t)left - subtrahend);
+    uint16_t flags = common_flags16(result);
+    if ((uint32_t)left < subtrahend) {
+        flags |= D2E_X86_FLAG_CF;
+    }
+    if (((left ^ right ^ result) & UINT16_C(0x10)) != 0U) {
+        flags |= D2E_X86_FLAG_AF;
+    }
+    if (((left ^ right) & (left ^ result) & UINT16_C(0x8000)) != 0U) {
+        flags |= D2E_X86_FLAG_OF;
+    }
+    replace_arithmetic_flags(cpu, flags);
+    return result;
+}
+
 uint8_t d2e_x86_sub8(d2e_x86_cpu *cpu, uint8_t left, uint8_t right) {
     const uint8_t result = (uint8_t)(left - right);
     uint16_t flags = common_flags8(result);
@@ -266,6 +304,85 @@ uint16_t d2e_x86_shr16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
                             ? D2E_X86_FLAG_OF
                             : 0U);
     return result;
+}
+
+uint8_t d2e_x86_sar8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
+    uint8_t result = value;
+    uint16_t carry = 0;
+    uint8_t index;
+    if (count == 0U) {
+        return value;
+    }
+    for (index = 0; index < count; ++index) {
+        carry = (result & 1U) != 0U ? D2E_X86_FLAG_CF : 0U;
+        result = (uint8_t)((result >> 1U) | (result & UINT8_C(0x80)));
+    }
+    replace_shift_flags(cpu, common_flags8(result), carry, count, 0U);
+    return result;
+}
+
+uint16_t d2e_x86_sar16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
+    uint16_t result = value;
+    uint16_t carry = 0;
+    uint8_t index;
+    if (count == 0U) {
+        return value;
+    }
+    for (index = 0; index < count; ++index) {
+        carry = (result & 1U) != 0U ? D2E_X86_FLAG_CF : 0U;
+        result = (uint16_t)((result >> 1U) | (result & UINT16_C(0x8000)));
+    }
+    replace_shift_flags(cpu, common_flags16(result), carry, count, 0U);
+    return result;
+}
+
+static uint32_t rotate_value(d2e_x86_cpu *cpu, uint32_t value, uint8_t count,
+                             unsigned width, int right) {
+    const uint32_t value_mask = (UINT32_C(1) << width) - 1U;
+    uint32_t carry = 0;
+    uint8_t index;
+    value &= value_mask;
+    if (count == 0U) {
+        return value;
+    }
+    for (index = 0; index < count; ++index) {
+        if (right) {
+            carry = value & 1U;
+            value = (value >> 1U) | (carry << (width - 1U));
+        } else {
+            carry = (value >> (width - 1U)) & 1U;
+            value = ((value << 1U) & value_mask) | carry;
+        }
+    }
+    cpu->flags = (uint16_t)(
+        (cpu->flags & (uint16_t)~D2E_X86_FLAG_CF) |
+        (carry != 0U ? D2E_X86_FLAG_CF : 0U) | D2E_X86_FLAG_FIXED);
+    if (count == 1U) {
+        const uint32_t overflow = right
+                                      ? ((value >> (width - 1U)) ^
+                                         (value >> (width - 2U))) & 1U
+                                      : ((value >> (width - 1U)) ^ carry) & 1U;
+        cpu->flags = (uint16_t)(
+            (cpu->flags & (uint16_t)~D2E_X86_FLAG_OF) |
+            (overflow != 0U ? D2E_X86_FLAG_OF : 0U) | D2E_X86_FLAG_FIXED);
+    }
+    return value;
+}
+
+uint8_t d2e_x86_rol8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
+    return (uint8_t)rotate_value(cpu, value, count, 8U, 0);
+}
+
+uint16_t d2e_x86_rol16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
+    return (uint16_t)rotate_value(cpu, value, count, 16U, 0);
+}
+
+uint8_t d2e_x86_ror8(d2e_x86_cpu *cpu, uint8_t value, uint8_t count) {
+    return (uint8_t)rotate_value(cpu, value, count, 8U, 1);
+}
+
+uint16_t d2e_x86_ror16(d2e_x86_cpu *cpu, uint16_t value, uint8_t count) {
+    return (uint16_t)rotate_value(cpu, value, count, 16U, 1);
 }
 
 static uint32_t rotate_carry(d2e_x86_cpu *cpu, uint32_t value,

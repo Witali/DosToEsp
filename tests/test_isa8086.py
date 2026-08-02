@@ -136,7 +136,7 @@ CASES = (
     Case("hlt", "f4", "hlt", control=True),
     Case("wait", "9b", "wait", external=True),
     Case("nop", "90", "nop"),
-    Case("lock-add", "f0 01 18", "lock add"),
+    Case("lock-add", "f0 01 18", "add"),
     Case("esc", "d8 00", "fadd", external=True),
 )
 
@@ -149,7 +149,6 @@ KNOWN_GAPS = {
     "aas",
     "call-far",
     "call-indirect",
-    "cmc",
     "cmpsb",
     "cmpsw",
     "daa",
@@ -167,15 +166,9 @@ KNOWN_GAPS = {
     "lds",
     "lea",
     "les",
-    "lock-add",
-    "neg",
     "out-word",
     "repe-cmpsb",
     "repne-cmpsb",
-    "rol",
-    "ror",
-    "sar",
-    "sbb",
     "xlat",
 }
 

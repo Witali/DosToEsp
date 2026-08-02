@@ -150,6 +150,22 @@ static void test_shift_flags(d2e_x86_cpu *cpu) {
     CHECK(d2e_x86_rcr8(cpu, UINT8_C(0x01), 1U) == UINT8_C(0x80));
     CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
           (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_sar8(cpu, UINT8_C(0x81), 1U) == UINT8_C(0xc0));
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_OF) == 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_SF) != 0U);
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_rol8(cpu, UINT8_C(0x81), 1U) == UINT8_C(0x03));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
+
+    cpu->flags = D2E_X86_FLAG_FIXED;
+    CHECK(d2e_x86_ror16(cpu, UINT16_C(0x0001), 1U) == UINT16_C(0x8000));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_OF));
 }
 
 static void test_multiply_and_adjust(d2e_x86_cpu *cpu) {
@@ -183,6 +199,18 @@ static void test_add_with_carry(d2e_x86_cpu *cpu) {
     cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF;
     CHECK(d2e_x86_adc16(cpu, UINT16_C(0x7fff), UINT16_C(0)) ==
           UINT16_C(0x8000));
+    CHECK((cpu->flags & D2E_X86_FLAG_OF) != 0U);
+    CHECK((cpu->flags & D2E_X86_FLAG_CF) == 0U);
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF;
+    CHECK(d2e_x86_sbb8(cpu, UINT8_C(0), UINT8_C(0)) == UINT8_C(0xff));
+    CHECK((cpu->flags & (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF |
+                         D2E_X86_FLAG_SF | D2E_X86_FLAG_PF)) ==
+          (D2E_X86_FLAG_CF | D2E_X86_FLAG_AF |
+           D2E_X86_FLAG_SF | D2E_X86_FLAG_PF));
+
+    cpu->flags = D2E_X86_FLAG_FIXED | D2E_X86_FLAG_CF;
+    CHECK(d2e_x86_sbb16(cpu, UINT16_C(0x8000), UINT16_C(0x7fff)) == 0U);
     CHECK((cpu->flags & D2E_X86_FLAG_OF) != 0U);
     CHECK((cpu->flags & D2E_X86_FLAG_CF) == 0U);
 }

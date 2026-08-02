@@ -75,21 +75,23 @@ def effects(instruction: Any) -> FlagEffects:
         return FlagEffects(reads=CONDITION_READS[mnemonic])
     if mnemonic in ("adc", "sbb"):
         return FlagEffects(reads=CF, defines=ARITHMETIC)
-    if mnemonic in ("add", "sub", "cmp"):
+    if mnemonic in ("add", "sub", "cmp", "neg"):
         return FlagEffects(defines=ARITHMETIC)
     if mnemonic in ("and", "or", "xor", "test"):
         return FlagEffects(defines=ARITHMETIC)
     if mnemonic in ("inc", "dec"):
         return FlagEffects(defines=ARITHMETIC_WITHOUT_CF)
-    if mnemonic in ("shl", "shr"):
+    if mnemonic in ("shl", "shr", "sar"):
         return FlagEffects(defines=CF | PF | ZF | SF | OF)
+    if mnemonic in ("rol", "ror"):
+        return FlagEffects(defines=CF | OF)
     if mnemonic in ("rcl", "rcr"):
         return FlagEffects(reads=CF, defines=CF | OF)
     if mnemonic == "mul":
         return FlagEffects(defines=CF | OF)
     if mnemonic == "aaa":
         return FlagEffects(reads=AF, defines=AF | CF)
-    if mnemonic in ("clc", "stc"):
+    if mnemonic in ("clc", "cmc", "stc"):
         return FlagEffects(defines=CF)
     if mnemonic in ("cld", "std"):
         return FlagEffects(defines=DF)

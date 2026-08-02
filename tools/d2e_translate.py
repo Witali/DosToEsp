@@ -151,6 +151,8 @@ def require_8086_encoding(encoded: bytes, address: int) -> None:
 
 def normalize_8086_mnemonic(encoded: bytes, mnemonic: str) -> str:
     """Correct operand-size-dependent names using the fixed 16-bit profile."""
+    if mnemonic.startswith("lock "):
+        mnemonic = mnemonic.removeprefix("lock ")
     opcode_index = 0
     while (
         opcode_index < len(encoded)
@@ -854,7 +856,17 @@ def translate_data_instruction(
         return write_operand(
             operands[0], value_expression(operands[1], width, cached), cached
         )
-    if mnemonic in ("add", "adc", "sub", "xor", "and", "or", "cmp", "test") and len(operands) == 2:
+    if mnemonic in (
+        "add",
+        "adc",
+        "sub",
+        "sbb",
+        "xor",
+        "and",
+        "or",
+        "cmp",
+        "test",
+    ) and len(operands) == 2:
         width = operand_width(operands[0], cached)
         left = value_expression(operands[0], width, cached)
         right = value_expression(operands[1], width, cached)
@@ -884,7 +896,23 @@ def translate_data_instruction(
         return write_operand(
             operands[0], f"(uint{width}_t)(~(uint{width}_t)({value}))", cached
         )
-    if mnemonic in ("shl", "shr", "rcl", "rcr") and len(operands) == 2:
+    if mnemonic == "neg" and len(operands) == 1:
+        width = operand_width(operands[0], cached)
+        value = value_expression(operands[0], width, cached)
+        return write_operand(
+            operands[0],
+            f"d2e_x86_sub{width}(cpu, (uint{width}_t)0, {value})",
+            cached,
+        )
+    if mnemonic in (
+        "shl",
+        "shr",
+        "sar",
+        "rol",
+        "ror",
+        "rcl",
+        "rcr",
+    ) and len(operands) == 2:
         width = operand_width(operands[0], cached)
         value = value_expression(operands[0], width, cached)
         count = value_expression(operands[1], 8, cached)
@@ -945,6 +973,8 @@ def translate_data_instruction(
             "sti": "D2E_X86_FLAG_IF",
         }[mnemonic]
         return [f"cpu->flags = (uint16_t)(cpu->flags | {flag});"]
+    if mnemonic == "cmc" and not operands:
+        return ["cpu->flags = (uint16_t)(cpu->flags ^ D2E_X86_FLAG_CF);"]
     if mnemonic == "lahf" and not operands:
         return [
             reg_write(
