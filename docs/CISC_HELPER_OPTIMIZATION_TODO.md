@@ -43,6 +43,10 @@ bounded QEMU workload.
   rather than fixed address-ordered groups of 256 blocks.
 - [x] Bound direct-address redispatch with a generated comparison tree and
   short linear leaves, without retaining the guest address table.
+- [x] Evaluate translator-selected checked hash buckets for direct-address
+  redispatch. The table contains native bucket labels only; full guest targets
+  are validated in generated code and the original transition table remains
+  discarded.
 - [ ] Expand high-impact direct Xtensa lowerings after dispatch is scalable:
   - [x] direct near `call` with a specialized return-stack helper;
   - [ ] near `ret` and stack operations;
@@ -65,7 +69,10 @@ bounded QEMU workload.
 | Direct near `call` with specialized stack helper | 540,832 (-21,872) | 226,493 (-82,052) | Pass | Keep: same helper-call count, less caller code, exact `SP`-then-write order |
 | Full balanced comparison tree before stack-helper specialization | 567,648 (+5,312 from matching linear build) | 226,493 (+0) | Pass | Supersede: fast lookup but excessive code growth |
 | Hybrid tree with 16-address leaves | 541,808 (+976 from linear) | 226,493 (+0) | Pass | Keep: bounds lookup to about 23 comparisons and restores normal melody tempo |
+| Checked hash dispatch (128 buckets, shift 9, maximum load 17) | 541,792 (-16 from hybrid) | 226,493 (+0) | Pass; 41.8 s versus hybrid 41.7 s | Keep: fewer expected dispatch comparisons, normal melody tempo, no measurable QEMU regression |
 
 Blanket `-Os` and outlining hot instruction semantics remain excluded because
 they can trade execution speed for size. The full comparison tree was measured
-and replaced by the smaller bounded hybrid above.
+and replaced first by the bounded hybrid, then by the slightly smaller checked
+hash dispatch. The coarse whole-run QEMU timing does not establish a measurable
+speedup; a target-cycle benchmark remains necessary to quantify it on ESP32.

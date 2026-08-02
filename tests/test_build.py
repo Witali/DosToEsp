@@ -205,6 +205,28 @@ def main() -> int:
         assert ".Lprogram_region_dispatch_left_" in dispatch_probe
         assert "bltu a4, a5, .Lprogram_region_dispatch_left_" in dispatch_probe
 
+        hash_probe_leaders = tuple(range(0x100, 0x201))
+        hash_probe_literals = {
+            leader: dispatch_probe_emitter.literal(leader, "leader")
+            for leader in hash_probe_leaders
+        }
+        hash_probe, hash_labels, hash_shift, hash_maximum_load = (
+            d2e_xtensa._emit_hash_dispatch(
+                dispatch_probe_emitter,
+                hash_probe_leaders,
+                hash_probe_literals,
+            )
+        )
+        hash_probe_text = "\n".join(hash_probe)
+        assert len(hash_labels) == 32
+        assert 1 <= hash_shift <= 16
+        assert hash_maximum_load <= 16
+        assert "    jx a5" in hash_probe_text
+        for leader in hash_probe_leaders:
+            assert hash_probe_text.count(
+                f"beq a4, a5, .Lprogram_region_block_{leader:04x}"
+            ) == 1
+
         add_start = assembly.index("/* 0103: add ax, 1 */")
         cmp_start = assembly.index("/* 0106: cmp ax, 0x1235 */")
         assert "D2E_ASM_CPU_FLAGS_OFFSET" not in assembly[add_start:cmp_start]
